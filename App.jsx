@@ -146,6 +146,100 @@ const mindMapBranches = [
   { title: "行动项", desc: "复习计划和练习题", tone: "bg-white" },
 ];
 
+const mindMapDirectory = [
+  {
+    id: "math-map",
+    title: "高等数学导图",
+    tag: "学习",
+    updated: "9 分钟前",
+    preview: "把极限、导数和积分整理成一个便于复习的层级目录。",
+    children: ["极限", "导数", "积分", "常见题型"],
+  },
+  {
+    id: "product-map",
+    title: "产品需求导图",
+    tag: "工作",
+    updated: "今天 10:22",
+    preview: "围绕用户目标、核心能力和后续动作建立清晰的结构树。",
+    children: ["用户目标", "核心能力", "边界约束", "行动项"],
+  },
+  {
+    id: "reading-map",
+    title: "知识管理导图",
+    tag: "阅读",
+    updated: "昨天",
+    preview: "把长文拆成框架、方法和实践建议，便于回顾。",
+    children: ["信息筛选", "结构组织", "实践建议"],
+  },
+  {
+    id: "paper-map",
+    title: "论文阅读导图",
+    tag: "研究",
+    updated: "3 天前",
+    preview: "把研究问题、实验方法和结论整理成清晰的导图目录。",
+    children: ["研究问题", "实验方法", "结论", "后续方向"],
+  },
+];
+
+const mindMapViewerData = {
+  "math-map": {
+    title: "高等数学",
+    intro: "把极限、导数、积分和常见题型整理成一个适合复习的知识树。",
+    centerLabel: "高数复习",
+    resources: ["极限题型清单", "导数公式速记", "积分面积案例"],
+    branches: [
+      { id: "limits", title: "极限", desc: "定义、求法、无穷小替换", x: 16, y: 22, line: "#fb923c", fill: "#ffedd5" },
+      { id: "derivative", title: "导数", desc: "链式法则、微分、应用题", x: 18, y: 50, line: "#38bdf8", fill: "#e0f2fe" },
+      { id: "integral", title: "积分", desc: "换元法、定积分与面积", x: 17, y: 78, line: "#a855f7", fill: "#f3e8ff" },
+      { id: "exercises", title: "题型", desc: "选择题、计算题、证明题", x: 84, y: 28, line: "#22c55e", fill: "#dcfce7" },
+      { id: "mistakes", title: "易错点", desc: "符号、边界、步骤遗漏", x: 86, y: 52, line: "#eab308", fill: "#fef3c7" },
+      { id: "review", title: "复习建议", desc: "按题型分段回看，搭配例题", x: 84, y: 76, line: "#0ea5e9", fill: "#dbeafe" },
+    ],
+  },
+  "product-map": {
+    title: "产品需求",
+    intro: "围绕用户目标、核心能力和后续动作建立一棵清晰的需求树。",
+    centerLabel: "需求拆解",
+    resources: ["用户目标梳理", "核心能力清单", "版本排期建议"],
+    branches: [
+      { id: "goal", title: "用户目标", desc: "快速生成结构化笔记", x: 16, y: 22, line: "#fb923c", fill: "#ffedd5" },
+      { id: "capability", title: "核心能力", desc: "摘要、导图、搜索、管理", x: 18, y: 50, line: "#38bdf8", fill: "#e0f2fe" },
+      { id: "boundary", title: "边界约束", desc: "移动端优先，复杂度可控", x: 17, y: 78, line: "#a855f7", fill: "#f3e8ff" },
+      { id: "action", title: "行动项", desc: "补入口、详情页、分享", x: 84, y: 28, line: "#22c55e", fill: "#dcfce7" },
+      { id: "risk", title: "风险", desc: "交互分散，信息过载", x: 86, y: 52, line: "#eab308", fill: "#fef3c7" },
+      { id: "iteration", title: "迭代", desc: "先目录，再联动 AI", x: 84, y: 76, line: "#0ea5e9", fill: "#dbeafe" },
+    ],
+  },
+  "reading-map": {
+    title: "知识管理",
+    intro: "把长文拆成框架、方法和实践建议，便于快速回顾。",
+    centerLabel: "阅读笔记",
+    resources: ["信息筛选方法", "结构组织模板", "复盘清单"],
+    branches: [
+      { id: "filter", title: "信息筛选", desc: "只保留可复用的概念", x: 16, y: 22, line: "#fb923c", fill: "#ffedd5" },
+      { id: "structure", title: "结构组织", desc: "主题、案例、结论三层", x: 18, y: 50, line: "#38bdf8", fill: "#e0f2fe" },
+      { id: "practice", title: "实践建议", desc: "定期回顾并再加工", x: 17, y: 78, line: "#a855f7", fill: "#f3e8ff" },
+      { id: "tags", title: "关键词", desc: "把关键词和摘要串起来", x: 84, y: 28, line: "#22c55e", fill: "#dcfce7" },
+      { id: "review", title: "复习", desc: "按周回看笔记碎片", x: 86, y: 52, line: "#eab308", fill: "#fef3c7" },
+      { id: "export", title: "导出", desc: "转成可复用目录", x: 84, y: 76, line: "#0ea5e9", fill: "#dbeafe" },
+    ],
+  },
+  "paper-map": {
+    title: "论文阅读",
+    intro: "把研究问题、实验方法和结论整理成清晰的导图目录。",
+    centerLabel: "论文复盘",
+    resources: ["研究问题卡片", "实验方法图", "结论与局限"],
+    branches: [
+      { id: "question", title: "研究问题", desc: "论文到底解决什么", x: 16, y: 22, line: "#fb923c", fill: "#ffedd5" },
+      { id: "method", title: "实验方法", desc: "样本、指标、流程", x: 18, y: 50, line: "#38bdf8", fill: "#e0f2fe" },
+      { id: "result", title: "结论", desc: "主要发现和数据结果", x: 17, y: 78, line: "#a855f7", fill: "#f3e8ff" },
+      { id: "limits", title: "局限", desc: "样本、条件和偏差", x: 84, y: 28, line: "#22c55e", fill: "#dcfce7" },
+      { id: "followup", title: "后续方向", desc: "还能怎么拓展", x: 86, y: 52, line: "#eab308", fill: "#fef3c7" },
+      { id: "notes", title: "笔记", desc: "摘录成复习条目", x: 84, y: 76, line: "#0ea5e9", fill: "#dbeafe" },
+    ],
+  },
+};
+
 function TopBar({ title, subtitle, right }) {
   return (
     <div className="px-5 pt-4">
@@ -169,7 +263,7 @@ function DetailTopBar({ title, subtitle, onBack, right }) {
           className="mt-1 flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-white text-[18px] text-slate-600 shadow-sm"
           aria-label="返回"
         >
-          ?
+          ←
         </button>
         <div className="flex-1">
           <p className="text-[12px] font-medium text-slate-400">{subtitle}</p>
@@ -641,88 +735,228 @@ function ResultScreen({ goMindMap, goContinue }) {
     <div className="space-y-5 px-5 pb-5">
       <TopBar title="智能结果" subtitle="来自内容的结构化输出" />
       <Card title="主题摘要" subtitle="快速概览">
-        <div className="grid gap-3">
-          <div className="rounded-[22px] border border-blue-100 bg-blue-50/70 p-4">
-            <p className="text-[12px] font-semibold uppercase tracking-[0.24em] text-blue-500">一句话总结</p>
-            <p className="mt-2 text-[14px] leading-6 text-slate-700">这段内容说明了智能笔记应用如何帮助学习者把长内容转化为清晰、可复习的知识结构。</p>
+        <div className="rounded-[22px] border border-blue-100 bg-blue-50/70 p-4">
+          <p className="text-[12px] font-semibold uppercase tracking-[0.24em] text-blue-500">一句话总结</p>
+          <p className="mt-2 text-[14px] leading-6 text-slate-700">这份内容先把长内容压缩成可复习的结构化知识，再按重点继续展开。</p>
+        </div>
+      </Card>
+      <Card title="结果预览" subtitle="先看输出长什么样">
+        <div className="space-y-3">
+          <div className="rounded-[24px] border border-slate-200 bg-white p-4 shadow-sm">
+            <p className="text-[12px] font-semibold uppercase tracking-[0.18em] text-slate-400">预览内容</p>
+            <h3 className="mt-2 text-[16px] font-semibold text-slate-900">结构化笔记的核心内容</h3>
+            <p className="mt-2 text-[13px] leading-6 text-slate-600">系统会把原始内容整理成摘要、重点、分支和后续行动，方便继续阅读或继续编辑。</p>
           </div>
           <div className="grid grid-cols-2 gap-2">
-            {[
-              { label: "来源类型", value: "视频 + 文档" },
-              { label: "提取结果", value: "摘要 + 导图" },
-            ].map((item) => (
-              <div key={item.label} className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
-                <p className="text-[11px] font-medium text-slate-400">{item.label}</p>
-                <p className="mt-1 text-[13px] font-semibold text-slate-900">{item.value}</p>
-              </div>
-            ))}
+            <button onClick={goMindMap} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-[14px] font-semibold text-slate-700 shadow-sm">查看思维导图</button>
+            <button onClick={goContinue} className="rounded-2xl bg-blue-600 px-4 py-3 text-[14px] font-semibold text-white shadow-sm">继续采集</button>
           </div>
         </div>
       </Card>
-      <Card title="结构化笔记" subtitle="层级清晰">
-        <div className="space-y-4">
-          {resultSections.map((section) => (
-            <div key={section.title} className="rounded-[24px] bg-slate-50 p-4">
-              <div className="flex items-center justify-between">
-                <h3 className="text-[15px] font-semibold text-slate-900">{section.title}</h3>
-                <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-medium text-blue-600 shadow-sm">已优化</span>
+      <Card title="AI 对话框" subtitle="用于改进结果">
+        <div className="space-y-3">
+          <div className="rounded-[24px] border border-slate-200 bg-slate-50 p-4">
+            <div className="h-56 space-y-3 overflow-y-auto pr-1">
+              <div className="rounded-2xl bg-white px-3 py-3 shadow-sm">
+                <p className="text-[12px] font-semibold text-slate-500">我</p>
+                <p className="mt-1 text-[13px] leading-5 text-slate-700">把这一段再压缩一点，保留最核心的定义和结论。</p>
               </div>
-              <ul className="mt-3 space-y-2">
-                {section.points.map((point) => (
-                  <li key={point} className="flex items-start gap-2 text-[13px] leading-5 text-slate-600">
-                    <span className="mt-2 h-1.5 w-1.5 rounded-full bg-blue-400" />
-                    <span>{point}</span>
-                  </li>
-                ))}
-              </ul>
+              <div className="rounded-2xl bg-blue-600 px-3 py-3 text-white shadow-sm">
+                <p className="text-[12px] font-semibold text-blue-100">AI</p>
+                <p className="mt-1 text-[13px] leading-5 text-white/90">可以，我会优先保留主题句、关键结论和下一步动作。</p>
+              </div>
+              <div className="rounded-2xl bg-white px-3 py-3 shadow-sm">
+                <p className="text-[12px] font-semibold text-slate-500">我</p>
+                <p className="mt-1 text-[13px] leading-5 text-slate-700">再补充一点，把适合复习的关键词也一起留下。</p>
+              </div>
+              <div className="rounded-2xl bg-blue-600 px-3 py-3 text-white shadow-sm">
+                <p className="text-[12px] font-semibold text-blue-100">AI</p>
+                <p className="mt-1 text-[13px] leading-5 text-white/90">收到，我会把关键词、定义和结论一起整理进结果里。</p>
+              </div>
             </div>
-          ))}
-        </div>
-      </Card>
-      <Card title="智能标注" subtitle="高亮关键字">
-        <div className="flex flex-wrap gap-2">
-          {["智能采集", "复习重点", "主题分支", "关联关系", "待办项", "扩展阅读"].map((item) => (
-            <span key={item} className="rounded-full border border-blue-100 bg-blue-50 px-3 py-2 text-[12px] font-medium text-blue-700">{item}</span>
-          ))}
-        </div>
-        <div className="mt-4 grid grid-cols-2 gap-3">
-          <button onClick={goMindMap} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-[14px] font-semibold text-slate-700 shadow-sm">查看思维导图</button>
-          <button onClick={goContinue} className="rounded-2xl bg-blue-600 px-4 py-3 text-[14px] font-semibold text-white shadow-sm">继续采集</button>
+          </div>
+          <div className="rounded-[24px] border border-slate-200 bg-white px-4 py-3 shadow-sm">
+            <p className="text-[12px] font-medium text-slate-400">输入对话内容</p>
+            <div className="mt-3 flex items-center gap-2">
+              <div className="h-10 flex-1 rounded-2xl bg-slate-100 px-3 py-2 text-[13px] text-slate-400">继续让 AI 帮你改进结果...</div>
+              <button className="rounded-2xl bg-slate-900 px-4 py-2 text-[13px] font-semibold text-white">发送</button>
+            </div>
+          </div>
         </div>
       </Card>
     </div>
   );
 }
 
-function MindMapScreen() {
-  return (
-    <div className="space-y-5 px-5 pb-5">
-      <TopBar title="思维导图" subtitle="" />
-      <Card title="主题结构" subtitle="中心主题 + 少量分支">
-        <div className="space-y-4">
-          <div className="rounded-[28px] border border-slate-200 bg-slate-50 p-4 text-center">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-blue-500">中心主题</p>
-            <h3 className="mt-2 text-[20px] font-semibold tracking-tight text-slate-900">智能笔记</h3>
-            <p className="mt-2 text-[13px] leading-5 text-slate-500">从学习内容中自动提炼摘要、重点和关联信息。</p>
+function MindMapScreen({ selectedMap, setSelectedMap }) {
+  const [selectedNodeId, setSelectedNodeId] = useState(null);
+
+
+
+  if (selectedMap) {
+    const detail = mindMapViewerData[selectedMap];
+    const activeBranch =
+      selectedNodeId && selectedNodeId !== "center" ? detail?.branches.find((branch) => branch.id === selectedNodeId) : null;
+    const activeNodeTitle = selectedNodeId === "center" ? detail?.centerLabel || "导图中心" : activeBranch?.title || "节点选项";
+    const activeNodeDesc =
+      selectedNodeId === "center"
+        ? detail?.intro || "点击一个节点后，工作台会从另一侧弹出。"
+        : activeBranch?.desc || "点击节点后会弹出对应的工作台选项。";
+    const workbenchOpen = Boolean(selectedNodeId);
+    const workbenchOnLeft = selectedNodeId && selectedNodeId !== "center" ? (activeBranch?.x ?? 0) >= 50 : false;
+    const shiftX = workbenchOpen ? 50 - (selectedNodeId === "center" ? 50 : activeBranch?.x ?? 50) : 0;
+    const shiftY = workbenchOpen ? 50 - (selectedNodeId === "center" ? 50 : activeBranch?.y ?? 50) : 0;
+
+    return (
+      <div className="relative h-full w-full overflow-hidden bg-slate-100">
+        <div className={`flex h-full w-full ${workbenchOpen ? (workbenchOnLeft ? "flex-row-reverse" : "flex-row") : "flex-row"}`}>
+          <div className={`relative h-full min-w-0 overflow-hidden bg-slate-100 ${workbenchOpen ? "w-[60%]" : "w-full"}`}>
+            <button
+              onClick={() => {
+                setSelectedMap(null);
+                setSelectedNodeId(null);
+              }}
+              className="absolute left-4 top-4 z-30 rounded-full border border-slate-200 bg-white px-4 py-2 text-[14px] font-medium text-slate-600 shadow-sm"
+            >
+              返回
+            </button>
+
+            <div className="absolute inset-0 bg-slate-100">
+              <div
+                className="absolute inset-0 transition-transform duration-300 ease-out"
+                style={workbenchOpen ? { transform: `translate3d(${shiftX}%, ${shiftY}%, 0)` } : undefined}
+              >
+                <svg className="absolute inset-0 h-full w-full" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+                  {detail?.branches.map((branch) => {
+                    const sideX = branch.x < 50 ? 38 : 62;
+                    const controlY = branch.y < 50 ? 35 : 65;
+                    const path = `M 50 50 C ${sideX} ${controlY}, ${sideX} ${branch.y}, ${branch.x} ${branch.y}`;
+                    return <path key={branch.id} d={path} fill="none" stroke={branch.line} strokeWidth="1.4" strokeLinecap="round" opacity="0.8" />;
+                  })}
+                </svg>
+
+                <button
+                  onClick={() => setSelectedNodeId("center")}
+                  className={`absolute left-1/2 top-1/2 z-10 w-[138px] -translate-x-1/2 -translate-y-1/2 rounded-[28px] border px-4 py-4 text-center shadow-[0_18px_34px_rgba(15,23,42,0.1)] ${
+                    selectedNodeId === "center" ? "border-blue-300 bg-white ring-2 ring-blue-200" : "border-blue-200 bg-white"
+                  }`}
+                >
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-blue-500">中心主题</p>
+                  <h3 className="mt-2 text-[18px] font-semibold tracking-tight text-slate-900">{detail?.centerLabel || "导图"}</h3>
+                </button>
+
+                {detail?.branches.map((branch) => (
+                  <button
+                    key={branch.id}
+                    onClick={() => setSelectedNodeId(branch.id)}
+                    className={`absolute z-10 max-w-[160px] rounded-[22px] border px-3 py-3 text-left shadow-sm transition-transform ${
+                      selectedNodeId === branch.id ? "scale-[1.04] ring-2 ring-blue-200" : "bg-white"
+                    }`}
+                    style={{
+                      left: `${branch.x}%`,
+                      top: `${branch.y}%`,
+                      transform: "translate(-50%, -50%)",
+                      borderColor: branch.line,
+                      backgroundColor: branch.fill,
+                    }}
+                  >
+                    <p className="text-[12px] font-semibold text-slate-900">{branch.title}</p>
+                    <p className="mt-1 text-[11px] leading-4 text-slate-600">{branch.desc}</p>
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
-          <div className="space-y-3">
-            {mindMapBranches.map((item) => (
-              <div key={item.title} className={`rounded-[24px] border border-slate-200 ${item.tone} px-4 py-3 shadow-sm`}>
-                <div className="flex items-center gap-3">
-                  <span className="grid h-8 w-8 place-items-center rounded-full bg-slate-900 text-[12px] font-semibold text-white">•</span>
-                  <div>
-                    <p className="text-[14px] font-semibold text-slate-900">{item.title}</p>
-                    <p className="text-[12px] text-slate-500">{item.desc}</p>
+
+          {workbenchOpen ? (
+            <aside className="h-full w-[40%] flex-shrink-0 border-l border-slate-200 bg-white/95 px-4 py-4 shadow-[0_12px_40px_rgba(15,23,42,0.08)]">
+              <div className="flex h-full flex-col">
+                <div className="space-y-1">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">工作台</p>
+                  <h4 className="text-[20px] font-semibold tracking-tight text-slate-900">{activeNodeTitle}</h4>
+                  <p className="text-[12px] leading-5 text-slate-500">{activeNodeDesc}</p>
+                </div>
+
+                <div className="mt-4 grid grid-cols-2 gap-2">
+                  {["新增分支", "新增子笔记", "重命名", "删除", "AI 扩写", "AI 压缩"].map((item) => (
+                    <button
+                      key={item}
+                      className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-[13px] font-medium text-slate-700 shadow-sm"
+                    >
+                      {item}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="mt-4 rounded-[24px] border border-dashed border-slate-200 bg-slate-50 px-4 py-4">
+                  <p className="text-[12px] font-semibold uppercase tracking-[0.18em] text-slate-400">节点操作预览</p>
+                  <div className="mt-3 space-y-2 text-[13px] leading-5 text-slate-600">
+                    <p>• 这里先保留前端交互骨架，不接真实编辑逻辑。</p>
+                    <p>• 后续可以把这些按钮接到分支创建、子节点管理和 AI 工具上。</p>
+                    <p>• 当前点击其它节点，工作台会切换并重新居中导图。</p>
                   </div>
                 </div>
               </div>
-            ))}
-          </div>
-          <div className="rounded-[24px] border border-dashed border-slate-300 bg-white px-4 py-3 text-[13px] text-slate-500">
-            后续可以在这里继续扩展成更完整的可折叠图谱。
-          </div>
+            </aside>
+          ) : null}
         </div>
-      </Card>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-5 px-4 pb-6">
+      <TopBar
+        title="导图"
+        subtitle=""
+      />
+
+      <div className="flex items-center gap-2">
+        <button className="flex flex-1 items-center gap-3 rounded-3xl border border-slate-200 bg-white px-4 py-4 text-left shadow-sm">
+          <span className="text-slate-400">⌕</span>
+          <span className="text-[15px] text-slate-400">搜索导图、主题或关键词...</span>
+        </button>
+        <button className="shrink-0 rounded-3xl border border-slate-200 bg-white px-4 py-4 text-[13px] font-medium text-slate-600 shadow-sm">
+          排序
+        </button>
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        {["全部", "学习", "工作", "阅读", "研究"].map((item, index) => (
+          <button
+            key={item}
+            className={`rounded-full px-4 py-2 text-[13px] font-medium transition-colors ${
+              index === 0 ? "bg-blue-600 text-white shadow-sm" : "bg-white text-slate-500 shadow-sm ring-1 ring-slate-200"
+            }`}
+          >
+            {item}
+          </button>
+        ))}
+      </div>
+
+      <div className="space-y-3">
+        {mindMapDirectory.map((item) => (
+          <button
+            key={item.id}
+            onClick={() => {
+              setSelectedMap(item.id);
+              setSelectedNodeId(null);
+            }}
+            className="w-full rounded-[28px] border border-slate-200 bg-white p-4 text-left shadow-sm"
+          >
+            <div className="flex items-start gap-3">
+              <div className="min-w-0">
+                <div className="inline-flex rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-500 shadow-sm ring-1 ring-slate-200">
+                  {item.tag}
+                </div>
+                <h3 className="mt-3 text-[16px] font-semibold text-slate-900">{item.title}</h3>
+                <p className="mt-2 text-[13px] leading-5 text-slate-500">{item.preview}</p>
+                <p className="mt-3 text-[12px] text-slate-400">{item.updated}</p>
+              </div>
+            </div>
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
@@ -808,6 +1042,7 @@ export default function App() {
   const [aiFlow, setAiFlow] = useState("input");
   const [phase, setPhase] = useState(0);
   const [activeNote, setActiveNote] = useState(null);
+  const [mindMapSelectedMap, setMindMapSelectedMap] = useState(null);
 
   useEffect(() => {
     if (nav !== "ai" || aiFlow !== "loading") return undefined;
@@ -826,6 +1061,7 @@ export default function App() {
     setNav(next);
     if (next === "ai") setAiFlow("input");
     if (activeNote) setActiveNote(null);
+    if (next !== "mindmap") setMindMapSelectedMap(null);
   };
 
   const openNote = (note) => {
@@ -849,19 +1085,36 @@ export default function App() {
       aiFlow === "loading" ? <LoadingScreen phase={phase} /> :
       <ResultScreen onMindMap={() => setNav("mindmap")} goMindMap={() => setNav("mindmap")} goContinue={() => { setAiFlow("input"); setNav("ai"); }} />
     ) :
-    nav === "mindmap" ? <MindMapScreen /> :
+    nav === "mindmap" ? <MindMapScreen selectedMap={mindMapSelectedMap} setSelectedMap={setMindMapSelectedMap} /> :
     <ProfileScreen />;
 
+  const landscapeMindMap = nav === "mindmap" && mindMapSelectedMap !== null;
+  const showBottomNav = !activeNote && !landscapeMindMap;
+
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top,#eff6ff_0%,#f8fafc_36%,#ffffff_80%)] px-4 py-6 text-slate-900">
-      <div className="relative mx-auto flex h-[calc(100vh-3rem)] max-w-[430px] flex-col overflow-hidden rounded-[40px] border border-slate-200 bg-slate-100 shadow-[0_24px_80px_rgba(15,23,42,0.12)]">
+    <div
+      className={`min-h-screen bg-[radial-gradient(circle_at_top,#eff6ff_0%,#f8fafc_36%,#ffffff_80%)] text-slate-900 ${
+        landscapeMindMap ? "flex items-center justify-center overflow-hidden px-0 py-0" : "px-4 py-6"
+      }`}
+    >
+      <div
+        className={`relative mx-auto flex overflow-hidden rounded-[40px] border border-slate-200 bg-slate-100 shadow-[0_24px_80px_rgba(15,23,42,0.12)] ${
+          landscapeMindMap ? "h-[430px] w-[calc(100vh-3rem)] max-w-none flex-col" : "h-[calc(100vh-3rem)] max-w-[430px] flex-col"
+        }`}
+      >
         <StatusBar />
-        <div className={`flex-1 overflow-y-auto ${activeNote ? "pb-5" : "pb-28"}`}>{screen}</div>
-        {activeNote ? null : (
+        <div
+          className={`flex-1 ${landscapeMindMap ? "overflow-hidden pb-0" : "overflow-y-auto"} ${
+            showBottomNav ? "pb-28" : "pb-5"
+          }`}
+        >
+          {screen}
+        </div>
+        {showBottomNav ? (
           <div className="absolute bottom-0 left-0 right-0 z-20">
             <BottomNav active={nav} setNav={handleNav} />
           </div>
-        )}
+        ) : null}
       </div>
     </div>
   );
