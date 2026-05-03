@@ -1054,6 +1054,10 @@ function MindMapScreen({ selectedMap, setSelectedMap }) {
       selectedNodeId === "center"
         ? detail?.intro || "点击一个节点后，工作台会从另一侧弹出。"
         : activeBranch?.desc || "点击节点后会弹出对应的工作台选项。";
+    const activeNodeDetailText =
+      selectedNodeId === "center"
+        ? `${detail?.title || "当前导图"} 的中心节点会作为整张图的起点。\n\n这部分通常放最核心的总览信息，帮助用户先建立整体印象，再继续往下拆分。\n\n后续可以把这里替换成更完整的中心说明、摘要或者总论文本。`
+        : `${activeBranch?.title || "当前节点"} 是导图中的一个分支节点。\n\n这里的具体内容用于说明这个节点为什么存在、和上下文有什么关系，以及后面展开时应该优先看哪些内容。\n\n现在先用这段示意文本占位，后续可以替换成真实节点说明。`;
     const workbenchOpen = Boolean(selectedNodeId);
     const workbenchOnLeft = selectedNodeId && selectedNodeId !== "center" ? (activeBranch?.x ?? 0) >= 50 : false;
     const shiftX = workbenchOpen ? 50 - (selectedNodeId === "center" ? 50 : activeBranch?.x ?? 50) : 0;
@@ -1123,31 +1127,41 @@ function MindMapScreen({ selectedMap, setSelectedMap }) {
           {workbenchOpen ? (
             <aside className="h-full w-[40%] flex-shrink-0 border-l border-slate-200 bg-white/95 px-4 py-4 shadow-[0_12px_40px_rgba(15,23,42,0.08)]">
               <div className="flex h-full flex-col">
-                <div className="space-y-1">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">工作台</p>
-                  <h4 className="text-[20px] font-semibold tracking-tight text-slate-900">{activeNodeTitle}</h4>
-                  <p className="text-[12px] leading-5 text-slate-500">{activeNodeDesc}</p>
-                </div>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="space-y-1">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">工作台</p>
+                    <h4 className="text-[20px] font-semibold tracking-tight text-slate-900">{activeNodeTitle}</h4>
+                    <p className="text-[12px] leading-5 text-slate-500">{activeNodeDesc}</p>
+                  </div>
 
-                <div className="mt-4 grid grid-cols-2 gap-2">
-                  {["新增分支", "新增子笔记", "重命名", "删除", "AI 扩写", "AI 压缩"].map((item) => (
-                    <button
-                      key={item}
-                      className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-[13px] font-medium text-slate-700 shadow-sm"
-                    >
-                      {item}
-                    </button>
-                  ))}
-                </div>
-
-                <div className="mt-4 rounded-[24px] border border-dashed border-slate-200 bg-slate-50 px-4 py-4">
-                  <p className="text-[12px] font-semibold uppercase tracking-[0.18em] text-slate-400">节点操作预览</p>
-                  <div className="mt-3 space-y-2 text-[13px] leading-5 text-slate-600">
-                    <p>• 这里先保留前端交互骨架，不接真实编辑逻辑。</p>
-                    <p>• 后续可以把这些按钮接到分支创建、子节点管理和 AI 工具上。</p>
-                    <p>• 当前点击其它节点，工作台会切换并重新居中导图。</p>
+                  <div className="grid shrink-0 grid-cols-2 gap-1.5">
+                    {["新增子节点", "新增同级", "重命名", "删除节点"].map((item) => (
+                      <button
+                        key={item}
+                        className="rounded-xl border border-slate-200 bg-slate-50 px-2.5 py-2 text-[11px] font-medium text-slate-700 shadow-sm"
+                      >
+                        {item}
+                      </button>
+                    ))}
                   </div>
                 </div>
+
+                {workbenchOpen ? (
+                  <div className="mt-4 flex min-h-0 flex-1 flex-col rounded-[24px] border border-slate-200 bg-slate-50 px-4 py-4">
+                    <div className="flex items-center justify-between">
+                      <p className="text-[12px] font-semibold uppercase tracking-[0.18em] text-slate-400">具体内容</p>
+                      <p className="text-[11px] font-medium text-slate-400">滑动查看</p>
+                    </div>
+                    <div className="mt-3 min-h-0 flex-1 overflow-y-auto rounded-[20px] bg-white px-4 py-4 text-[13px] leading-6 text-slate-600 shadow-inner">
+                      {activeNodeDetailText.split("\n\n").map((paragraph, index) => (
+                        <p key={`${index}-${paragraph.slice(0, 12)}`} className={index === 0 ? "mt-0" : "mt-3"}>
+                          {paragraph}
+                        </p>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+
               </div>
             </aside>
           ) : null}
