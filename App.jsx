@@ -11,10 +11,13 @@ const recentNotes = [
     summary:
       "整理极限、导数、积分与常见题型的复习笔记，适合在考试前快速回看。",
     sections: [
-      "极限的定义、常见求法和无穷小替换",
-      "导数与微分的核心公式、链式法则和应用题",
-      "积分基本概念、换元法与定积分求面积",
+      "一、内容总览",
+      "二、核心知识模块",
+      "三、知识点关系",
+      "四、全局重点总结",
+      "五、复习汇总",
     ],
+    keywords: ["极限", "导数", "积分", "题型"],
     highlights: ["知识点分层", "例题归纳", "考前复习"],
   },
   {
@@ -27,10 +30,13 @@ const recentNotes = [
     summary:
       "将需求目标、用户路径与功能边界拆分成可执行的开发清单，帮助团队统一理解。",
     sections: [
-      "用户目标：快速生成可复习的结构化笔记",
-      "核心能力：摘要、导图、笔记管理与搜索",
-      "后续动作：补充上传入口、详情页和分享能力",
+      "一、内容总览",
+      "二、核心知识模块",
+      "三、知识点关系",
+      "四、全局重点总结",
+      "五、复习汇总",
     ],
+    keywords: ["需求拆解", "里程碑", "行动项"],
     highlights: ["需求拆解", "里程碑", "行动项"],
   },
   {
@@ -42,10 +48,13 @@ const recentNotes = [
     updatedAt: "2026-04-25 18:40",
     summary: "从知识管理主题文章中提炼可复用方法，方便后续做个人笔记系统整理。",
     sections: [
-      "信息筛选：只保留可复用的概念和方法",
-      "结构组织：按主题、案例和结论分层记录",
-      "实践建议：定期回顾和再加工已有笔记",
+      "一、内容总览",
+      "二、核心知识模块",
+      "三、知识点关系",
+      "四、全局重点总结",
+      "五、复习汇总",
     ],
+    keywords: ["框架提炼", "方法总结", "长期复用"],
     highlights: ["框架提炼", "方法总结", "长期复用"],
   },
 ];
@@ -83,10 +92,13 @@ const libraryNotes = [
     updatedAt: "2026-04-26 11:10",
     summary: "围绕机器学习基础概念整理的课堂笔记，保留了常见术语和核心流程。",
     sections: [
-      "监督学习与无监督学习的区别",
-      "损失函数、优化目标与模型评估",
-      "训练、验证、测试集的作用",
+      "一、内容总览",
+      "二、核心知识模块",
+      "三、知识点关系",
+      "四、全局重点总结",
+      "五、复习汇总",
     ],
+    keywords: ["基础概念", "模型训练", "验证流程"],
     highlights: ["基础概念", "模型训练", "验证流程"],
   },
   {
@@ -100,10 +112,13 @@ const libraryNotes = [
     updatedAt: "2026-04-25 18:20",
     summary: "基于产品策略汇报整理的复盘内容，突出增长路径和下一步的优先级。",
     sections: [
-      "增长策略：拉新、激活、留存的主线",
-      "内容策略：高价值内容与分发方式",
-      "行动项：版本迭代与实验排期",
+      "一、内容总览",
+      "二、核心知识模块",
+      "三、知识点关系",
+      "四、全局重点总结",
+      "五、复习汇总",
     ],
+    keywords: ["增长复盘", "策略拆解", "版本迭代"],
     highlights: ["增长复盘", "策略拆解", "版本迭代"],
   },
   {
@@ -117,10 +132,13 @@ const libraryNotes = [
     updatedAt: "2026-04-23 14:05",
     summary: "论文阅读的结构化摘要，适合快速回顾研究问题、方法和结论。",
     sections: [
-      "研究问题与论文目标",
-      "实验方法、样本与评价指标",
-      "结论、局限与后续研究方向",
+      "一、内容总览",
+      "二、核心知识模块",
+      "三、知识点关系",
+      "四、全局重点总结",
+      "五、复习汇总",
     ],
+    keywords: ["研究方法", "实验结果", "后续方向"],
     highlights: ["研究方法", "实验结果", "后续方向"],
   },
 ];
@@ -325,10 +343,9 @@ function HomeScreen({ goAi, openNote }) {
                   一次输入即可生成摘要、结构化笔记和思维导图，让学习内容快速沉淀成可复用的知识资产。
                 </p>
               </div>
-              <div className="flex w-[118px] shrink-0 flex-col gap-2 rounded-[28px] border border-blue-100 bg-white p-3 shadow-sm">
-                <div className="rounded-2xl bg-blue-600 px-3 py-3 text-center text-[13px] font-semibold text-white">开始 AI 任务</div>
-                <div className="rounded-2xl bg-slate-50 px-3 py-2 text-[11px] font-medium text-slate-500">新建 AI 任务</div>
-              </div>
+                <div className="flex w-[118px] shrink-0 flex-col gap-2 rounded-[28px] border border-blue-100 bg-white p-3 shadow-sm">
+                  <div className="rounded-2xl bg-blue-600 px-3 py-3 text-center text-[13px] font-semibold text-white">开始 AI 任务</div>
+                </div>
             </div>
           </button>
 
@@ -355,65 +372,40 @@ function HomeScreen({ goAi, openNote }) {
 
       <section className="space-y-3">
         <div className="flex items-center justify-between">
-          <h2 className="text-[18px] font-semibold tracking-tight text-slate-900">继续学习</h2>
-          <button className="text-[13px] font-medium text-blue-600">查看全部</button>
-        </div>
-        <div className="grid gap-3">
-          {studyPaths.map((item) => (
-            <button key={item.title} className="rounded-3xl border border-slate-200 bg-white p-4 text-left shadow-sm">
-              <div className="inline-flex rounded-full bg-blue-50 px-2.5 py-1 text-[11px] font-semibold text-blue-600">{item.tag}</div>
-              <h3 className="mt-3 text-[16px] font-semibold text-slate-900">{item.title}</h3>
-              <p className="mt-2 text-[13px] leading-5 text-slate-500">{item.desc}</p>
-            </button>
-          ))}
-        </div>
-      </section>
-
-      <section className="space-y-3">
-        <div className="flex items-center justify-between">
           <h2 className="text-[18px] font-semibold tracking-tight text-slate-900">最近笔记</h2>
-          <button className="text-[13px] font-medium text-blue-600">管理库</button>
         </div>
-        <div className="space-y-3">
+      <div className="space-y-3">
           {recentNotes.map((item) => (
             <button
               key={item.title}
               onClick={() => openNote(item)}
-              className="flex w-full items-center justify-between rounded-3xl border border-slate-200 bg-white p-4 text-left shadow-sm"
+              className="relative w-full rounded-3xl border border-slate-200 bg-white p-4 pt-4 text-left shadow-sm"
             >
               <div>
-                <div className="inline-flex rounded-full bg-slate-50 px-2.5 py-1 text-[11px] font-semibold text-slate-500">{item.tag}</div>
-                <h3 className="mt-3 text-[16px] font-semibold text-slate-900">{item.title}</h3>
+                <h3 className="mt-1 text-[16px] font-semibold text-slate-900">{item.title}</h3>
                 <p className="mt-2 text-[13px] leading-5 text-slate-500">{item.preview}</p>
-                <p className="mt-2 text-[12px] text-slate-400">{item.meta}</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {item.keywords.map((keyword) => (
+                    <span
+                      key={keyword}
+                      className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-medium text-slate-500"
+                    >
+                      {keyword}
+                    </span>
+                  ))}
+                </div>
               </div>
-              <div className="flex shrink-0 flex-col items-end gap-3">
-                <span className="whitespace-nowrap rounded-full bg-blue-50 px-2.5 py-1 text-[11px] font-semibold text-blue-600">打开</span>
-                <span className="text-[16px] text-slate-300">→</span>
-              </div>
+              <span className="absolute right-4 top-5 whitespace-nowrap text-[12px] font-medium text-slate-400">{item.updatedAt}</span>
             </button>
           ))}
         </div>
       </section>
 
-      <section className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h2 className="text-[18px] font-semibold tracking-tight text-slate-900">推荐场景</h2>
-          <button className="text-[13px] font-medium text-blue-600">更多</button>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {suggestedUseCases.map((item) => (
-            <span key={item} className="rounded-full border border-slate-200 bg-white px-3 py-2 text-[12px] font-medium text-slate-600 shadow-sm">{item}</span>
-          ))}
-        </div>
-      </section>
     </div>
   );
 }
 
 function NotesScreen({ openNote }) {
-  const cats = ["全部", "视频", "PDF", "PPT", "文本", "链接"];
-
   return (
     <div className="space-y-5 px-5 pb-5">
       <TopBar title="笔记库" subtitle="收藏、搜索和分类管理" />
@@ -423,20 +415,6 @@ function NotesScreen({ openNote }) {
           <span className="text-slate-400">⌕</span>
           <span className="text-[15px] text-slate-400">搜索笔记、关键词或标题...</span>
         </button>
-        <button className="shrink-0 rounded-3xl border border-slate-200 bg-white px-4 py-4 text-[13px] font-medium text-slate-600 shadow-sm">排序</button>
-      </div>
-
-      <div className="flex flex-wrap gap-2">
-        {cats.map((c, i) => (
-          <button
-            key={c}
-            className={`rounded-full px-4 py-2 text-[13px] font-medium transition-colors ${
-              i === 0 ? "bg-blue-600 text-white shadow-sm" : "bg-white text-slate-500 shadow-sm ring-1 ring-slate-200"
-            }`}
-          >
-            {c}
-          </button>
-        ))}
       </div>
 
       <div className="space-y-3">
@@ -447,15 +425,19 @@ function NotesScreen({ openNote }) {
             className="w-full rounded-3xl border border-slate-200 bg-white p-4 text-left shadow-sm"
           >
             <div className="flex items-start justify-between gap-3">
-              <div className="inline-flex rounded-full bg-slate-50 px-2.5 py-1 text-[11px] font-semibold text-slate-500">{note.category}</div>
-              <span className="text-[16px] text-slate-300">→</span>
+              <span className="text-[12px] font-medium text-slate-400">{note.updated}</span>
             </div>
             <h3 className="mt-3 text-[16px] font-semibold text-slate-900">{note.title}</h3>
             <p className="mt-2 text-[13px] leading-5 text-slate-500">{note.preview}</p>
-            <div className="mt-4 flex flex-wrap items-center gap-2">
-              <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[11px] font-semibold text-blue-600">{note.source}</span>
-              <span className="rounded-full bg-slate-50 px-2.5 py-1 text-[11px] font-semibold text-slate-500">{note.updated}</span>
-              <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-600">{note.status}</span>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {note.keywords.map((keyword) => (
+                <span
+                  key={keyword}
+                  className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-medium text-slate-500"
+                >
+                  {keyword}
+                </span>
+              ))}
             </div>
           </button>
         ))}
@@ -475,7 +457,7 @@ function NoteDetailScreen({ note, goBack }) {
   ]);
   const messageListRef = useRef(null);
   const bodyRef = useRef(null);
-  const noteBody = [note.summary, ...note.sections].join("\n\n");
+  const noteBody = note.sections.join("\n\n");
 
   const fitBody = () => {
     const el = bodyRef.current;
@@ -512,7 +494,7 @@ function NoteDetailScreen({ note, goBack }) {
   const contentPaddingBottom = chatOpen ? "calc(40vh + 20px)" : "96px";
 
   return (
-    <div className="relative min-h-full px-5 pt-3">
+    <div className="relative h-full px-5 pt-3">
       <div style={{ paddingBottom: contentPaddingBottom }}>
         <div className="flex items-center justify-between">
           <button onClick={goBack} className="text-[14px] font-medium text-slate-500">
@@ -579,8 +561,11 @@ function NoteDetailScreen({ note, goBack }) {
             </div>
 
             <div className="border-t border-slate-100 px-4 py-3">
-              <div className="flex items-end gap-3 rounded-[22px] border border-slate-200 bg-white px-4 py-3">
-                <button onClick={() => setChatOpen(false)} className="text-[12px] font-medium text-slate-400">
+              <div className="flex items-center gap-3 rounded-[22px] border border-slate-200 bg-white px-4 py-3">
+                <button
+                  onClick={() => setChatOpen(false)}
+                  className="flex h-10 items-center justify-center self-center text-[12px] font-medium leading-none text-slate-400"
+                >
                   文档
                 </button>
                 <textarea
@@ -588,7 +573,7 @@ function NoteDetailScreen({ note, goBack }) {
                   onChange={(e) => setChatInput(e.target.value)}
                   onFocus={() => setChatOpen(true)}
                   placeholder="问 AI：帮我总结重点、扩写这一段..."
-                  className="max-h-24 flex-1 resize-none border-0 bg-transparent p-0 text-[14px] leading-6 text-slate-700 outline-none placeholder:text-slate-300"
+                  className="max-h-24 flex-1 resize-none border-0 bg-transparent py-2 text-[14px] leading-6 text-slate-700 outline-none placeholder:text-slate-300"
                   rows={1}
                 />
                 <button onClick={sendMessage} className="rounded-full bg-slate-900 px-4 py-2 text-[13px] font-medium text-white">
@@ -1104,8 +1089,8 @@ export default function App() {
       >
         <StatusBar />
         <div
-          className={`flex-1 ${landscapeMindMap ? "overflow-hidden pb-0" : "overflow-y-auto"} ${
-            showBottomNav ? "pb-28" : "pb-5"
+          className={`flex-1 ${activeNote ? "overflow-hidden pb-0" : landscapeMindMap ? "overflow-hidden pb-0" : "overflow-y-auto"} ${
+            activeNote ? "pb-0" : showBottomNav ? "pb-28" : "pb-5"
           }`}
         >
           {screen}
