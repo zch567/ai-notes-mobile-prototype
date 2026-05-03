@@ -337,7 +337,7 @@ function HomeScreen({ goAi, openNote }) {
             <div className="flex items-start gap-4">
               <div className="flex-1">
                 <h2 className="mt-3 max-w-[240px] text-[22px] font-semibold leading-8 tracking-tight text-slate-900">
-                  把视频、文档和文本变成结构化笔记
+                  把文档和文本变成结构化笔记
                 </h2>
                 <p className="mt-2 max-w-[280px] text-[13px] leading-5 text-slate-500">
                   一次输入即可生成摘要、结构化笔记和思维导图，让学习内容快速沉淀成可复用的知识资产。
@@ -350,7 +350,7 @@ function HomeScreen({ goAi, openNote }) {
           </button>
 
           <div className="flex flex-wrap gap-2">
-            {["视频链接", "PDF / PPT", "文本输入"].map((item) => (
+            {["PDF / PPT", "文本输入"].map((item) => (
               <span key={item} className="rounded-full bg-slate-50 px-3 py-1 text-[11px] font-medium text-slate-500">{item}</span>
             ))}
           </div>
@@ -446,7 +446,7 @@ function NotesScreen({ openNote }) {
   );
 }
 
-function NoteDetailScreen({ note, goBack }) {
+function NoteDetailScreen({ note, goBack, openConfig }) {
   const [chatOpen, setChatOpen] = useState(false);
   const [chatInput, setChatInput] = useState("");
   const [messages, setMessages] = useState([
@@ -496,11 +496,26 @@ function NoteDetailScreen({ note, goBack }) {
   return (
     <div className="relative h-full px-5 pt-3">
       <div style={{ paddingBottom: contentPaddingBottom }}>
-        <div className="flex items-center justify-between">
-          <button onClick={goBack} className="text-[14px] font-medium text-slate-500">
+        <div className="relative flex items-center justify-between">
+          <button onClick={goBack} className="relative z-10 text-[14px] font-medium text-slate-500">
             返回
           </button>
-          <button className="text-[14px] font-medium text-slate-900">保存</button>
+          <div className="pointer-events-none absolute inset-x-0 top-1/2 -translate-y-1/2">
+            <div className="relative flex items-center justify-start gap-3 pl-12">
+              <button className="pointer-events-auto flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white text-[16px] leading-none text-slate-300 shadow-sm">
+                ↺
+              </button>
+              <button className="pointer-events-auto flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white text-[16px] leading-none text-slate-300 shadow-sm">
+                ↻
+              </button>
+              <span className="pointer-events-none absolute left-1/2 -translate-x-1/2 text-center text-[12px] font-medium tracking-[0.18em] text-slate-400">
+                笔记将会自动保存
+              </span>
+            </div>
+          </div>
+          <button onClick={openConfig} className="relative z-10 text-[14px] font-medium text-slate-900">
+            配置
+          </button>
         </div>
 
         <div className="mt-6 space-y-5">
@@ -596,13 +611,63 @@ function NoteDetailScreen({ note, goBack }) {
   );
 }
 
+function ConfigScreen({ goBack }) {
+  const [reviewModeOn, setReviewModeOn] = useState(true);
+  const groups = [
+    { title: "复习模式", toggle: true },
+    { title: "修改笔记架构", chevron: true },
+    // 后续新增设置项时，直接继续往这里追加即可。
+  ];
+
+  return (
+    <div className="flex h-full flex-col bg-slate-100 px-6 pt-4">
+      <div className="flex items-center justify-between pb-5">
+        <button onClick={goBack} className="text-[14px] font-medium text-slate-500">
+          返回
+        </button>
+        <div className="text-[14px] font-medium text-slate-900">配置</div>
+        <div className="w-[52px]" />
+      </div>
+
+      <div className="space-y-0">
+        {groups.map((group) => (
+          <div key={group.title} className="border-t border-slate-200 py-5 first:border-t-0 first:pt-0">
+            <div className="flex items-center justify-between gap-4">
+              <h2 className="text-[28px] font-medium leading-[1.1] tracking-tight text-slate-900">{group.title}</h2>
+              {group.toggle ? (
+                <button
+                  type="button"
+                  onClick={() => setReviewModeOn((value) => !value)}
+                  className={`relative h-8 w-[72px] rounded-full transition-colors duration-200 ${
+                    reviewModeOn ? "bg-emerald-400" : "bg-slate-300"
+                  }`}
+                  aria-pressed={reviewModeOn}
+                  aria-label="复习模式开关"
+                >
+                  <span
+                    className={`absolute top-1 h-6 w-6 rounded-full bg-white shadow-[0_2px_8px_rgba(15,23,42,0.18)] transition-all duration-200 ${
+                    reviewModeOn ? "left-[40px]" : "left-1"
+                  }`}
+                  />
+                </button>
+              ) : group.chevron ? (
+                <span className="text-[28px] leading-none text-slate-300">{"\u003e"}</span>
+              ) : null}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function InputScreen({ startLoading }) {
   const outputs = ["摘要", "结构化笔记", "重点提炼", "思维导图"];
   const steps = ["输入内容", "AI 分析结构", "生成笔记与导图"];
 
   return (
     <div className="space-y-5 px-5 pb-5">
-      <TopBar title="AI 笔记创作" subtitle="把视频、文档或文本变成结构化笔记和思维导图" />
+      <TopBar title="AI 笔记创作" subtitle="把文档或文本变成结构化笔记和思维导图" />
 
       <section className="rounded-[32px] border border-slate-200 bg-gradient-to-br from-blue-50 via-white to-slate-50 p-4 shadow-sm">
         <div className="flex items-start justify-between gap-3">
@@ -634,12 +699,12 @@ function InputScreen({ startLoading }) {
             <div className="mb-3 flex items-center justify-between gap-3">
               <div>
                 <p className="text-[12px] font-semibold uppercase tracking-[0.22em] text-slate-400">可输入：</p>
-                <p className="mt-1 text-[14px] font-semibold text-slate-900">视频链接 / 文本 / 文件内容</p>
+                <p className="mt-1 text-[14px] font-semibold text-slate-900">文档 / 文本 / 文件内容</p>
               </div>
               <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold text-blue-600 shadow-sm">智能识别</span>
             </div>
             <textarea
-              defaultValue="在这里粘贴视频链接、各种文件，或者直接输入文本..."
+              defaultValue="在这里粘贴文件内容、各种文档，或者直接输入文本..."
               className="min-h-[180px] w-full resize-none rounded-[20px] border border-slate-200 bg-white px-4 py-4 text-[15px] leading-6 text-slate-700 outline-none"
             />
           </div>
@@ -1027,6 +1092,7 @@ export default function App() {
   const [aiFlow, setAiFlow] = useState("input");
   const [phase, setPhase] = useState(0);
   const [activeNote, setActiveNote] = useState(null);
+  const [noteView, setNoteView] = useState("note");
   const [mindMapSelectedMap, setMindMapSelectedMap] = useState(null);
 
   useEffect(() => {
@@ -1045,24 +1111,38 @@ export default function App() {
   const handleNav = (next) => {
     setNav(next);
     if (next === "ai") setAiFlow("input");
-    if (activeNote) setActiveNote(null);
+    if (activeNote) {
+      setActiveNote(null);
+      setNoteView("note");
+    }
     if (next !== "mindmap") setMindMapSelectedMap(null);
   };
 
   const openNote = (note) => {
     setActiveNote(note);
+    setNoteView("note");
     setNav("notes");
   };
 
   const screen =
     activeNote ? (
-      <NoteDetailScreen
-        note={activeNote}
-        goBack={() => {
-          setActiveNote(null);
-          setNav("notes");
-        }}
-      />
+      noteView === "config" ? (
+        <ConfigScreen
+          goBack={() => {
+            setNoteView("note");
+          }}
+        />
+      ) : (
+        <NoteDetailScreen
+          note={activeNote}
+          goBack={() => {
+            setActiveNote(null);
+            setNoteView("note");
+            setNav("notes");
+          }}
+          openConfig={() => setNoteView("config")}
+        />
+      )
     ) : nav === "home" ? <HomeScreen goAi={() => handleNav("ai")} openNote={openNote} /> :
     nav === "notes" ? <NotesScreen openNote={openNote} /> :
     nav === "ai" ? (
