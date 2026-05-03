@@ -91,6 +91,63 @@ const libraryNotes = [
     preview: "监控学习、损失函数、训练与验证的结构化整理版本。",
     updatedAt: "2026-04-26 11:10",
     summary: "围绕机器学习基础概念整理的课堂笔记，保留了常见术语和核心流程。",
+    rawSourceText: [
+      "机器学习导论这段内容主要介绍了什么是监督学习，以及训练数据如何帮助模型找到规律。",
+      "在开始建模之前，我们通常要把数据分成训练集和验证集，避免模型只记住表面特征。",
+      "损失函数负责衡量预测结果和真实标签之间的差距，优化目标就是尽可能减小这个差距。",
+      "当模型在训练集上表现很好，但在验证集上明显下降时，往往意味着出现了过拟合。",
+      "为了改善这种情况，可以增加正则化、调整模型复杂度，或者重新检查数据划分方式。",
+      "最后，机器学习导论强调的是方法框架：先理解问题，再选择特征、模型与评估方式。",
+    ].join("\n\n"),
+    bodyBlocks: [
+      { type: "heading", text: "一、内容总览" },
+      {
+        type: "paragraph",
+        text: "机器学习导论先从监督学习讲起，说明模型并不是凭空学习，而是从带有标签的数据中逐步归纳出规律。",
+      },
+      {
+        type: "paragraph",
+        text: "在实际训练之前，最重要的一步是合理划分数据集，这会直接影响模型是否能够在新样本上保持稳定表现。",
+        refId: "1",
+      },
+      { type: "heading", text: "二、核心知识模块" },
+      {
+        type: "paragraph",
+        text: "损失函数是整个训练过程的中心，它把“预测得对不对”转成可以计算的数值，随后再通过优化方法不断调整参数。",
+        refId: "2",
+      },
+      {
+        type: "paragraph",
+        text: "如果训练集和验证集之间出现明显差距，就要重新审视模型复杂度、正则化手段和数据本身的质量。",
+      },
+      { type: "heading", text: "三、知识点关系" },
+      {
+        type: "paragraph",
+        text: "监督学习、损失函数、优化方法和验证集是连在一起的：前者决定学习目标，中间决定训练方向，后者负责检查结果是否可靠。",
+      },
+      {
+        type: "paragraph",
+        text: "当这些环节串联起来后，机器学习导论就不再只是概念列表，而是一条完整的建模流程。",
+      },
+      { type: "heading", text: "四、全局重点总结" },
+      {
+        type: "paragraph",
+        text: "这部分最重要的不是记住某一个公式，而是理解训练、评估和泛化之间的关系，以及为什么模型会出现过拟合。",
+      },
+      {
+        type: "paragraph",
+        text: "如果你只想快速复习，可以先抓住数据划分、损失函数和模型复杂度这三个关键词。",
+      },
+      { type: "heading", text: "五、复习汇总" },
+      {
+        type: "paragraph",
+        text: "复习时可以按“概念 - 训练 - 评估 - 问题 - 调整”的顺序回看整篇内容，这样更容易建立整体框架。",
+      },
+      {
+        type: "paragraph",
+        text: "复习时可以按“概念 - 训练 - 评估 - 问题 - 调整”的顺序回看整篇内容，这样更容易建立整体框架。",
+      },
+    ],
     sections: [
       "一、内容总览",
       "二、核心知识模块",
@@ -100,6 +157,22 @@ const libraryNotes = [
     ],
     keywords: ["基础概念", "模型训练", "验证流程"],
     highlights: ["基础概念", "模型训练", "验证流程"],
+    references: [
+      {
+        id: "1",
+        label: "1",
+        title: "训练集与验证集",
+        initialScrollTop: 84,
+        focusParagraphIndex: 1,
+      },
+      {
+        id: "2",
+        label: "2",
+        title: "损失函数与优化目标",
+        initialScrollTop: 228,
+        focusParagraphIndex: 2,
+      },
+    ],
   },
   {
     id: "product-review",
@@ -449,6 +522,8 @@ function NotesScreen({ openNote }) {
 function NoteDetailScreen({ note, goBack, openConfig }) {
   const [chatOpen, setChatOpen] = useState(false);
   const [chatInput, setChatInput] = useState("");
+  const [activeReferenceId, setActiveReferenceId] = useState(null);
+  const [bubbleLayout, setBubbleLayout] = useState(null);
   const [messages, setMessages] = useState([
     {
       role: "assistant",
@@ -457,7 +532,14 @@ function NoteDetailScreen({ note, goBack, openConfig }) {
   ]);
   const messageListRef = useRef(null);
   const bodyRef = useRef(null);
+  const noteShellRef = useRef(null);
+  const bubbleScrollRef = useRef(null);
+  const referenceButtonRefs = useRef({});
   const noteBody = note.sections.join("\n\n");
+  const isReferenceNote = note.id === "ml-intro";
+  const activeReference = isReferenceNote
+    ? note.references?.find((reference) => reference.id === activeReferenceId) ?? null
+    : null;
 
   const fitBody = () => {
     const el = bodyRef.current;
@@ -474,6 +556,39 @@ function NoteDetailScreen({ note, goBack, openConfig }) {
   useEffect(() => {
     fitBody();
   }, [noteBody]);
+
+  useEffect(() => {
+    if (!activeReference || !bubbleScrollRef.current) return;
+    bubbleScrollRef.current.scrollTop = activeReference.initialScrollTop ?? 0;
+  }, [activeReference]);
+
+  useEffect(() => {
+    if (!activeReference || !noteShellRef.current) return;
+    const anchor = referenceButtonRefs.current[activeReference.id];
+    if (!anchor) return;
+
+    const containerRect = noteShellRef.current.getBoundingClientRect();
+    const anchorRect = anchor.getBoundingClientRect();
+    const bubbleWidth = Math.min(292, containerRect.width - 32);
+    const bubbleHeight = 236;
+    const anchorCenterX = anchorRect.left - containerRect.left + anchorRect.width / 2;
+    let left = anchorCenterX - bubbleWidth / 2;
+    left = Math.max(16, Math.min(left, containerRect.width - bubbleWidth - 16));
+
+    const spaceBelow = containerRect.bottom - anchorRect.bottom;
+    const spaceAbove = anchorRect.top - containerRect.top;
+    const openBelow = spaceBelow >= bubbleHeight + 18 || spaceBelow >= spaceAbove;
+    let top = openBelow ? anchorRect.bottom - containerRect.top + 12 : anchorRect.top - containerRect.top - bubbleHeight - 12;
+    top = Math.max(16, Math.min(top, containerRect.height - bubbleHeight - 16));
+
+    setBubbleLayout({
+      left,
+      top,
+      width: bubbleWidth,
+      height: bubbleHeight,
+      openBelow,
+    });
+  }, [activeReference]);
 
   const sendMessage = () => {
     const text = chatInput.trim();
@@ -493,19 +608,24 @@ function NoteDetailScreen({ note, goBack, openConfig }) {
 
   const contentPaddingBottom = chatOpen ? "calc(40vh + 20px)" : "96px";
 
+  const toggleReference = (reference) => {
+    if (!isReferenceNote) return;
+    setActiveReferenceId((current) => (current === reference.id ? null : reference.id));
+  };
+
   return (
-    <div className="relative h-full px-5 pt-3">
-      <div style={{ paddingBottom: contentPaddingBottom }}>
+    <div ref={noteShellRef} className="relative flex h-full flex-col px-5 pt-3">
+      <div className="flex-none">
         <div className="relative flex items-center justify-between">
           <button onClick={goBack} className="relative z-10 text-[14px] font-medium text-slate-500">
             返回
           </button>
           <div className="pointer-events-none absolute inset-x-0 top-1/2 -translate-y-1/2">
             <div className="relative flex items-center justify-start gap-3 pl-12">
-              <button className="pointer-events-auto flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white text-[16px] leading-none text-slate-300 shadow-sm">
+              <button className="pointer-events-auto flex h-[26px] w-[26px] items-center justify-center rounded-full border border-slate-200 bg-white text-[13px] leading-none text-slate-300 shadow-sm">
                 ↺
               </button>
-              <button className="pointer-events-auto flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white text-[16px] leading-none text-slate-300 shadow-sm">
+              <button className="pointer-events-auto flex h-[26px] w-[26px] items-center justify-center rounded-full border border-slate-200 bg-white text-[13px] leading-none text-slate-300 shadow-sm">
                 ↻
               </button>
               <span className="pointer-events-none absolute left-1/2 -translate-x-1/2 text-center text-[12px] font-medium tracking-[0.18em] text-slate-400">
@@ -517,8 +637,11 @@ function NoteDetailScreen({ note, goBack, openConfig }) {
             配置
           </button>
         </div>
+      </div>
 
-        <div className="mt-6 space-y-5">
+      <div className="flex-1 min-h-0 overflow-y-auto pt-16" style={{ paddingBottom: contentPaddingBottom }}>
+        
+        <div className="space-y-5">
           <div className="space-y-3">
             <p className="text-[12px] uppercase tracking-[0.24em] text-slate-400">{note.tag || note.category}</p>
             <input
@@ -531,16 +654,89 @@ function NoteDetailScreen({ note, goBack, openConfig }) {
 
           <div className="space-y-3">
             <p className="text-[12px] uppercase tracking-[0.24em] text-slate-400">正文</p>
-            <textarea
-              ref={bodyRef}
-              defaultValue={noteBody}
-              onInput={fitBody}
-              className="w-full resize-none overflow-hidden border-0 bg-transparent p-0 text-[15px] leading-8 text-slate-700 outline-none placeholder:text-slate-300"
-              aria-label="正文"
-            />
+            {isReferenceNote ? (
+              <div className="space-y-5 text-[15px] leading-8 text-slate-700">
+                {note.bodyBlocks?.map((block, index) =>
+                  block.type === "heading" ? (
+                    <h4 key={`${block.type}-${index}`} className="text-[16px] font-semibold tracking-tight text-slate-900">
+                      {block.text}
+                    </h4>
+                  ) : (
+                    <p key={`${block.type}-${index}`} className="leading-8 text-slate-700">
+                      {block.text}
+                      {block.refId ? (
+                        <button
+                          ref={(node) => {
+                            if (node) {
+                              referenceButtonRefs.current[block.refId] = node;
+                            }
+                          }}
+                          type="button"
+                          onClick={() => toggleReference(note.references?.find((reference) => reference.id === block.refId))}
+                          className={`ml-2 inline-flex h-7 w-7 items-center justify-center rounded-full border text-[12px] font-semibold leading-none transition ${
+                            activeReferenceId === block.refId
+                              ? "border-slate-900 bg-slate-900 text-white"
+                              : "border-slate-300 bg-white text-slate-600"
+                          }`}
+                          aria-label={`引用 ${block.refId}`}
+                        >
+                          {block.refId}
+                        </button>
+                      ) : null}
+                    </p>
+                  )
+                )}
+              </div>
+            ) : (
+              <textarea
+                ref={bodyRef}
+                defaultValue={noteBody}
+                onInput={fitBody}
+                className="w-full resize-none overflow-hidden border-0 bg-transparent p-0 text-[15px] leading-8 text-slate-700 outline-none placeholder:text-slate-300"
+                aria-label="正文"
+              />
+            )}
           </div>
         </div>
       </div>
+
+      {activeReference && bubbleLayout ? (
+        <div
+          className="absolute z-30"
+          style={{
+            left: `${bubbleLayout.left}px`,
+            top: `${bubbleLayout.top}px`,
+            width: `${bubbleLayout.width}px`,
+          }}
+        >
+          <div className="relative overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-[0_20px_60px_rgba(15,23,42,0.18)]">
+            <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400">引用 {activeReference.label}</p>
+                <p className="mt-1 text-[13px] font-medium text-slate-800">{activeReference.title}</p>
+              </div>
+              <button onClick={() => setActiveReferenceId(null)} className="text-[13px] font-medium text-slate-500">
+                收起
+              </button>
+            </div>
+            <div
+              ref={bubbleScrollRef}
+              className="max-h-[236px] overflow-y-auto px-4 py-4 text-[13px] leading-6 text-slate-700"
+            >
+              {(note.rawSourceText || "").split("\n\n").map((paragraph, index) => (
+                <p
+                  key={`${index}-${paragraph.slice(0, 12)}`}
+                  className={`mb-3 rounded-2xl px-3 py-2 ${
+                    index === activeReference.focusParagraphIndex ? "bg-amber-50 text-slate-900 ring-1 ring-amber-200" : "bg-transparent"
+                  }`}
+                >
+                  {paragraph}
+                </p>
+              ))}
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <div
         className={`absolute bottom-0 left-0 right-0 z-20 overflow-hidden border-t border-slate-200 bg-white/95 backdrop-blur transition-[height] duration-300 ease-out ${
@@ -613,8 +809,10 @@ function NoteDetailScreen({ note, goBack, openConfig }) {
 
 function ConfigScreen({ goBack }) {
   const [reviewModeOn, setReviewModeOn] = useState(true);
+  const [referenceModeOn, setReferenceModeOn] = useState(true);
   const groups = [
     { title: "复习模式", toggle: true },
+    { title: "引用原文", toggle: true, stateKey: "reference" },
     { title: "修改笔记架构", chevron: true },
     // 后续新增设置项时，直接继续往这里追加即可。
   ];
@@ -637,17 +835,21 @@ function ConfigScreen({ goBack }) {
               {group.toggle ? (
                 <button
                   type="button"
-                  onClick={() => setReviewModeOn((value) => !value)}
+                  onClick={() =>
+                    group.stateKey === "reference"
+                      ? setReferenceModeOn((value) => !value)
+                      : setReviewModeOn((value) => !value)
+                  }
                   className={`relative h-8 w-[72px] rounded-full transition-colors duration-200 ${
-                    reviewModeOn ? "bg-emerald-400" : "bg-slate-300"
+                    (group.stateKey === "reference" ? referenceModeOn : reviewModeOn) ? "bg-emerald-400" : "bg-slate-300"
                   }`}
-                  aria-pressed={reviewModeOn}
+                  aria-pressed={group.stateKey === "reference" ? referenceModeOn : reviewModeOn}
                   aria-label="复习模式开关"
                 >
                   <span
                     className={`absolute top-1 h-6 w-6 rounded-full bg-white shadow-[0_2px_8px_rgba(15,23,42,0.18)] transition-all duration-200 ${
-                    reviewModeOn ? "left-[40px]" : "left-1"
-                  }`}
+                      (group.stateKey === "reference" ? referenceModeOn : reviewModeOn) ? "left-[40px]" : "left-1"
+                    }`}
                   />
                 </button>
               ) : group.chevron ? (
