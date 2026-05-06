@@ -519,7 +519,7 @@ function NotesScreen({ openNote }) {
   );
 }
 
-function NoteDetailScreen({ note, goBack, openConfig }) {
+function NoteDetailScreen({ note, goBack, openConfig, openReview }) {
   const [chatOpen, setChatOpen] = useState(false);
   const [chatInput, setChatInput] = useState("");
   const [activeReferenceId, setActiveReferenceId] = useState(null);
@@ -633,9 +633,18 @@ function NoteDetailScreen({ note, goBack, openConfig }) {
               </span>
             </div>
           </div>
-          <button onClick={openConfig} className="relative z-10 text-[14px] font-medium text-slate-900">
-            配置
-          </button>
+          <div className="relative z-10 flex items-center gap-4">
+            <button
+              onClick={openReview}
+              className="flex h-8 w-8 items-center justify-center rounded-full border border-blue-200 bg-blue-500 text-[12px] font-medium text-white shadow-sm"
+              aria-label="复习"
+            >
+              复习
+            </button>
+            <button onClick={openConfig} className="text-[14px] font-medium text-slate-900">
+              配置
+            </button>
+          </div>
         </div>
       </div>
 
@@ -812,7 +821,7 @@ function ConfigScreen({ goBack }) {
   const [referenceModeOn, setReferenceModeOn] = useState(true);
   const groups = [
     { title: "复习模式", toggle: true },
-    { title: "引用原文", toggle: true, stateKey: "reference" },
+    { title: "引用模式", toggle: true, stateKey: "reference" },
     { title: "修改笔记架构", chevron: true },
     // 后续新增设置项时，直接继续往这里追加即可。
   ];
@@ -858,6 +867,90 @@ function ConfigScreen({ goBack }) {
             </div>
           </div>
         ))}
+      </div>
+    </div>
+  );
+}
+
+function ReviewScreen({ goBack }) {
+  return (
+    <div className="flex h-full flex-col px-5 pt-3">
+      <div className="flex-none">
+        <div className="flex items-center justify-between">
+          <button onClick={goBack} className="text-[14px] font-medium text-slate-500">
+            返回
+          </button>
+          <div className="text-[14px] font-medium text-slate-900">复习</div>
+          <div className="w-[52px]" />
+        </div>
+      </div>
+
+      <div className="flex-1 min-h-0 overflow-y-auto pt-6 pb-6">
+        <div className="space-y-4">
+          <div className="rounded-[28px] border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 className="mt-2 text-[20px] font-semibold tracking-tight text-slate-900">问题生成</h2>
+                <p className="mt-2 text-[13px] leading-5 text-slate-500">依据笔记内容生成练习题。</p>
+              </div>
+            </div>
+
+            <div className="mt-4 rounded-[22px] border border-dashed border-slate-200 bg-slate-50 px-4 py-4">
+              <div className="space-y-3 text-[13px] leading-6 text-slate-700">
+                <p className="font-medium text-slate-900">问题xxx：</p>
+                <div className="space-y-1 pl-2">
+                  <p>A.</p>
+                  <p>B.</p>
+                  <p>C.</p>
+                  <p>D.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-[28px] border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 className="mt-2 text-[20px] font-semibold tracking-tight text-slate-900">掌握度评估</h2>
+                <p className="mt-2 text-[13px] leading-5 text-slate-500">依据笔记内容评估当前知识点掌握情况。</p>
+              </div>
+            </div>
+
+            <div className="mt-4 rounded-[22px] border border-dashed border-slate-200 bg-slate-50 px-4 py-4">
+              <div className="space-y-3 text-[13px] leading-6 text-slate-700">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="font-medium text-slate-900">掌握度</p>
+                  <p className="text-[12px] font-semibold text-blue-500">xx%</p>
+                </div>
+                <div className="h-2 overflow-hidden rounded-full bg-blue-100">
+                  <div className="h-full w-[62%] rounded-full bg-blue-500" />
+                </div>
+                <div className="space-y-1 pl-2">
+                  <p>• 已掌握：基础概念、训练流程</p>
+                  <p>• 待加强：题型识别、应用分析</p>
+                  <p>• 建议复习：对应章节与引用原文</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-[28px] border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 className="mt-2 text-[20px] font-semibold tracking-tight text-slate-900">复习建议</h2>
+                <p className="mt-2 text-[13px] leading-5 text-slate-500">根据当前笔记内容给出下一步复习方向。</p>
+              </div>
+            </div>
+
+            <div className="mt-4 rounded-[22px] border border-dashed border-slate-200 bg-slate-50 px-4 py-4">
+              <div className="space-y-2 text-[13px] leading-6 text-slate-700">
+                <p>• 先回看高亮的核心概念，再做一轮题目生成。</p>
+                <p>• 对照引用原文，确认自己是否能复述关键定义。</p>
+                <p>• 把易错点和待加强部分单独整理成下一次复习清单。</p>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -1348,6 +1441,12 @@ export default function App() {
             setNoteView("note");
           }}
         />
+      ) : noteView === "review" ? (
+        <ReviewScreen
+          goBack={() => {
+            setNoteView("note");
+          }}
+        />
       ) : (
         <NoteDetailScreen
           note={activeNote}
@@ -1357,6 +1456,7 @@ export default function App() {
             setNav("notes");
           }}
           openConfig={() => setNoteView("config")}
+          openReview={() => setNoteView("review")}
         />
       )
     ) : nav === "home" ? <HomeScreen goAi={() => handleNav("ai")} openNote={openNote} /> :
