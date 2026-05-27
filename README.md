@@ -1,16 +1,19 @@
 # AI 笔记移动端原型
 
-这是一个基于 React + Vite + Tailwind CSS 的移动端前端原型，用来展示一个 AI 驱动的笔记产品界面。
+这是一个基于 React + Vite + Tailwind CSS 的移动端前端原型，用于展示“智序知识助手”的 AI 学习闭环。
 
-## 功能
+## 当前结构
 
-- 首页：AI 入口、推荐内容、基础导航
-- 笔记页：搜索、分类、笔记卡片
-- AI 页：链接、文档、文本输入生成笔记
-- 处理中页面：模拟 AI 生成状态
-- 结果页：摘要、结构化笔记、关键点
-- 思维导图页：简化的知识结构展示
-- 个人中心：账号与偏好设置
+```text
+src/app/          应用入口、导航状态
+src/components/   通用组件
+src/data/         演示数据
+src/features/     业务页面
+src/services/     API 与运行模式
+docs/             协作与接口文档
+```
+
+核心数据结构是 `AgentResult`。页面统一消费归一化后的 `AgentResult`，后端字段变化优先在 `src/features/ai/agentTypes.js` 处理。
 
 ## 本地运行
 
@@ -19,15 +22,22 @@ npm install
 npm run dev
 ```
 
+默认使用演示模式。复制 `.env.example` 为 `.env` 后可切换真实 API：
+
+```text
+VITE_DEMO_MODE=false
+VITE_API_BASE_URL=http://127.0.0.1:8000
+```
+
 ## 构建
 
 ```bash
 npm run build
 ```
 
-## 技术栈
+## 文档
 
-- React
-- Vite
-- Tailwind CSS
+- `docs/frontend-architecture.md`：前端模块边界。
+- `docs/agent-result-contract.md`：后端返回数据契约。
+- `docs/collaboration-checklist.md`：多人协作检查清单。
 
