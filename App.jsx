@@ -1,5 +1,119 @@
 import React, { useEffect, useRef, useState } from "react";
 
+const mockAgentPipeline = [
+  {
+    id: "perception",
+    label: "Perception",
+    goal: "识别用户输入材料、来源类型和学习任务意图。",
+    visibleText: "识别到机器学习主题材料，准备抽取定义、函数、损失函数和常见误区。",
+    agentBehavior: "感知环境输入，完成材料类型识别和任务边界确认。",
+    architectureMapping: "InputScreen -> aiFlow=input -> Agent Perception",
+  },
+  {
+    id: "knowledge-extraction",
+    label: "Knowledge Extraction",
+    goal: "从原始材料中抽取知识点、关键词和可引用事实。",
+    visibleText: "已抽取 4 个核心知识点，并保留对应来源编号。",
+    agentBehavior: "把非结构化文本转换为结构化知识单元。",
+    architectureMapping: "mock source content -> concepts -> Agent Knowledge Extraction",
+  },
+  {
+    id: "planning",
+    label: "Planning",
+    goal: "规划笔记结构、导图层级、复习题类型和评估维度。",
+    visibleText: "已规划笔记、导图、复习题和评估维度。",
+    agentBehavior: "基于学习目标选择生成顺序和产物结构。",
+    architectureMapping: "phase -> Agent Planning -> artifact plan",
+  },
+  {
+    id: "citation-retrieval",
+    label: "Citation Retrieval",
+    goal: "把生成内容绑定到来源段落，形成可回链引用。",
+    visibleText: "已绑定 4 条来源引用，可在笔记中查看原文依据。",
+    agentBehavior: "模拟 RAG / 引用增强生成中的检索与来源绑定。",
+    architectureMapping: "citations -> NoteDetailScreen reference bubble",
+  },
+  {
+    id: "generation",
+    label: "Generation",
+    goal: "生成结构化笔记正文。",
+    visibleText: "已生成结构化笔记，包含定义、Sigmoid、交叉熵损失和常见误区。",
+    agentBehavior: "把抽取结果转化为用户可阅读的学习产物。",
+    architectureMapping: "Agent Generation -> libraryNotes/bodyBlocks -> NoteDetailScreen",
+  },
+  {
+    id: "mind-map-construction",
+    label: "Mind Map Construction",
+    goal: "把知识点组织成可交互导图。",
+    visibleText: "已构建 Logistic Regression 知识导图。",
+    agentBehavior: "把线性笔记转换为知识网络。",
+    architectureMapping: "mindMapViewerData -> MindMapScreen",
+  },
+  {
+    id: "review-question-generation",
+    label: "Review Question Generation",
+    goal: "基于薄弱点和关键概念生成复习题。",
+    visibleText: "已生成 3 道复习题，覆盖定义、Sigmoid 和交叉熵损失。",
+    agentBehavior: "把知识产物转换为可检验问题。",
+    architectureMapping: "Agent Review Question Generation -> ReviewScreen",
+  },
+  {
+    id: "evaluation",
+    label: "Evaluation",
+    goal: "模拟用户答题后的掌握度评估。",
+    visibleText: "当前掌握度 76%，建议加强交叉熵损失和梯度下降。",
+    agentBehavior: "进行反馈评估，形成学习闭环。",
+    architectureMapping: "ReviewScreen -> Agent Evaluation -> evaluation result",
+  },
+  {
+    id: "recommendation",
+    label: "Recommendation",
+    goal: "根据评估结果给出下一步复习建议。",
+    visibleText: "建议优先复习交叉熵损失和梯度下降，并回看引用 [3]。",
+    agentBehavior: "根据评估反馈调整下一轮学习路径。",
+    architectureMapping: "Agent Recommendation -> ReviewScreen suggestion card",
+  },
+];
+
+const logisticRegressionMockResult = {
+  title: "Logistic Regression",
+  summary:
+    "Agent 已将 Logistic Regression 材料整理为围绕分类任务、Sigmoid 概率输出、交叉熵损失和常见命名误区的结构化学习结果。",
+  artifacts: [
+    {
+      id: "structured-note",
+      title: "结构化笔记",
+      desc: "按定义、函数、训练目标和易错点组织正文。",
+      tag: "Generation",
+    },
+    {
+      id: "citation-links",
+      title: "引用回链",
+      desc: "为 4 个核心知识点保留来源编号，支持可追溯引用。",
+      tag: "Citation Retrieval",
+    },
+    {
+      id: "mind-map",
+      title: "思维导图",
+      desc: "把 Definition、Sigmoid、Loss、Mistake 组织成知识网络。",
+      tag: "Mind Map",
+    },
+    {
+      id: "review-questions",
+      title: "复习题",
+      desc: "生成覆盖分类用途、Sigmoid 范围和常见误区的练习题。",
+      tag: "Review",
+    },
+    {
+      id: "evaluation",
+      title: "掌握度评估 / 复习建议",
+      desc: "模拟掌握度 76%，建议优先复习交叉熵损失和梯度下降。",
+      tag: "Evaluation",
+    },
+  ],
+  recommendation: "建议优先复习交叉熵损失和梯度下降，并回看引用 [3] 对应的原文依据。",
+};
+
 const recentNotes = [
   {
     id: "math-review",
@@ -80,7 +194,137 @@ const suggestedUseCases = [
   "文本一键转笔记",
 ];
 
+const logisticRegressionSourceText = [
+  "Logistic regression is a classification algorithm used to estimate the probability that an input belongs to a certain class.",
+  "The sigmoid function maps any real-valued number into the range between 0 and 1.",
+  "Cross-entropy loss is commonly used to train logistic regression models.",
+  "Although logistic regression contains the word regression, it is mainly used for classification tasks.",
+].join("\n\n");
+
+const logisticRegressionNote = {
+  id: "logistic-regression",
+  title: "Logistic Regression",
+  category: "学习",
+  source: "Mock Text",
+  updated: "刚刚",
+  status: "Agent 生成",
+  preview: "围绕分类任务、Sigmoid 函数、交叉熵损失和常见误区生成的结构化学习笔记。",
+  updatedAt: "2026-05-20 00:00",
+  summary: "Logistic Regression 是用于分类任务的经典模型，通过 Sigmoid 函数输出类别概率，并常用交叉熵损失进行训练。",
+  rawSourceText: logisticRegressionSourceText,
+  bodyBlocks: [
+    { type: "heading", text: "一、Basic definition" },
+    {
+      type: "paragraph",
+      text: "Logistic Regression 是一种分类算法，用于估计输入属于某个类别的概率。",
+      refId: "1",
+    },
+    { type: "heading", text: "二、Sigmoid function" },
+    {
+      type: "paragraph",
+      text: "Sigmoid 函数把任意实数映射到 0 到 1 之间，因此适合表达类别概率。",
+      refId: "2",
+    },
+    { type: "heading", text: "三、Cross-entropy loss" },
+    {
+      type: "paragraph",
+      text: "训练 Logistic Regression 时通常使用交叉熵损失，用于衡量预测概率与真实标签之间的差距。",
+      refId: "3",
+    },
+    { type: "heading", text: "四、Common mistake" },
+    {
+      type: "paragraph",
+      text: "虽然名称里包含 regression，但 Logistic Regression 主要用于分类任务，而不是普通连续值回归。",
+      refId: "4",
+    },
+    { type: "heading", text: "五、Review suggestion" },
+    {
+      type: "paragraph",
+      text: "建议优先复习交叉熵损失和梯度下降，并重新查看引用 [3] 对应的原文依据。",
+      refId: "3",
+    },
+  ],
+  sections: [
+    "一、Basic definition",
+    "二、Sigmoid function",
+    "三、Cross-entropy loss",
+    "四、Common mistake",
+    "五、Review suggestion",
+  ],
+  keywords: ["classification", "sigmoid", "cross-entropy", "probability"],
+  highlights: ["可解释分类模型", "概率输出", "引用回链"],
+  references: [
+    {
+      id: "1",
+      label: "1",
+      title: "Basic definition",
+      initialScrollTop: 0,
+      focusParagraphIndex: 0,
+    },
+    {
+      id: "2",
+      label: "2",
+      title: "Sigmoid function",
+      initialScrollTop: 70,
+      focusParagraphIndex: 1,
+    },
+    {
+      id: "3",
+      label: "3",
+      title: "Cross-entropy loss",
+      initialScrollTop: 140,
+      focusParagraphIndex: 2,
+    },
+    {
+      id: "4",
+      label: "4",
+      title: "Common mistake",
+      initialScrollTop: 210,
+      focusParagraphIndex: 3,
+    },
+  ],
+};
+
+const logisticRegressionReview = {
+  reviewQuestions: [
+    {
+      id: "q1",
+      type: "single-choice",
+      question: "Logistic Regression 主要用于什么任务？",
+      options: ["分类任务", "图像压缩", "数据库索引", "文本排版"],
+      answer: "分类任务",
+      explanation: "材料 [1] 说明它用于估计输入属于某个类别的概率，材料 [4] 进一步说明它主要用于分类任务。",
+      citationIds: ["1", "4"],
+    },
+    {
+      id: "q2",
+      type: "single-choice",
+      question: "Sigmoid 函数的作用是什么？",
+      options: ["把任意实数映射到 0 到 1 之间", "把文本转换成向量", "压缩图片尺寸", "计算数据库索引"],
+      answer: "把任意实数映射到 0 到 1 之间",
+      explanation: "材料 [2] 说明 Sigmoid 函数会把任意实数映射到 0 到 1，因此可用于表达类别概率。",
+      citationIds: ["2"],
+    },
+    {
+      id: "q3",
+      type: "short-answer",
+      question: "为什么 Logistic Regression 的名称容易造成误解？",
+      referenceAnswer: "因为它虽然包含 regression，但主要用于分类任务，而不是普通连续值回归。",
+      answer: "名称里有 regression，但核心用途是分类。",
+      explanation: "材料 [4] 明确指出，虽然名称包含 regression，Logistic Regression 主要用于 classification tasks。",
+      citationIds: ["4"],
+    },
+  ],
+  evaluationResult: {
+    masteryScore: 76,
+    mastered: ["Basic definition", "classification usage"],
+    weakPoints: ["Cross-entropy loss", "gradient descent"],
+    suggestion: "建议优先复习交叉熵损失和梯度下降，并重新查看引用 [3] 对应的原文。",
+  },
+};
+
 const libraryNotes = [
+  logisticRegressionNote,
   {
     id: "ml-intro",
     title: "机器学习导论",
@@ -239,6 +483,14 @@ const mindMapBranches = [
 
 const mindMapDirectory = [
   {
+    id: "logistic-regression-map",
+    title: "Logistic Regression 导图",
+    tag: "学习",
+    updated: "刚刚",
+    preview: "围绕定义、Sigmoid、Cross-entropy Loss 和常见误区组织的 Agent 生成导图。",
+    children: ["Definition", "Classification", "Sigmoid", "Cross-entropy", "Common mistake"],
+  },
+  {
     id: "math-map",
     title: "高等数学导图",
     tag: "学习",
@@ -273,6 +525,19 @@ const mindMapDirectory = [
 ];
 
 const mindMapViewerData = {
+  "logistic-regression-map": {
+    title: "Logistic Regression 导图",
+    intro: "Agent 将 Logistic Regression 的分类目标、概率输出、Sigmoid 映射、交叉熵训练目标和命名误区组织为可交互知识网络。",
+    centerLabel: "Logistic Regression",
+    resources: ["引用 [1] Basic definition", "引用 [2] Sigmoid", "引用 [3] Cross-entropy loss", "引用 [4] Common mistake"],
+    branches: [
+      { id: "definition", title: "Definition", desc: "用于估计输入属于某个类别的概率", x: 18, y: 25, line: "#2563eb", fill: "#dbeafe" },
+      { id: "classification", title: "Classification", desc: "主要用于分类任务而非连续值回归", x: 18, y: 58, line: "#16a34a", fill: "#dcfce7" },
+      { id: "sigmoid", title: "Sigmoid", desc: "把任意实数映射到 0 到 1 的概率区间", x: 82, y: 25, line: "#9333ea", fill: "#f3e8ff" },
+      { id: "cross-entropy", title: "Cross-entropy", desc: "训练时常用的概率分类损失函数", x: 82, y: 58, line: "#ea580c", fill: "#ffedd5" },
+      { id: "common-mistake", title: "Common mistake", desc: "名称包含 regression，但核心用途是分类", x: 50, y: 82, line: "#eab308", fill: "#fef3c7" },
+    ],
+  },
   "math-map": {
     title: "高等数学",
     intro: "把极限、导数、积分和常见题型整理成一个适合复习的知识树。",
@@ -536,7 +801,7 @@ function NoteDetailScreen({ note, goBack, openConfig, openReview }) {
   const bubbleScrollRef = useRef(null);
   const referenceButtonRefs = useRef({});
   const noteBody = note.sections.join("\n\n");
-  const isReferenceNote = note.id === "ml-intro";
+  const isReferenceNote = Boolean(note.references?.length && note.rawSourceText);
   const activeReference = isReferenceNote
     ? note.references?.find((reference) => reference.id === activeReferenceId) ?? null
     : null;
@@ -609,7 +874,7 @@ function NoteDetailScreen({ note, goBack, openConfig, openReview }) {
   const contentPaddingBottom = chatOpen ? "calc(40vh + 20px)" : "96px";
 
   const toggleReference = (reference) => {
-    if (!isReferenceNote) return;
+    if (!isReferenceNote || !reference) return;
     setActiveReferenceId((current) => (current === reference.id ? null : reference.id));
   };
 
@@ -873,6 +1138,8 @@ function ConfigScreen({ goBack }) {
 }
 
 function ReviewScreen({ goBack }) {
+  const { reviewQuestions, evaluationResult } = logisticRegressionReview;
+
   return (
     <div className="flex h-full flex-col px-5 pt-3">
       <div className="flex-none">
@@ -890,45 +1157,86 @@ function ReviewScreen({ goBack }) {
           <div className="rounded-[28px] border border-slate-200 bg-white p-4 shadow-sm">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <h2 className="mt-2 text-[20px] font-semibold tracking-tight text-slate-900">问题生成</h2>
-                <p className="mt-2 text-[13px] leading-5 text-slate-500">依据笔记内容生成练习题。</p>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-blue-500">Review Question Generation</p>
+                <h2 className="mt-2 text-[20px] font-semibold tracking-tight text-slate-900">Logistic Regression 复习题</h2>
+                <p className="mt-2 text-[13px] leading-5 text-slate-500">Agent 根据结构化笔记和引用来源生成 3 道 mock 练习题。</p>
               </div>
             </div>
 
-            <div className="mt-4 rounded-[22px] border border-dashed border-slate-200 bg-slate-50 px-4 py-4">
-              <div className="space-y-3 text-[13px] leading-6 text-slate-700">
-                <p className="font-medium text-slate-900">问题xxx：</p>
-                <div className="space-y-1 pl-2">
-                  <p>A.</p>
-                  <p>B.</p>
-                  <p>C.</p>
-                  <p>D.</p>
+            <div className="mt-4 space-y-3">
+              {reviewQuestions.map((item, index) => (
+                <div key={item.id} className="rounded-[22px] border border-slate-200 bg-slate-50 px-4 py-4">
+                  <div className="space-y-3 text-[13px] leading-6 text-slate-700">
+                    <div className="flex items-start justify-between gap-3">
+                      <p className="font-medium text-slate-900">
+                        {index + 1}. {item.question}
+                      </p>
+                      <span className="shrink-0 rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold text-blue-600 shadow-sm">
+                        {item.type === "short-answer" ? "简答" : "单选"}
+                      </span>
+                    </div>
+                    {item.options ? (
+                      <div className="grid gap-2">
+                        {item.options.map((option) => (
+                          <div
+                            key={option}
+                            className={`rounded-2xl border px-3 py-2 ${
+                              option === item.answer ? "border-blue-200 bg-white text-blue-700" : "border-slate-200 bg-white text-slate-600"
+                            }`}
+                          >
+                            {option}
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="rounded-2xl border border-blue-100 bg-white px-3 py-2 text-blue-700">
+                        参考答案：{item.referenceAnswer}
+                      </div>
+                    )}
+                    <div className="rounded-2xl bg-white px-3 py-3 shadow-sm">
+                      <p className="font-medium text-slate-900">答案：{item.answer}</p>
+                      <p className="mt-1 text-slate-600">{item.explanation}</p>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {item.citationIds.map((citationId) => (
+                          <span key={citationId} className="rounded-full bg-blue-50 px-2.5 py-1 text-[11px] font-semibold text-blue-600">
+                            引用 [{citationId}]
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
                 </div>
-              </div>
+              ))}
             </div>
           </div>
 
           <div className="rounded-[28px] border border-slate-200 bg-white p-4 shadow-sm">
             <div className="flex items-start justify-between gap-3">
               <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-blue-500">Evaluation</p>
                 <h2 className="mt-2 text-[20px] font-semibold tracking-tight text-slate-900">掌握度评估</h2>
-                <p className="mt-2 text-[13px] leading-5 text-slate-500">依据笔记内容评估当前知识点掌握情况。</p>
+                <p className="mt-2 text-[13px] leading-5 text-slate-500">Agent 使用 mock 答案结果评估当前知识点掌握情况。</p>
               </div>
             </div>
 
-            <div className="mt-4 rounded-[22px] border border-dashed border-slate-200 bg-slate-50 px-4 py-4">
+            <div className="mt-4 rounded-[22px] border border-blue-100 bg-blue-50/70 px-4 py-4">
               <div className="space-y-3 text-[13px] leading-6 text-slate-700">
                 <div className="flex items-center justify-between gap-3">
                   <p className="font-medium text-slate-900">掌握度</p>
-                  <p className="text-[12px] font-semibold text-blue-500">xx%</p>
+                  <p className="text-[16px] font-semibold text-blue-600">{evaluationResult.masteryScore}%</p>
                 </div>
                 <div className="h-2 overflow-hidden rounded-full bg-blue-100">
-                  <div className="h-full w-[62%] rounded-full bg-blue-500" />
+                  <div className="h-full rounded-full bg-blue-500" style={{ width: `${evaluationResult.masteryScore}%` }} />
                 </div>
-                <div className="space-y-1 pl-2">
-                  <p>• 已掌握：基础概念、训练流程</p>
-                  <p>• 待加强：题型识别、应用分析</p>
-                  <p>• 建议复习：对应章节与引用原文</p>
+                <div className="grid gap-3">
+                  <div className="rounded-2xl bg-white px-3 py-3 shadow-sm">
+                    <p className="text-[12px] font-semibold text-slate-400">已掌握</p>
+                    <p className="mt-1 font-medium text-slate-900">{evaluationResult.mastered.join("、")}</p>
+                  </div>
+                  <div className="rounded-2xl bg-white px-3 py-3 shadow-sm">
+                    <p className="text-[12px] font-semibold text-slate-400">薄弱点</p>
+                    <p className="mt-1 font-medium text-slate-900">{evaluationResult.weakPoints.join("、")}</p>
+                  </div>
                 </div>
               </div>
             </div>
@@ -937,16 +1245,20 @@ function ReviewScreen({ goBack }) {
           <div className="rounded-[28px] border border-slate-200 bg-white p-4 shadow-sm">
             <div className="flex items-start justify-between gap-3">
               <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-amber-600">Recommendation</p>
                 <h2 className="mt-2 text-[20px] font-semibold tracking-tight text-slate-900">复习建议</h2>
-                <p className="mt-2 text-[13px] leading-5 text-slate-500">根据当前笔记内容给出下一步复习方向。</p>
+                <p className="mt-2 text-[13px] leading-5 text-slate-500">Agent 根据 Evaluation 结果生成下一步学习建议。</p>
               </div>
             </div>
 
-            <div className="mt-4 rounded-[22px] border border-dashed border-slate-200 bg-slate-50 px-4 py-4">
-              <div className="space-y-2 text-[13px] leading-6 text-slate-700">
-                <p>• 先回看高亮的核心概念，再做一轮题目生成。</p>
-                <p>• 对照引用原文，确认自己是否能复述关键定义。</p>
-                <p>• 把易错点和待加强部分单独整理成下一次复习清单。</p>
+            <div className="mt-4 rounded-[22px] border border-amber-100 bg-amber-50/80 px-4 py-4">
+              <p className="text-[13px] leading-6 text-amber-900">{evaluationResult.suggestion}</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {["Evaluation", "Recommendation", "引用 [3]"].map((tag) => (
+                  <span key={tag} className="rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold text-amber-700 shadow-sm">
+                    {tag}
+                  </span>
+                ))}
               </div>
             </div>
           </div>
@@ -1026,44 +1338,44 @@ function InputScreen({ startLoading }) {
 }
 
 function LoadingScreen({ phase }) {
-  const items = [
-    { title: "解析输入", desc: "识别内容类型与结构" },
-    { title: "提取知识", desc: "提炼主题、关键词和术语" },
-    { title: "生成结果", desc: "组织摘要、列表和关联关系" },
-    { title: "构建导图", desc: "输出可视化知识网络" },
-  ];
+  const currentPhase = Math.min(phase, mockAgentPipeline.length - 1);
+  const currentStage = mockAgentPipeline[currentPhase];
+  const progress = ((currentPhase + 1) / mockAgentPipeline.length) * 100;
 
   return (
     <div className="flex min-h-[calc(100vh-180px)] flex-col justify-between px-5 pb-5">
       <div className="space-y-5 pt-3">
-        <TopBar title="AI 处理中" subtitle="正在为你提炼结构化笔记" />
+        <TopBar title="Agent 执行中" subtitle="正在执行学习任务并生成结构化笔记" />
         <section className="rounded-[32px] border border-blue-100 bg-gradient-to-br from-blue-50 via-white to-slate-50 p-5 shadow-sm">
           <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="text-[12px] font-semibold uppercase tracking-[0.24em] text-blue-500">智能分析</p>
-              <h2 className="mt-2 text-[22px] font-semibold tracking-tight text-slate-900">正在提取主题、关键词和层级关系</h2>
+            <div className="min-w-0 flex-1">
+              <p className="text-[12px] font-semibold uppercase tracking-[0.24em] text-blue-500">Agent Pipeline</p>
+              <h2 className="mt-2 text-[22px] font-semibold tracking-tight text-slate-900">Agent 正在执行学习任务</h2>
+              <p className="mt-2 text-[13px] leading-6 text-slate-600">{currentStage.visibleText}</p>
             </div>
-            <div className="flex h-14 w-14 items-center justify-center rounded-3xl bg-blue-600 text-white shadow-lg shadow-blue-200">AI</div>
+            <div className="flex h-14 min-h-14 w-14 min-w-14 shrink-0 items-center justify-center rounded-3xl bg-blue-600 text-white shadow-lg shadow-blue-200">AI</div>
           </div>
           <div className="mt-5 h-2 overflow-hidden rounded-full bg-blue-100">
-            <div className="h-full rounded-full bg-blue-600 transition-all duration-300" style={{ width: `${20 + phase * 20}%` }} />
+            <div className="h-full rounded-full bg-blue-600 transition-all duration-300" style={{ width: `${progress}%` }} />
           </div>
-          <p className="mt-2 text-[12px] font-medium text-slate-500">正在生成结果...</p>
+          <p className="mt-2 text-[12px] font-medium text-slate-500">
+            当前阶段：{currentStage.label} · {currentPhase + 1}/{mockAgentPipeline.length}
+          </p>
         </section>
         <div className="grid gap-3">
-          {items.map((item, index) => {
-            const done = index < phase;
-            const active = index === phase;
+          {mockAgentPipeline.map((item, index) => {
+            const done = index < currentPhase;
+            const active = index === currentPhase;
             return (
-              <div key={item.title} className={`flex items-center justify-between rounded-2xl border px-4 py-3 shadow-sm ${done || active ? "border-blue-100 bg-white" : "border-slate-200 bg-slate-50"}`}>
-                <div className="flex items-center gap-3">
-                  <span className={`grid h-8 w-8 place-items-center rounded-full text-[12px] font-semibold ${done || active ? "bg-blue-50 text-blue-600" : "bg-slate-200 text-slate-500"}`}>{index + 1}</span>
-                  <div>
-                    <p className="text-[14px] font-semibold text-slate-900">{item.title}</p>
-                    <p className="text-[12px] text-slate-500">{item.desc}</p>
+              <div key={item.id} className={`flex items-center justify-between gap-3 rounded-2xl border px-4 py-3 shadow-sm ${done || active ? "border-blue-100 bg-white" : "border-slate-200 bg-slate-50"}`}>
+                <div className="flex min-w-0 flex-1 items-center gap-3">
+                  <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-full text-[12px] font-semibold ${done || active ? "bg-blue-50 text-blue-600" : "bg-slate-200 text-slate-500"}`}>{index + 1}</span>
+                  <div className="min-w-0">
+                    <p className="text-[14px] font-semibold text-slate-900">{item.label}</p>
+                    <p className="text-[12px] text-slate-500">{item.visibleText}</p>
                   </div>
                 </div>
-                <span className={`text-[12px] font-medium ${done ? "text-blue-600" : active ? "text-blue-500" : "text-slate-300"}`}>
+                <span className={`shrink-0 text-[12px] font-medium ${done ? "text-blue-600" : active ? "text-blue-500" : "text-slate-300"}`}>
                   {done ? "完成" : active ? "进行中" : "等待中"}
                 </span>
               </div>
@@ -1075,55 +1387,74 @@ function LoadingScreen({ phase }) {
   );
 }
 
-function ResultScreen({ goMindMap, goContinue }) {
+function ResultScreen({ goMindMap, goContinue, goNote }) {
   return (
     <div className="space-y-5 px-5 pb-5">
-      <TopBar title="智能结果" subtitle="来自内容的结构化输出" />
-      <Card title="主题摘要" subtitle="快速概览">
+      <TopBar title="Agent 生成结果" subtitle="Logistic Regression 学习任务" />
+      <Card title={logisticRegressionMockResult.title} subtitle="主题摘要">
         <div className="rounded-[22px] border border-blue-100 bg-blue-50/70 p-4">
           <p className="text-[12px] font-semibold uppercase tracking-[0.24em] text-blue-500">一句话总结</p>
-          <p className="mt-2 text-[14px] leading-6 text-slate-700">这份内容先把长内容压缩成可复习的结构化知识，再按重点继续展开。</p>
+          <p className="mt-2 text-[14px] leading-6 text-slate-700">{logisticRegressionMockResult.summary}</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {["可追溯引用", "知识导图", "复习评估"].map((keyword) => (
+              <span key={keyword} className="rounded-full bg-white px-3 py-1 text-[11px] font-semibold text-blue-600 shadow-sm">
+                {keyword}
+              </span>
+            ))}
+          </div>
         </div>
       </Card>
-      <Card title="结果预览" subtitle="先看输出长什么样">
+      <Card title="Agent 输出产物" subtitle="本次 mock pipeline 已生成">
         <div className="space-y-3">
-          <div className="rounded-[24px] border border-slate-200 bg-white p-4 shadow-sm">
-            <p className="text-[12px] font-semibold uppercase tracking-[0.18em] text-slate-400">预览内容</p>
-            <h3 className="mt-2 text-[16px] font-semibold text-slate-900">结构化笔记的核心内容</h3>
-            <p className="mt-2 text-[13px] leading-6 text-slate-600">系统会把原始内容整理成摘要、重点、分支和后续行动，方便继续阅读或继续编辑。</p>
+          {logisticRegressionMockResult.artifacts.map((artifact) => (
+            <div key={artifact.id} className="rounded-[24px] border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-[12px] font-semibold uppercase tracking-[0.18em] text-slate-400">{artifact.tag}</p>
+                  <h3 className="mt-2 text-[16px] font-semibold text-slate-900">{artifact.title}</h3>
+                </div>
+                <span className="shrink-0 rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-500">已生成</span>
+              </div>
+              <p className="mt-2 text-[13px] leading-6 text-slate-600">{artifact.desc}</p>
+            </div>
+          ))}
+          <div className="rounded-[24px] border border-amber-100 bg-amber-50/80 p-4">
+            <p className="text-[12px] font-semibold uppercase tracking-[0.18em] text-amber-600">Recommendation</p>
+            <p className="mt-2 text-[13px] leading-6 text-amber-900">{logisticRegressionMockResult.recommendation}</p>
           </div>
           <div className="grid grid-cols-2 gap-2">
+            <button onClick={goNote} className="col-span-2 rounded-2xl border border-blue-100 bg-blue-50 px-4 py-3 text-[14px] font-semibold text-blue-700 shadow-sm">查看结构化笔记</button>
             <button onClick={goMindMap} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-[14px] font-semibold text-slate-700 shadow-sm">查看思维导图</button>
             <button onClick={goContinue} className="rounded-2xl bg-blue-600 px-4 py-3 text-[14px] font-semibold text-white shadow-sm">继续采集</button>
           </div>
         </div>
       </Card>
-      <Card title="AI 对话框" subtitle="用于改进结果">
+      <Card title="Agent 对话框" subtitle="围绕生成结果继续追问">
         <div className="space-y-3">
           <div className="rounded-[24px] border border-slate-200 bg-slate-50 p-4">
             <div className="h-56 space-y-3 overflow-y-auto pr-1">
               <div className="rounded-2xl bg-white px-3 py-3 shadow-sm">
                 <p className="text-[12px] font-semibold text-slate-500">我</p>
-                <p className="mt-1 text-[13px] leading-5 text-slate-700">把这一段再压缩一点，保留最核心的定义和结论。</p>
+                <p className="mt-1 text-[13px] leading-5 text-slate-700">把 Logistic Regression 的核心定义和易错点再总结一下。</p>
               </div>
               <div className="rounded-2xl bg-blue-600 px-3 py-3 text-white shadow-sm">
-                <p className="text-[12px] font-semibold text-blue-100">AI</p>
-                <p className="mt-1 text-[13px] leading-5 text-white/90">可以，我会优先保留主题句、关键结论和下一步动作。</p>
+                <p className="text-[12px] font-semibold text-blue-100">Agent</p>
+                <p className="mt-1 text-[13px] leading-5 text-white/90">它主要用于分类任务，通过 Sigmoid 输出概率；名称里的 regression 容易让人误以为它是回归模型。</p>
               </div>
               <div className="rounded-2xl bg-white px-3 py-3 shadow-sm">
                 <p className="text-[12px] font-semibold text-slate-500">我</p>
-                <p className="mt-1 text-[13px] leading-5 text-slate-700">再补充一点，把适合复习的关键词也一起留下。</p>
+                <p className="mt-1 text-[13px] leading-5 text-slate-700">哪些部分适合优先复习？</p>
               </div>
               <div className="rounded-2xl bg-blue-600 px-3 py-3 text-white shadow-sm">
-                <p className="text-[12px] font-semibold text-blue-100">AI</p>
-                <p className="mt-1 text-[13px] leading-5 text-white/90">收到，我会把关键词、定义和结论一起整理进结果里。</p>
+                <p className="text-[12px] font-semibold text-blue-100">Agent</p>
+                <p className="mt-1 text-[13px] leading-5 text-white/90">优先回看交叉熵损失和梯度下降，再结合引用 [3] 检查训练目标是否理解准确。</p>
               </div>
             </div>
           </div>
           <div className="rounded-[24px] border border-slate-200 bg-white px-4 py-3 shadow-sm">
             <p className="text-[12px] font-medium text-slate-400">输入对话内容</p>
             <div className="mt-3 flex items-center gap-2">
-              <div className="h-10 flex-1 rounded-2xl bg-slate-100 px-3 py-2 text-[13px] text-slate-400">继续让 AI 帮你改进结果...</div>
+              <div className="h-10 flex-1 rounded-2xl bg-slate-100 px-3 py-2 text-[13px] text-slate-400">继续追问这份学习结果...</div>
               <button className="rounded-2xl bg-slate-900 px-4 py-2 text-[13px] font-semibold text-white">发送</button>
             </div>
           </div>
@@ -1407,13 +1738,11 @@ export default function App() {
   useEffect(() => {
     if (nav !== "ai" || aiFlow !== "loading") return undefined;
     setPhase(0);
-    const timers = [
-      setTimeout(() => setPhase(1), 300),
-      setTimeout(() => setPhase(2), 800),
-      setTimeout(() => setPhase(3), 1200),
-      setTimeout(() => setPhase(4), 1600),
-      setTimeout(() => setAiFlow("result"), 2100),
-    ];
+    const phaseDuration = 1000;
+    const timers = mockAgentPipeline
+      .slice(1)
+      .map((_, index) => setTimeout(() => setPhase(index + 1), phaseDuration * (index + 1)));
+    timers.push(setTimeout(() => setAiFlow("result"), phaseDuration * mockAgentPipeline.length + 300));
     return () => timers.forEach(clearTimeout);
   }, [nav, aiFlow]);
 
@@ -1464,7 +1793,15 @@ export default function App() {
     nav === "ai" ? (
       aiFlow === "input" ? <InputScreen startLoading={() => setAiFlow("loading")} /> :
       aiFlow === "loading" ? <LoadingScreen phase={phase} /> :
-      <ResultScreen onMindMap={() => setNav("mindmap")} goMindMap={() => setNav("mindmap")} goContinue={() => { setAiFlow("input"); setNav("ai"); }} />
+      <ResultScreen
+        onMindMap={() => setNav("mindmap")}
+        goMindMap={() => {
+          setMindMapSelectedMap("logistic-regression-map");
+          setNav("mindmap");
+        }}
+        goNote={() => openNote(logisticRegressionNote)}
+        goContinue={() => { setAiFlow("input"); setNav("ai"); }}
+      />
     ) :
     nav === "mindmap" ? <MindMapScreen selectedMap={mindMapSelectedMap} setSelectedMap={setMindMapSelectedMap} /> :
     <ProfileScreen />;
