@@ -49,7 +49,7 @@ export function normalizeAgentResult(rawResult) {
     },
     review: {
       questions: normalizeArray(result.review.questions, demoAgentResult.review.questions).map(normalizeQuestion),
-      masteryScore: numberOrFallback(result.review.masteryScore, demoAgentResult.review.masteryScore),
+      masteryScore: clamp(numberOrFallback(result.review.masteryScore, demoAgentResult.review.masteryScore), 0, 100),
       weakPoints: normalizeArray(result.review.weakPoints, demoAgentResult.review.weakPoints).map(String),
       recommendations: normalizeArray(result.review.recommendations, demoAgentResult.review.recommendations).map(String),
     },
@@ -122,7 +122,7 @@ function normalizeQuestion(question, index) {
 }
 
 function normalizeArray(value, fallback) {
-  return Array.isArray(value) && value.length > 0 ? value : fallback;
+  return Array.isArray(value) ? value : fallback;
 }
 
 function stringOrFallback(value, fallback) {
@@ -131,4 +131,8 @@ function stringOrFallback(value, fallback) {
 
 function numberOrFallback(value, fallback) {
   return Number.isFinite(Number(value)) ? Number(value) : fallback;
+}
+
+function clamp(value, min, max) {
+  return Math.min(Math.max(value, min), max);
 }

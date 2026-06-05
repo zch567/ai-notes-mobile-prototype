@@ -82,11 +82,18 @@ export default function App() {
     setAgentStatus,
   });
 
-  const showBottomNav = !detailView;
+  const isLandscapeMindMap = nav === "mindmap" && !detailView;
+  const showBottomNav = !detailView && !isLandscapeMindMap;
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top,#eff6ff_0%,#f8fafc_36%,#ffffff_80%)] px-4 py-6 text-slate-900">
-      <div className="relative mx-auto flex h-[calc(100vh-3rem)] max-w-[430px] flex-col overflow-hidden rounded-[40px] border border-slate-200 bg-slate-100 shadow-[0_24px_80px_rgba(15,23,42,0.12)]">
+    <div className={`min-h-screen bg-[radial-gradient(circle_at_top,#eff6ff_0%,#f8fafc_36%,#ffffff_80%)] px-4 py-6 text-slate-900 ${isLandscapeMindMap ? "flex items-center max-[640px]:overflow-hidden max-[640px]:p-0" : ""}`}>
+      <div
+        className={`relative mx-auto flex overflow-hidden border border-slate-200 bg-slate-100 shadow-[0_24px_80px_rgba(15,23,42,0.12)] ${
+          isLandscapeMindMap
+            ? "h-[min(430px,calc(100vh-3rem))] w-full max-w-[920px] origin-center flex-col rounded-[34px] max-[640px]:fixed max-[640px]:left-1/2 max-[640px]:top-1/2 max-[640px]:m-0 max-[640px]:h-[calc(100vw-1.25rem)] max-[640px]:w-[calc(100vh-1.25rem)] max-[640px]:max-w-none max-[640px]:-translate-x-1/2 max-[640px]:-translate-y-1/2 max-[640px]:rotate-90"
+            : "h-[calc(100vh-3rem)] max-w-[430px] flex-col rounded-[40px]"
+        }`}
+      >
         <StatusBar />
         <main className={`min-h-0 flex-1 ${showBottomNav ? "overflow-y-auto pb-28" : "overflow-hidden"}`}>{screen}</main>
         {showBottomNav ? (
@@ -137,7 +144,7 @@ function getScreen({
   }
 
   if (nav === "mindmap") {
-    return <MindMapScreen result={agentResult} />;
+    return <MindMapScreen result={agentResult} onBack={() => setNav("notes")} />;
   }
 
   if (nav === "profile") {

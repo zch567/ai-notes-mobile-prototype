@@ -6,11 +6,30 @@ import { demoInputText } from "../../data/demoAgentResult";
 export function InputScreen({ onRun, status }) {
   const [sourceText, setSourceText] = useState(demoInputText);
   const [inputType, setInputType] = useState("text");
+  const [sourceTitle, setSourceTitle] = useState("Logistic Regression 公开样例");
   const inputTypes = [
     ["text", "文本"],
     ["pdf", "PDF"],
     ["ppt", "PPT"],
   ];
+
+  function useSample(title) {
+    setSourceText(demoInputText);
+    setSourceTitle(title);
+    setInputType("text");
+  }
+
+  function runCurrentInput() {
+    onRun({
+      inputType,
+      sourceText: inputType === "text" ? sourceText : "",
+      sourceMeta: {
+        title: sourceTitle,
+        fileName: "",
+        mimeType: inputType === "text" ? "text/plain" : "",
+      },
+    });
+  }
 
   return (
     <div className="space-y-5 pb-6">
@@ -54,7 +73,7 @@ export function InputScreen({ onRun, status }) {
             {["Logistic Regression 公开样例", "课程资料整理", "考试复习闭环"].map((item) => (
               <button
                 key={item}
-                onClick={() => setSourceText(demoInputText)}
+                onClick={() => useSample(item)}
                 className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-left text-[13px] font-medium text-slate-600"
               >
                 {item}
@@ -63,7 +82,7 @@ export function InputScreen({ onRun, status }) {
           </div>
 
           <button
-            onClick={() => onRun({ sourceText })}
+            onClick={runCurrentInput}
             disabled={status === "loading"}
             className="mt-4 w-full rounded-2xl bg-blue-600 px-4 py-3 text-[14px] font-semibold text-white disabled:bg-slate-300"
           >

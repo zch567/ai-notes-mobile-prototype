@@ -17,5 +17,5 @@ export async function runAgent(input) {
     method: "POST",
     body: JSON.stringify(input),
   });
-  return normalizeAgentResult(result);
+  return normalizeAgentResult(result?.data && typeof result.data === "object" ? result.data : result);
 }
