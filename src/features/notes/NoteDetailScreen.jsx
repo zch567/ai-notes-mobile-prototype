@@ -1,10 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 export function NoteDetailScreen({ result, onBack, onOpenReview }) {
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [chatInput, setChatInput] = useState("");
   const [activeSourceId, setActiveSourceId] = useState(null);
   const [bubbleLayout, setBubbleLayout] = useState(null);
+  const [settings, setSettings] = useState({
+    reviewMode: false,
+    showCitations: true,
+    autoSave: true,
+  });
   const [messages, setMessages] = useState([
     {
       role: "assistant",
@@ -21,6 +27,12 @@ export function NoteDetailScreen({ result, onBack, onOpenReview }) {
   const sourceParagraphs = result.sources.map((source) => source.text);
   const citationIds = result.notes.flatMap((note) => note.citationIds);
   const missingCitationCount = citationIds.filter((sourceId) => !sourceById.has(sourceId)).length;
+
+  useEffect(() => {
+    if (!settings.showCitations) {
+      setActiveSourceId(null);
+    }
+  }, [settings.showCitations]);
 
   useEffect(() => {
     if (!messageListRef.current) return;
@@ -82,6 +94,16 @@ export function NoteDetailScreen({ result, onBack, onOpenReview }) {
 
   const contentPaddingBottom = chatOpen ? "calc(40vh + 20px)" : "96px";
 
+  if (settingsOpen) {
+    return (
+      <NoteSettingsScreen
+        settings={settings}
+        setSettings={setSettings}
+        onBack={() => setSettingsOpen(false)}
+      />
+    );
+  }
+
   return (
     <div ref={shellRef} className="relative flex h-full flex-col px-5 pt-3">
       <header className="flex-none">
@@ -99,7 +121,7 @@ export function NoteDetailScreen({ result, onBack, onOpenReview }) {
                 ↻
               </button>
               <span className="pointer-events-none absolute left-1/2 -translate-x-1/2 text-center text-[12px] font-medium tracking-[0.18em] text-slate-400">
-                笔记将会自动保存
+                {settings.autoSave ? "笔记将会自动保存" : "自动保存已关闭"}
               </span>
             </div>
           </div>
@@ -112,7 +134,15 @@ export function NoteDetailScreen({ result, onBack, onOpenReview }) {
             >
               复习
             </button>
-            <button className="text-[14px] font-medium text-slate-900">配置</button>
+            <button
+              onClick={() => {
+                setChatOpen(false);
+                setSettingsOpen(true);
+              }}
+              className="text-[14px] font-medium text-slate-900"
+            >
+              配置
+            </button>
           </div>
         </div>
       </header>
@@ -126,8 +156,16 @@ export function NoteDetailScreen({ result, onBack, onOpenReview }) {
               className="w-full border-0 bg-transparent p-0 text-[34px] font-normal tracking-tight text-slate-900 outline-none placeholder:text-slate-300"
               aria-label="标题"
             />
-            <p className="text-[12px] text-slate-400">由 AgentResult.notes / sources / citations 渲染</p>
+            <p className="text-[12px] text-slate-400">
+              {settings.reviewMode ? "复习模式已开启：优先关注标题、重点和引用证据" : "由 AgentResult.notes / sources / citations 渲染"}
+            </p>
           </section>
+
+          {settings.reviewMode ? (
+            <section className="rounded-[24px] border border-blue-100 bg-blue-50 px-4 py-3 text-[13px] leading-6 text-blue-900">
+              复习模式会弱化编辑感，帮助你按章节快速回看知识点。可以随时进入配置页关闭。
+            </section>
+          ) : null}
 
           <section className="space-y-4">
             <p className="text-[12px] uppercase tracking-[0.24em] text-slate-400">正文</p>
@@ -137,7 +175,7 @@ export function NoteDetailScreen({ result, onBack, onOpenReview }) {
                   <h2 className="text-[16px] font-semibold tracking-tight text-slate-900">{block.title}</h2>
                   <p className="leading-8 text-slate-700">
                     {block.content}
-                    {block.citationIds.map((sourceId) => {
+                    {settings.showCitations ? block.citationIds.map((sourceId) => {
                       const hasSource = sourceById.has(sourceId);
                       return (
                       <button
@@ -161,7 +199,7 @@ export function NoteDetailScreen({ result, onBack, onOpenReview }) {
                         {sourceId}
                       </button>
                       );
-                    })}
+                    }) : null}
                   </p>
                 </section>
               )) : (
@@ -172,7 +210,13 @@ export function NoteDetailScreen({ result, onBack, onOpenReview }) {
             </div>
           </section>
 
-          {missingCitationCount ? (
+          {!settings.showCitations ? (
+            <section className="rounded-[24px] border border-slate-200 bg-slate-50 px-4 py-3 text-[13px] leading-6 text-slate-500">
+              原文引用已在配置中隐藏。打开后可点击编号查看来源片段。
+            </section>
+          ) : null}
+
+          {settings.showCitations && missingCitationCount ? (
             <section className="rounded-[24px] border border-amber-200 bg-amber-50 px-4 py-3 text-[13px] leading-6 text-amber-900">
               有 {missingCitationCount} 个引用编号没有匹配到来源片段。请和后端对齐
               <span className="font-semibold"> notes[].citationIds -&gt; sources[].id </span>
@@ -231,6 +275,99 @@ export function NoteDetailScreen({ result, onBack, onOpenReview }) {
         sendMessage={sendMessage}
       />
     </div>
+  );
+}
+
+function NoteSettingsScreen({ settings, setSettings, onBack }) {
+  function updateSetting(key, value) {
+    setSettings((current) => ({ ...current, [key]: value }));
+  }
+
+  const settingsItems = [
+    {
+      key: "reviewMode",
+      title: "复习模式",
+      desc: "开启后笔记页更偏复习阅读，突出章节回看和重点提示。",
+    },
+    {
+      key: "showCitations",
+      title: "原文引用",
+      desc: "开启后在正文中显示引用编号，可点击查看来源片段。",
+    },
+    {
+      key: "autoSave",
+      title: "自动保存",
+      desc: "开启后保留自动保存提示，适合后续接入真实笔记编辑。",
+    },
+  ];
+
+  return (
+    <div className="flex h-full flex-col px-5 pt-3">
+      <header className="flex-none">
+        <div className="flex items-center justify-between">
+          <button onClick={onBack} className="text-[14px] font-medium text-slate-500">
+            返回
+          </button>
+          <p className="text-[12px] font-medium tracking-[0.18em] text-slate-400">笔记配置</p>
+          <button onClick={onBack} className="text-[14px] font-medium text-blue-600">
+            完成
+          </button>
+        </div>
+      </header>
+
+      <main className="min-h-0 flex-1 overflow-y-auto pt-10 pb-8">
+        <section className="space-y-3">
+          <p className="text-[12px] uppercase tracking-[0.24em] text-slate-400">Settings</p>
+          <h1 className="text-[34px] font-normal tracking-tight text-slate-900">笔记配置</h1>
+          <p className="text-[13px] leading-6 text-slate-500">
+            控制当前笔记的阅读方式、引用显示和保存提示。设置会立即作用在这篇笔记上。
+          </p>
+        </section>
+
+        <section className="mt-8 space-y-3">
+          {settingsItems.map((item) => (
+            <div key={item.key} className="rounded-[26px] border border-slate-200 bg-white px-4 py-4 shadow-sm">
+              <div className="flex items-center justify-between gap-4">
+                <div className="min-w-0">
+                  <p className="text-[15px] font-semibold text-slate-900">{item.title}</p>
+                  <p className="mt-1 text-[12px] leading-5 text-slate-500">{item.desc}</p>
+                </div>
+                <Toggle
+                  checked={settings[item.key]}
+                  onChange={(checked) => updateSetting(item.key, checked)}
+                />
+              </div>
+            </div>
+          ))}
+        </section>
+
+        <section className="mt-6 rounded-[26px] border border-blue-100 bg-blue-50 px-4 py-4">
+          <p className="text-[13px] font-semibold text-blue-900">当前状态</p>
+          <div className="mt-3 grid gap-2 text-[12px] leading-5 text-blue-800">
+            <p>复习模式：{settings.reviewMode ? "已开启" : "已关闭"}</p>
+            <p>原文引用：{settings.showCitations ? "显示引用编号" : "隐藏引用编号"}</p>
+            <p>自动保存：{settings.autoSave ? "显示自动保存提示" : "关闭自动保存提示"}</p>
+          </div>
+        </section>
+      </main>
+    </div>
+  );
+}
+
+function Toggle({ checked, onChange }) {
+  return (
+    <button
+      type="button"
+      onClick={() => onChange(!checked)}
+      className={`relative h-8 w-14 shrink-0 rounded-full transition ${checked ? "bg-blue-600" : "bg-slate-300"}`}
+      aria-pressed={checked}
+    >
+      <span
+        className={`absolute top-1 h-6 w-6 rounded-full bg-white shadow-sm transition ${
+          checked ? "left-7" : "left-1"
+        }`}
+      />
+    </button>
   );
 }
 
