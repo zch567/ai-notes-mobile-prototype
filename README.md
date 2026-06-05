@@ -29,6 +29,14 @@ VITE_DEMO_MODE=false
 VITE_API_BASE_URL=http://127.0.0.1:8000
 ```
 
+Android WebView 壳建议切换为全屏应用模式：
+
+```text
+VITE_APP_SHELL_MODE=webview
+```
+
+默认 `preview` 模式会保留桌面预览用的手机壳、圆角和居中留白；`webview` 模式会铺满 WebView，隐藏假状态栏，并为底部导航保留安全区。
+
 ## 构建
 
 ```bash
