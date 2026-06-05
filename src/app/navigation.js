@@ -9,6 +9,7 @@ export const NAV_ITEMS = [
 export const DETAIL_VIEWS = {
   NOTE: "note",
   REVIEW: "review",
+  MINDMAP: "mindmap",
 };
 
 export const AGENT_STATUS = {

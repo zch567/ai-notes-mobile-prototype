@@ -2,12 +2,6 @@ import { Card } from "../../components/Card";
 import { TopBar } from "../../components/TopBar";
 
 export function HomeScreen({ result, onStart, onOpenNote }) {
-  const quickActions = [
-    ["资料导入", "文本 / PDF / PPT"],
-    ["可信引用", `${result.citations.length} 条来源`],
-    ["复习闭环", `${result.review.questions.length} 道题`],
-  ];
-
   return (
     <div className="space-y-5 pb-6">
       <TopBar title="智序知识助手" subtitle="把学习资料变成可追溯、可复习的知识资产" />
@@ -23,15 +17,6 @@ export function HomeScreen({ result, onStart, onOpenNote }) {
             开始生成
           </button>
         </section>
-      </div>
-
-      <div className="grid grid-cols-3 gap-2 px-5">
-        {quickActions.map(([title, value]) => (
-          <div key={title} className="rounded-[22px] border border-slate-200 bg-white p-3 shadow-sm">
-            <p className="text-[11px] font-semibold text-slate-400">{title}</p>
-            <p className="mt-2 text-[13px] font-semibold leading-5 text-slate-900">{value}</p>
-          </div>
-        ))}
       </div>
 
       <div className="px-5">

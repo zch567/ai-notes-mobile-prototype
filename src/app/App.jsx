@@ -8,7 +8,7 @@ import { LoadingScreen } from "../features/ai/LoadingScreen";
 import { ResultScreen } from "../features/ai/ResultScreen";
 import { runAgent } from "../features/ai/agentApi";
 import { HomeScreen } from "../features/home/HomeScreen";
-import { MindMapScreen } from "../features/mindmap/MindMapScreen";
+import { MindMapLibraryScreen, MindMapScreen } from "../features/mindmap/MindMapScreen";
 import { NoteDetailScreen } from "../features/notes/NoteDetailScreen";
 import { NotesScreen } from "../features/notes/NotesScreen";
 import { ReviewScreen } from "../features/notes/ReviewScreen";
@@ -82,7 +82,7 @@ export default function App() {
     setAgentStatus,
   });
 
-  const isLandscapeMindMap = nav === "mindmap" && !detailView;
+  const isLandscapeMindMap = nav === "mindmap" && detailView === DETAIL_VIEWS.MINDMAP;
   const showBottomNav = !detailView && !isLandscapeMindMap;
 
   return (
@@ -135,6 +135,10 @@ function getScreen({
     return <ReviewScreen result={agentResult} onBack={() => setDetailView(DETAIL_VIEWS.NOTE)} />;
   }
 
+  if (detailView === DETAIL_VIEWS.MINDMAP) {
+    return <MindMapScreen result={agentResult} onBack={() => setDetailView(null)} />;
+  }
+
   if (nav === "home") {
     return <HomeScreen result={agentResult} onStart={() => setNav("ai")} onOpenNote={openNote} />;
   }
@@ -144,7 +148,7 @@ function getScreen({
   }
 
   if (nav === "mindmap") {
-    return <MindMapScreen result={agentResult} onBack={() => setNav("notes")} />;
+    return <MindMapLibraryScreen result={agentResult} onOpenMap={() => setDetailView(DETAIL_VIEWS.MINDMAP)} />;
   }
 
   if (nav === "profile") {

@@ -1,4 +1,64 @@
 import { useMemo, useState } from "react";
+import { Card } from "../../components/Card";
+import { TopBar } from "../../components/TopBar";
+
+export function MindMapLibraryScreen({ result, onOpenMap }) {
+  const nodeCount = result.mindMap.nodes.length;
+  const edgeCount = result.mindMap.edges.length;
+  const savedMaps = [
+    {
+      id: result.id || "current-map",
+      title: result.topic,
+      summary: result.summary,
+      meta: `${nodeCount} 个节点 · ${edgeCount} 条连线`,
+      status: nodeCount ? "可打开" : "待生成",
+    },
+  ];
+
+  return (
+    <div className="space-y-5 pb-6">
+      <TopBar title="导图目录" subtitle="查看已保存的知识导图" />
+
+      <div className="px-5">
+        <Card title="已保存导图" subtitle="Mind Maps">
+          <div className="space-y-3">
+            {savedMaps.map((item) => (
+              <button
+                key={item.id}
+                onClick={onOpenMap}
+                className="w-full rounded-[28px] border border-slate-200 bg-slate-50 p-4 text-left transition hover:border-blue-200 hover:bg-white"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-[12px] font-semibold uppercase tracking-[0.18em] text-slate-400">当前结果</p>
+                    <h2 className="mt-2 text-[18px] font-semibold tracking-tight text-slate-900">{item.title}</h2>
+                    <p className="mt-2 line-clamp-2 text-[13px] leading-5 text-slate-500">{item.summary}</p>
+                  </div>
+                  <span className="shrink-0 rounded-full bg-blue-50 px-3 py-1 text-[12px] font-semibold text-blue-600">
+                    {item.status}
+                  </span>
+                </div>
+                <div className="mt-4 flex items-center justify-between rounded-2xl bg-white px-3 py-2 text-[12px] font-semibold text-slate-500">
+                  <span>{item.meta}</span>
+                  <span className="text-blue-600">进入横屏</span>
+                </div>
+              </button>
+            ))}
+          </div>
+        </Card>
+      </div>
+
+      <div className="px-5">
+        <Card title="导图说明" subtitle="Usage">
+          <div className="space-y-3 text-[13px] leading-6 text-slate-600">
+            <p>导图目录用于承载后续多份学习资料生成的知识图谱。当前阶段先展示最近一次 AgentResult 生成的导图。</p>
+            <p>点击具体导图后进入横屏画布，适合录屏展示节点关系和知识点详情。</p>
+          </div>
+        </Card>
+      </div>
+    </div>
+  );
+}
 
 export function MindMapScreen({ result, onBack }) {
   const { nodes, edges } = result.mindMap;
