@@ -9,6 +9,7 @@ export function MindMapScreen({ result, onBack }) {
   const detailNode = selectedNode || centerNode;
   const focusX = selectedNode ? 50 - selectedNode.x : 0;
   const focusY = selectedNode ? 50 - selectedNode.y : 0;
+  const hasMap = nodes.length > 0;
 
   return (
     <div className="relative flex h-full flex-col overflow-hidden bg-[#eef4f8]">
@@ -99,6 +100,17 @@ export function MindMapScreen({ result, onBack }) {
                 </button>
               );
             })}
+
+            {!hasMap ? (
+              <div className="absolute inset-0 grid place-items-center px-8 text-center">
+                <div className="max-w-[360px] rounded-[28px] border border-dashed border-slate-300 bg-white/86 px-6 py-5 shadow-sm">
+                  <p className="text-[15px] font-semibold text-slate-900">暂无导图节点</p>
+                  <p className="mt-2 text-[13px] leading-6 text-slate-500">
+                    请检查后端 JSON 中的 mindMap.nodes 和 mindMap.edges。第二周可先返回少量节点，后续再完善布局。
+                  </p>
+                </div>
+              </div>
+            ) : null}
           </div>
         </section>
 
@@ -107,7 +119,9 @@ export function MindMapScreen({ result, onBack }) {
             <div className="min-w-0">
               <p className="text-[10px] font-semibold uppercase text-slate-400">{selectedNode ? "当前节点" : "导图概览"}</p>
               <h2 className="mt-1 text-[22px] font-semibold tracking-tight text-slate-950">{detailNode?.label || result.topic}</h2>
-              <p className="mt-2 text-[12px] leading-5 text-slate-500">{detailNode?.desc || "选择一个节点查看来源说明、编辑操作和复习线索。"}</p>
+              <p className="mt-2 text-[12px] leading-5 text-slate-500">
+                {hasMap ? detailNode?.desc || "选择一个节点查看来源说明、编辑操作和复习线索。" : "当前结果还没有可渲染的导图数据。"}
+              </p>
             </div>
             {selectedNode ? (
               <button onClick={() => setSelectedNodeId(null)} className="shrink-0 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-[12px] font-semibold text-slate-500">

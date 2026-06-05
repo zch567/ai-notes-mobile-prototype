@@ -39,5 +39,7 @@ npm run build
 
 - `docs/frontend-architecture.md`：前端模块边界。
 - `docs/agent-result-contract.md`：后端返回数据契约。
+- `docs/frontend-adapter-checklist.md`：第二周 C 任务前端适配清单。
+- `docs/backend-api-interface.md`：前后端接口联调说明。
 - `docs/collaboration-checklist.md`：多人协作检查清单。
 

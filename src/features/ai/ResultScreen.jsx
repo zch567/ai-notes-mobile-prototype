@@ -2,6 +2,11 @@ import { Card } from "../../components/Card";
 import { TopBar } from "../../components/TopBar";
 
 export function ResultScreen({ result, onOpenNote, onOpenMindMap, onRetry }) {
+  const citationLinkCount = result.notes.reduce((count, note) => count + note.citationIds.length, 0);
+  const recommendationText = result.review.recommendations.length
+    ? result.review.recommendations.join("；")
+    : "当前结果还没有复习建议，后端可在 review.recommendations 中返回下一步复习动作。";
+
   return (
     <div className="space-y-5 pb-6">
       <TopBar title="生成结果" subtitle="由统一 AgentResult 渲染" />
@@ -10,9 +15,13 @@ export function ResultScreen({ result, onOpenNote, onOpenMindMap, onRetry }) {
         <Card title={result.topic} subtitle="Summary">
           <p className="text-[14px] leading-6 text-slate-700">{result.summary}</p>
           <div className="mt-4 grid grid-cols-3 gap-2">
-            <Metric label="引用" value={result.citations.length} />
+            <Metric label="来源" value={result.sources.length} />
             <Metric label="笔记" value={result.notes.length} />
             <Metric label="题目" value={result.review.questions.length} />
+          </div>
+          <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-[12px] leading-5 text-slate-500">
+            已检测到 {citationLinkCount} 个笔记引用绑定
+            {result.citations.length ? `，另有 ${result.citations.length} 条 citation 审计记录。` : "。"}
           </div>
         </Card>
 
@@ -45,7 +54,7 @@ export function ResultScreen({ result, onOpenNote, onOpenMindMap, onRetry }) {
               <Message
                 role="Agent"
                 tone="agent"
-                text={result.review.recommendations.join("；")}
+                text={recommendationText}
               />
             </div>
           </div>

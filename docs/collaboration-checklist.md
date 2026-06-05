@@ -17,7 +17,7 @@
 ## 联调时
 
 - 后端先给一份真实返回 JSON。
+- 第二周 C 字段对齐优先看 `docs/frontend-adapter-checklist.md`。
 - 前端先在 `agentTypes.js` 归一化字段。
 - 页面组件不直接适配后端临时字段。
 - API 不稳定时保留 `VITE_DEMO_MODE=true` 作为演示兜底。
-

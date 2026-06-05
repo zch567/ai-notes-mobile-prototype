@@ -19,6 +19,8 @@ export function NoteDetailScreen({ result, onBack, onOpenReview }) {
   const sourceById = useMemo(() => new Map(result.sources.map((source) => [source.id, source])), [result.sources]);
   const activeSource = activeSourceId ? sourceById.get(activeSourceId) : null;
   const sourceParagraphs = result.sources.map((source) => source.text);
+  const citationIds = result.notes.flatMap((note) => note.citationIds);
+  const missingCitationCount = citationIds.filter((sourceId) => !sourceById.has(sourceId)).length;
 
   useEffect(() => {
     if (!messageListRef.current) return;
@@ -130,34 +132,53 @@ export function NoteDetailScreen({ result, onBack, onOpenReview }) {
           <section className="space-y-4">
             <p className="text-[12px] uppercase tracking-[0.24em] text-slate-400">正文</p>
             <div className="space-y-5 text-[15px] leading-8 text-slate-700">
-              {result.notes.map((block) => (
+              {result.notes.length ? result.notes.map((block) => (
                 <section key={block.id} className="space-y-2">
                   <h2 className="text-[16px] font-semibold tracking-tight text-slate-900">{block.title}</h2>
                   <p className="leading-8 text-slate-700">
                     {block.content}
-                    {block.citationIds.map((sourceId) => (
+                    {block.citationIds.map((sourceId) => {
+                      const hasSource = sourceById.has(sourceId);
+                      return (
                       <button
                         key={sourceId}
                         ref={(node) => {
                           if (node) citationButtonRefs.current[sourceId] = node;
                         }}
                         type="button"
+                        disabled={!hasSource}
                         onClick={() => toggleSource(sourceId)}
                         className={`ml-2 inline-flex h-7 w-7 items-center justify-center rounded-full border text-[12px] font-semibold leading-none transition ${
-                          activeSourceId === sourceId
-                            ? "border-slate-900 bg-slate-900 text-white"
-                            : "border-slate-300 bg-white text-slate-600"
+                          !hasSource
+                            ? "cursor-not-allowed border-amber-200 bg-amber-50 text-amber-600"
+                            : activeSourceId === sourceId
+                              ? "border-slate-900 bg-slate-900 text-white"
+                              : "border-slate-300 bg-white text-slate-600"
                         }`}
-                        aria-label={`引用 ${sourceId}`}
+                        title={hasSource ? `引用 ${sourceId}` : `引用 ${sourceId} 缺少对应 sources`}
+                        aria-label={hasSource ? `引用 ${sourceId}` : `引用 ${sourceId} 缺少对应来源`}
                       >
                         {sourceId}
                       </button>
-                    ))}
+                      );
+                    })}
                   </p>
                 </section>
-              ))}
+              )) : (
+                <div className="rounded-[24px] border border-dashed border-slate-300 bg-slate-50 px-4 py-5 text-[13px] leading-6 text-slate-500">
+                  当前结果没有返回结构化笔记。请检查后端 JSON 中的 <span className="font-semibold text-slate-700">notes</span> 字段是否为数组。
+                </div>
+              )}
             </div>
           </section>
+
+          {missingCitationCount ? (
+            <section className="rounded-[24px] border border-amber-200 bg-amber-50 px-4 py-3 text-[13px] leading-6 text-amber-900">
+              有 {missingCitationCount} 个引用编号没有匹配到来源片段。请和后端对齐
+              <span className="font-semibold"> notes[].citationIds -&gt; sources[].id </span>
+              的关系。
+            </section>
+          ) : null}
         </article>
       </main>
 

@@ -2,6 +2,9 @@ import { Card } from "../../components/Card";
 
 export function ReviewScreen({ result, onBack }) {
   const { review } = result;
+  const hasQuestions = review.questions.length > 0;
+  const hasWeakPoints = review.weakPoints.length > 0;
+  const hasRecommendations = review.recommendations.length > 0;
 
   return (
     <div className="flex h-full flex-col">
@@ -27,7 +30,7 @@ export function ReviewScreen({ result, onBack }) {
 
           <Card title="复习题" subtitle="Questions">
             <div className="space-y-3">
-              {review.questions.map((item, index) => (
+              {hasQuestions ? review.questions.map((item, index) => (
                 <div key={item.id} className="rounded-2xl bg-slate-50 p-4">
                   <p className="text-[14px] font-semibold text-slate-900">{index + 1}. {item.question}</p>
                   {item.options ? (
@@ -46,7 +49,9 @@ export function ReviewScreen({ result, onBack }) {
                   ) : null}
                   <p className="mt-3 text-[13px] leading-6 text-slate-600">{item.explanation}</p>
                 </div>
-              ))}
+              )) : (
+                <EmptyState text="当前结果没有返回复习题。请检查 review.questions，第二周可先返回 1-2 道题用于演示闭环。" />
+              )}
             </div>
           </Card>
 
@@ -54,19 +59,33 @@ export function ReviewScreen({ result, onBack }) {
             <div className="space-y-3">
               <div>
                 <p className="text-[12px] font-semibold uppercase tracking-[0.18em] text-slate-400">Weak Points</p>
-                <p className="mt-1 text-[14px] font-semibold text-slate-900">{review.weakPoints.join("、")}</p>
+                {hasWeakPoints ? (
+                  <p className="mt-1 text-[14px] font-semibold text-slate-900">{review.weakPoints.join("、")}</p>
+                ) : (
+                  <p className="mt-1 text-[13px] leading-5 text-slate-500">暂无薄弱点。后端可在 review.weakPoints 中返回知识点名称。</p>
+                )}
               </div>
               <div className="space-y-2">
-                {review.recommendations.map((item) => (
+                {hasRecommendations ? review.recommendations.map((item) => (
                   <p key={item} className="rounded-2xl bg-amber-50 px-3 py-2 text-[13px] leading-5 text-amber-900">
                     {item}
                   </p>
-                ))}
+                )) : (
+                  <EmptyState text="暂无复习建议。建议至少返回一个可操作动作，比如重读某个来源片段或重做某类题。" />
+                )}
               </div>
             </div>
           </Card>
         </div>
       </div>
+    </div>
+  );
+}
+
+function EmptyState({ text }) {
+  return (
+    <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-4 text-[13px] leading-6 text-slate-500">
+      {text}
     </div>
   );
 }
