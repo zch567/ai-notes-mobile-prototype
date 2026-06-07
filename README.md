@@ -11,6 +11,7 @@ src/data/         演示数据
 src/features/     业务页面
 src/services/     API 与运行模式
 docs/             协作与接口文档
+android-shell/    Android 原生 WebView 壳
 ```
 
 核心数据结构是 `AgentResult`。页面统一消费归一化后的 `AgentResult`，后端字段变化优先在 `src/features/ai/agentTypes.js` 处理。
@@ -43,6 +44,51 @@ VITE_APP_SHELL_MODE=webview
 npm run build
 ```
 
+WebView 专用构建：
+
+```bash
+npm run build:webview
+```
+
+`build:webview` 会使用相对资源路径，并强制使用：
+
+```text
+VITE_DEMO_MODE=true
+VITE_APP_SHELL_MODE=webview
+```
+
+## Android WebView Demo
+
+Android demo app 位于：
+
+```text
+android-shell/
+```
+
+它是一个原生 Android WebView 壳，会把 Vite 打包后的静态资源放进 APK 本地 assets，适合离线演示，不依赖后端服务。
+
+构建 debug APK：
+
+```powershell
+cd android-shell
+.\gradlew.bat assembleDebug --no-daemon
+```
+
+生成路径：
+
+```text
+android-shell/app/build/outputs/apk/debug/app-debug.apk
+```
+
+APK/AAB 是可再生成的构建产物，已经被 git 忽略；不建议提交到仓库。
+
+Android 运行要点：
+
+- WebView 加载本地资源：`file:///android_asset/web/index.html`。
+- 目前 APK 保持 demo 模式，暂不接后端。
+- 顶部内容在 WebView 模式下会保留状态栏安全距离。
+- 思维导图详情页会请求横屏；如果设备仍为竖屏，会隐藏导图内容并提示用户切换横屏。
+
 ## 文档
 
 - `docs/frontend-architecture.md`：前端模块边界。
@@ -50,4 +96,3 @@ npm run build
 - `docs/frontend-adapter-checklist.md`：第二周 C 任务前端适配清单。
 - `docs/backend-api-interface.md`：前后端接口联调说明。
 - `docs/collaboration-checklist.md`：多人协作检查清单。
-

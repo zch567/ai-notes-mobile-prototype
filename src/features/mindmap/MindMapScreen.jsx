@@ -1,6 +1,7 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Card } from "../../components/Card";
 import { TopBar } from "../../components/TopBar";
+import { isWebViewShell } from "../../services/appShellMode";
 
 export function MindMapLibraryScreen({ result, onOpenMap }) {
   const nodeCount = result.mindMap.nodes.length;
@@ -63,6 +64,7 @@ export function MindMapLibraryScreen({ result, onOpenMap }) {
 export function MindMapScreen({ result, onBack }) {
   const { nodes, edges } = result.mindMap;
   const [selectedNodeId, setSelectedNodeId] = useState(null);
+  const isWebView = isWebViewShell();
   const nodeById = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes]);
   const selectedNode = selectedNodeId ? nodeById.get(selectedNodeId) : null;
   const centerNode = nodeById.get("center") || nodes[0];
@@ -71,11 +73,35 @@ export function MindMapScreen({ result, onBack }) {
   const focusY = selectedNode ? 50 - selectedNode.y : 0;
   const hasMap = nodes.length > 0;
 
-  return (
-    <div className="relative flex h-full flex-col overflow-hidden bg-[#eef4f8]">
-      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(37,99,235,0.12),transparent_34%),radial-gradient(circle_at_78%_18%,rgba(14,165,233,0.18),transparent_28%),linear-gradient(rgba(15,23,42,0.05)_1px,transparent_1px),linear-gradient(90deg,rgba(15,23,42,0.05)_1px,transparent_1px)] bg-[length:auto,auto,28px_28px,28px_28px]" />
+  useEffect(() => {
+    const androidShell = window.AndroidShell;
+    if (!isWebView || !androidShell?.setMindMapLandscape) return undefined;
 
-      <header className="relative z-10 flex h-14 flex-none items-center justify-between border-b border-white/70 bg-white/72 px-5 backdrop-blur-xl">
+    androidShell.setMindMapLandscape(true);
+    return () => androidShell.setMindMapLandscape(false);
+  }, [isWebView]);
+
+  return (
+    <div className={`mindmap-orientation-gate relative h-full overflow-hidden bg-[#eef4f8] ${isWebView ? "mindmap-webview-orientation-gate" : ""}`}>
+      <div className="mindmap-portrait-notice absolute inset-0 z-50 hidden place-items-center bg-[#eef4f8] px-8 text-center">
+        <div className="max-w-[320px] rounded-[30px] border border-white/80 bg-white/88 px-6 py-7 shadow-[0_24px_70px_rgba(15,23,42,0.14)] backdrop-blur-xl">
+          <div className="mx-auto grid h-16 w-16 place-items-center rounded-[24px] bg-blue-50 text-[30px] text-blue-600">
+            ⟲
+          </div>
+          <h2 className="mt-5 text-[22px] font-semibold tracking-tight text-slate-950">请切换为横屏</h2>
+          <p className="mt-3 text-[14px] leading-6 text-slate-500">
+            思维导图详情需要横屏展示节点关系。旋转手机后，画布和节点详情会自动显示。
+          </p>
+          <button onClick={onBack} className="mt-5 rounded-full border border-slate-200 bg-white px-5 py-2 text-[13px] font-semibold text-slate-600 shadow-sm">
+            返回目录
+          </button>
+        </div>
+      </div>
+
+      <div className="mindmap-landscape-only flex h-full flex-col overflow-hidden">
+        <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(37,99,235,0.12),transparent_34%),radial-gradient(circle_at_78%_18%,rgba(14,165,233,0.18),transparent_28%),linear-gradient(rgba(15,23,42,0.05)_1px,transparent_1px),linear-gradient(90deg,rgba(15,23,42,0.05)_1px,transparent_1px)] bg-[length:auto,auto,28px_28px,28px_28px]" />
+
+        <header className="relative z-10 flex h-14 flex-none items-center justify-between border-b border-white/70 bg-white/72 px-5 backdrop-blur-xl">
         <div className="flex items-center gap-3">
           <button onClick={onBack} className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[12px] font-semibold text-slate-600 shadow-sm">
             返回
@@ -89,9 +115,9 @@ export function MindMapScreen({ result, onBack }) {
           <span className="h-2 w-2 rounded-full bg-emerald-500" />
           横屏演示
         </div>
-      </header>
+        </header>
 
-      <div className="relative z-10 grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_280px] gap-4 p-4">
+        <div className="relative z-10 grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_280px] gap-4 p-4">
         <section className="relative min-w-0 overflow-hidden rounded-[28px] border border-white/80 bg-white/64 shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_20px_50px_rgba(15,23,42,0.12)] backdrop-blur-xl">
           <div className="absolute left-4 top-4 z-20 flex items-center gap-2 rounded-full border border-slate-200 bg-white/90 px-3 py-1.5 shadow-sm">
             <span className="text-[11px] font-semibold text-slate-500">点击节点查看详情</span>
@@ -219,6 +245,7 @@ export function MindMapScreen({ result, onBack }) {
             </div>
           </div>
         </aside>
+        </div>
       </div>
     </div>
   );
