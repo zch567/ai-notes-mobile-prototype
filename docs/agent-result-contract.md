@@ -79,6 +79,10 @@ POST /api/agent/edit
   "id": "demo-logistic-regression",
   "topic": "Logistic Regression",
   "summary": "主题摘要",
+  "keywords": [],
+  "outline": [],
+  "warnings": [],
+  "errors": [],
   "agentStages": [],
   "sources": [],
   "notes": [],
@@ -101,6 +105,10 @@ POST /api/agent/edit
 | 字段 | 类型 | 用途 |
 |---|---|---|
 | `agentStages` | array | Loading 页阶段展示 |
+| `keywords` | array | M1 主题理解提取的关键词 |
+| `outline` | array | M1 主题理解归纳的章节结构 |
+| `warnings` | array | 可展示的解析质量提示，例如 OCR、页码缺失、结构混乱 |
+| `errors` | array | 可展示的严重问题，页面会在结果页提示 |
 | `sources` | array | 来源片段与引用浮层 |
 | `notes` | array | 结构化笔记正文 |
 | `citations` | array | 笔记段落与来源片段绑定 |
@@ -126,14 +134,19 @@ POST /api/agent/edit
       "id": "definition",
       "title": "一、定义",
       "content": "正文",
-      "citationIds": ["1"]
+      "citationIds": ["1"],
+      "level": 1,
+      "parentId": ""
     }
   ],
   "sources": [
     {
       "id": "1",
       "title": "来源标题",
-      "text": "来源原文片段"
+      "text": "来源原文片段",
+      "page": "1",
+      "chunkId": "chunk-1",
+      "sourceRef": "page_1"
     }
   ]
 }
@@ -150,6 +163,24 @@ notes[].citationIds -> sources[].id
 ```
 
 `citations[]` 用于统计、审计和后续扩展。若后端同时返回 `citations[]`，其中 `sourceId` 必须能定位到 `sources[].id`，`noteId` 建议对应 `notes[].id`。
+
+## Prompt 字段别名兼容
+
+前端页面仍只消费归一化后的 `AgentResult`。为了降低第二阶段联调成本，`normalizeAgentResult` 当前兼容以下 Prompt/后端字段别名：
+
+| 后端或 Prompt 字段 | 归一化后字段 |
+|---|---|
+| `node_id`、`nodeId` | `id` |
+| `source_refs`、`sourceRefs`、`refs` | `citationIds` 或 `outline[].refs` |
+| `question_id`、`questionId` | `review.questions[].id` |
+| `question_type`、`questionType` | `review.questions[].type` |
+| `related_note_id` | `review.questions[].relatedNoteId` 或 `mindMap.nodes[].relatedNoteId` |
+| `description`、`discription` | `mindMap.nodes[].desc` |
+| `quiz` | `review.questions` |
+| `suggestions` | `review.recommendations` |
+| `mindmap` 数组 | 转换为 `mindMap.nodes` 和 `mindMap.edges` |
+
+注意：这些别名只是前端联调兜底。正式 v1 契约仍建议后端直接返回 camelCase 的 `AgentResult`。
 
 ## 错误响应
 

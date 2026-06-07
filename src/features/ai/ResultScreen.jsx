@@ -6,6 +6,7 @@ export function ResultScreen({ result, onOpenNote, onOpenMindMap, onRetry }) {
   const recommendationText = result.review.recommendations.length
     ? result.review.recommendations.join("；")
     : "当前结果还没有复习建议，后端可在 review.recommendations 中返回下一步复习动作。";
+  const diagnostics = [...result.errors, ...result.warnings];
 
   return (
     <div className="space-y-5 pb-6">
@@ -24,6 +25,51 @@ export function ResultScreen({ result, onOpenNote, onOpenMindMap, onRetry }) {
             {result.citations.length ? `，另有 ${result.citations.length} 条 citation 审计记录。` : "。"}
           </div>
         </Card>
+
+        {diagnostics.length ? (
+          <Card title="解析提示" subtitle="Diagnostics">
+            <div className="space-y-2">
+              {diagnostics.map((item) => (
+                <p key={item} className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-[13px] leading-5 text-amber-900">
+                  {item}
+                </p>
+              ))}
+            </div>
+          </Card>
+        ) : null}
+
+        {result.keywords.length || result.outline.length ? (
+          <Card title="资料理解" subtitle="Understanding">
+            {result.keywords.length ? (
+              <div className="flex flex-wrap gap-2">
+                {result.keywords.map((keyword) => (
+                  <span key={keyword} className="rounded-full bg-blue-50 px-3 py-1 text-[12px] font-semibold text-blue-700">
+                    {keyword}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+
+            {result.outline.length ? (
+              <div className="mt-4 space-y-3">
+                {result.outline.map((section, index) => (
+                  <div key={section.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                    <div className="flex items-center gap-2">
+                      <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-slate-900 text-[11px] font-semibold text-white">
+                        {index + 1}
+                      </span>
+                      <p className="text-[14px] font-semibold text-slate-900">{section.title}</p>
+                    </div>
+                    {section.brief ? <p className="mt-2 text-[12px] leading-5 text-slate-500">{section.brief}</p> : null}
+                    {section.refs.length ? (
+                      <p className="mt-2 text-[11px] font-medium text-slate-400">来源：{section.refs.join("、")}</p>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </Card>
+        ) : null}
 
         <Card title="输出产物" subtitle="Artifacts">
           <div className="grid gap-3">

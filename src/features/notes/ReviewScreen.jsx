@@ -32,6 +32,16 @@ export function ReviewScreen({ result, onBack }) {
             <div className="space-y-3">
               {hasQuestions ? review.questions.map((item, index) => (
                 <div key={item.id} className="rounded-2xl bg-slate-50 p-4">
+                  <div className="mb-2 flex flex-wrap gap-2">
+                    <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[11px] font-semibold text-blue-700">
+                      {questionTypeLabel(item.type)}
+                    </span>
+                    {item.relatedNoteId ? (
+                      <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-500 ring-1 ring-slate-200">
+                        关联笔记 {item.relatedNoteId}
+                      </span>
+                    ) : null}
+                  </div>
                   <p className="text-[14px] font-semibold text-slate-900">{index + 1}. {item.question}</p>
                   {item.options ? (
                     <div className="mt-3 grid gap-2">
@@ -88,4 +98,15 @@ function EmptyState({ text }) {
       {text}
     </div>
   );
+}
+
+function questionTypeLabel(type) {
+  const labels = {
+    "single-choice": "单选题",
+    judgement: "判断题",
+    "short-answer": "简答题",
+    "concept-explanation": "概念解释",
+    application: "应用理解",
+  };
+  return labels[type] || type || "复习题";
 }

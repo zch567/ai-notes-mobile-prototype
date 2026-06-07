@@ -16,10 +16,11 @@
 | `InputScreen` | 输入文本、PDF、PPT 类型和资料元信息 | `inputType`、`sourceText`、`sourceMeta.title`、`sourceMeta.fileName`、`sourceMeta.mimeType` | 高 | 第二周文件模式可先传空文本，但后端要知道输入类型。 |
 | `LoadingScreen` | 展示 Agent 阶段进度 | `agentStages[].id`、`agentStages[].label`、`agentStages[].text` | 中 | 后端不返回时前端使用默认阶段。 |
 | `ResultScreen` | 展示生成结果总览和产物入口 | `topic`、`summary`、`notes`、`sources`、`citations`、`review.questions`、`review.recommendations` | 高 | 真实返回缺数组时可显示空状态，不应白屏。 |
+| `ResultScreen` | 展示资料理解结果 | `keywords`、`outline`、`warnings`、`errors` | 中 | 对应 Prompt M1 的主题识别、章节结构和潜在问题。 |
 | `NotesScreen` | 展示当前结构化笔记卡片 | `topic`、`summary`、`citations`、`review.masteryScore` | 中 | 后续如有多笔记库，再扩展列表数据。 |
-| `NoteDetailScreen` | 展示结构化笔记和引用回链 | `notes[].id`、`notes[].title`、`notes[].content`、`notes[].citationIds`、`sources[].id`、`sources[].title`、`sources[].text` | 高 | 第一阶段核心关系是 `notes[].citationIds -> sources[].id`。 |
+| `NoteDetailScreen` | 展示结构化笔记和引用回链 | `notes[].id`、`notes[].title`、`notes[].content`、`notes[].citationIds`、`notes[].level`、`notes[].parentId`、`sources[].id`、`sources[].title`、`sources[].text`、`sources[].page`、`sources[].chunkId`、`sources[].sourceRef` | 高 | 第一阶段核心关系是 `notes[].citationIds -> sources[].id`。 |
 | `MindMapScreen` | 横屏导图演示与节点详情 | `mindMap.nodes[].id`、`label`、`desc`、`detail`、`x`、`y`、`fill`、`line`、`mindMap.edges[].from`、`to` | 中 | 若后端不会布局，前端需要后续补自动布局。 |
-| `ReviewScreen` | 展示掌握度、复习题、薄弱点、建议 | `review.masteryScore`、`review.questions[]`、`review.weakPoints[]`、`review.recommendations[]` | 高 | `masteryScore` 建议为 0-100，前端会兜底限制。 |
+| `ReviewScreen` | 展示掌握度、复习题、薄弱点、建议 | `review.masteryScore`、`review.questions[]`、`review.questions[].relatedNoteId`、`review.weakPoints[]`、`review.recommendations[]` | 高 | `masteryScore` 建议为 0-100，前端会兜底限制。 |
 
 ## 后端最小可用返回
 
@@ -85,6 +86,10 @@
 - API 调用集中在 `src/features/ai/agentApi.js` 和 `src/services/apiClient.js`。
 - Demo/API 双轨保留，API 失败会回退演示数据并展示提示。
 - Result、NoteDetail、MindMap、Review 页面已加固空状态和缺字段提示。
+- 前端已兼容 Prompt 常见字段别名，例如 `node_id`、`source_refs`、`quiz`、`question_id`、`related_note_id`、`mindmap`。
+- Result 页已能展示 `keywords`、`outline`、`warnings/errors`。
+- NoteDetail 页已能根据 `notes[].level` 做层级缩进，并在引用浮层展示 page/chunk/sourceRef。
+- Review 页已能展示题型和 `relatedNoteId`。
 
 ## 后续建议
 

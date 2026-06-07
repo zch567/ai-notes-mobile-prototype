@@ -85,6 +85,17 @@ Content-Type: application/json
   "id": "run-001",
   "topic": "Logistic Regression",
   "summary": "本资料介绍 Logistic Regression 的分类用途、Sigmoid 概率输出和交叉熵损失。",
+  "keywords": ["分类任务", "Sigmoid", "交叉熵损失"],
+  "outline": [
+    {
+      "id": "basic",
+      "title": "基础定义",
+      "brief": "理解模型用途和概率输出。",
+      "refs": ["1"]
+    }
+  ],
+  "warnings": [],
+  "errors": [],
   "agentStages": [
     {
       "id": "extraction",
@@ -96,7 +107,10 @@ Content-Type: application/json
     {
       "id": "1",
       "title": "Basic definition",
-      "text": "Logistic regression is a classification algorithm..."
+      "text": "Logistic regression is a classification algorithm...",
+      "page": "1",
+      "chunkId": "chunk-1",
+      "sourceRef": "page_1"
     }
   ],
   "notes": [
@@ -104,7 +118,9 @@ Content-Type: application/json
       "id": "definition",
       "title": "一、Basic definition",
       "content": "Logistic Regression 是一种分类算法。",
-      "citationIds": ["1"]
+      "citationIds": ["1"],
+      "level": 1,
+      "parentId": ""
     }
   ],
   "citations": [
@@ -138,7 +154,8 @@ Content-Type: application/json
         "options": ["分类任务", "图像压缩", "数据库索引", "文本排版"],
         "answer": "分类任务",
         "explanation": "材料 [1] 指向它主要用于分类任务。",
-        "citationIds": ["1"]
+        "citationIds": ["1"],
+        "relatedNoteId": "definition"
       }
     ],
     "masteryScore": 76,
@@ -281,15 +298,37 @@ Content-Type: application/json
 | 字段 | 约束 |
 |---|---|
 | `topic`、`summary` | 建议非空字符串 |
+| `keywords` | 可选字符串数组，用于展示主题关键词 |
+| `outline` | 可选章节数组；字段建议为 `id`、`title`、`brief`、`refs` |
+| `warnings`、`errors` | 可选字符串数组，用于展示解析质量提示或严重问题 |
 | `sources[].id` | 字符串；需可被 `notes[].citationIds` 引用 |
+| `sources[].page/chunkId/sourceRef` | 可选来源定位字段，用于引用浮层展示 |
 | `notes[].id` | 字符串；建议稳定，方便 `citations[].noteId` 绑定 |
 | `notes[].citationIds` | 字符串数组，主引用关系：`notes[].citationIds -> sources[].id` |
+| `notes[].level/parentId` | 可选层级字段；前端会用 `level` 做缩进 |
 | `citations[].sourceId` | 必须能定位到 `sources[].id` |
 | `citations[].noteId` | 建议对应 `notes[].id` |
 | `mindMap.nodes[].x/y` | 数字，推荐 0 到 100，表示画布百分比位置 |
 | `mindMap.nodes[].line/fill` | 可选 CSS 颜色字符串 |
 | `review.masteryScore` | 数字，推荐 0 到 100；前端会做边界限制 |
 | `review.questions[].options` | 选择题选项数组；没有选项时可返回空数组 |
+| `review.questions[].relatedNoteId` | 可选，关联到 `notes[].id` |
+
+## Prompt 字段别名兼容
+
+前端当前可兼容以下 Prompt 中间产物字段，但建议后端最终仍清洗为 camelCase `AgentResult`：
+
+| 兼容字段 | 前端归一化目标 |
+|---|---|
+| `node_id` | `id` |
+| `source_refs`、`refs` | `citationIds` |
+| `question_id` | `review.questions[].id` |
+| `question_type` | `review.questions[].type` |
+| `related_note_id` | `review.questions[].relatedNoteId` |
+| `description`、`discription` | `mindMap.nodes[].desc` |
+| `quiz` | `review.questions` |
+| `suggestions` | `review.recommendations` |
+| `mindmap` 数组 | `mindMap.nodes`、`mindMap.edges` |
 
 ## 编辑目标约定
 

@@ -171,7 +171,11 @@ export function NoteDetailScreen({ result, onBack, onOpenReview }) {
             <p className="text-[12px] uppercase tracking-[0.24em] text-slate-400">正文</p>
             <div className="space-y-5 text-[15px] leading-8 text-slate-700">
               {result.notes.length ? result.notes.map((block) => (
-                <section key={block.id} className="space-y-2">
+                <section
+                  key={block.id}
+                  className="space-y-2"
+                  style={{ paddingLeft: `${Math.min(Math.max(block.level - 1, 0), 3) * 16}px` }}
+                >
                   <h2 className="text-[16px] font-semibold tracking-tight text-slate-900">{block.title}</h2>
                   <p className="leading-8 text-slate-700">
                     {block.content}
@@ -240,6 +244,9 @@ export function NoteDetailScreen({ result, onBack, onOpenReview }) {
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400">引用 {activeSource.id}</p>
                 <p className="mt-1 text-[13px] font-medium text-slate-800">{activeSource.title}</p>
+                <p className="mt-1 text-[11px] text-slate-400">
+                  {[activeSource.page ? `页码 ${activeSource.page}` : "", activeSource.chunkId, activeSource.sourceRef].filter(Boolean).join(" · ") || "来源片段"}
+                </p>
               </div>
               <button onClick={() => setActiveSourceId(null)} className="text-[13px] font-medium text-slate-500">
                 收起
