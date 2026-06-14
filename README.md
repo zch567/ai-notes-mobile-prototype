@@ -12,15 +12,28 @@ src/features/     业务页面
 src/services/     API 与运行模式
 docs/             协作与接口文档
 android-shell/    Android 原生 WebView 壳
+backend/          FastAPI 真实后端，与前端同仓库记录
 ```
 
 核心数据结构是 `AgentResult`。页面统一消费归一化后的 `AgentResult`，后端字段变化优先在 `src/features/ai/agentTypes.js` 处理。
 
 ## 本地运行
 
+前端：
+
 ```bash
 npm install
 npm run dev
+```
+
+后端：
+
+```powershell
+cd backend
+python -m venv .venv
+.\.venv\Scripts\activate
+pip install -r requirements.txt
+python run.py
 ```
 
 当前版本只保留真实后端模式。复制 `.env.example` 为 `.env` 后配置 API 地址：
