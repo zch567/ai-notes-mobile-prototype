@@ -28,6 +28,10 @@ async function parseErrorMessage(response) {
       const detail = typeof errorBody.detail === "string" && errorBody.detail.trim() ? `：${errorBody.detail}` : "";
       return `${code}${errorBody.message}${detail}`;
     }
+
+    if (typeof errorBody?.detail === "string" && errorBody.detail.trim()) {
+      return errorBody.detail;
+    }
   } catch {
     return text;
   }

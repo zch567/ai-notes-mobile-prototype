@@ -14,16 +14,41 @@ import { NotesScreen } from "../features/notes/NotesScreen";
 import { ReviewScreen } from "../features/notes/ReviewScreen";
 import { ProfileScreen } from "../features/profile/ProfileScreen";
 import { isWebViewShell } from "../services/appShellMode";
+import {
+  initializeLocalDemoFs,
+  readActiveAgentResult,
+  readInputDraft,
+  readNoteSettings,
+  saveActiveAgentResult,
+  saveInputDraft,
+  saveNoteSettings,
+} from "../services/localDemoFs";
 
 export default function App() {
+  useMemo(() => initializeLocalDemoFs(), []);
+  const initialAgentResult = useMemo(() => readActiveAgentResult(), []);
   const [nav, setNav] = useState("home");
   const [detailView, setDetailView] = useState(null);
   const [agentStatus, setAgentStatus] = useState(AGENT_STATUS.IDLE);
-  const [agentResult, setAgentResult] = useState(demoAgentResult);
+  const [agentResult, setAgentResult] = useState(initialAgentResult);
+  const [inputDraft, setInputDraft] = useState(() => readInputDraft());
+  const [noteSettings, setNoteSettings] = useState(() => readNoteSettings(initialAgentResult.id));
   const [phase, setPhase] = useState(0);
   const [error, setError] = useState("");
 
   const stages = useMemo(() => agentResult.agentStages?.length ? agentResult.agentStages : demoAgentResult.agentStages, [agentResult]);
+
+  useEffect(() => {
+    setNoteSettings(readNoteSettings(agentResult.id));
+  }, [agentResult.id]);
+
+  useEffect(() => {
+    saveInputDraft(inputDraft);
+  }, [inputDraft]);
+
+  useEffect(() => {
+    saveNoteSettings(agentResult.id, noteSettings);
+  }, [agentResult.id, noteSettings]);
 
   useEffect(() => {
     if (agentStatus !== AGENT_STATUS.LOADING) return undefined;
@@ -41,12 +66,25 @@ export default function App() {
     try {
       const result = await runAgent(input);
       setAgentResult(result);
+      saveActiveAgentResult(result);
       setAgentStatus(AGENT_STATUS.SUCCESS);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Agent 调用失败");
       setAgentResult(demoAgentResult);
+      saveActiveAgentResult(demoAgentResult, "fallback");
       setAgentStatus(AGENT_STATUS.ERROR);
     }
+  }
+
+  function updateAgentResult(nextResultOrUpdater) {
+    setAgentResult((current) => {
+      const nextResult = typeof nextResultOrUpdater === "function"
+        ? nextResultOrUpdater(current)
+        : nextResultOrUpdater;
+
+      saveActiveAgentResult(nextResult, "local-edit");
+      return nextResult;
+    });
   }
 
   function handleNav(next) {
@@ -81,6 +119,11 @@ export default function App() {
     setDetailView,
     setNav,
     setAgentStatus,
+    inputDraft,
+    setInputDraft,
+    noteSettings,
+    setNoteSettings,
+    updateAgentResult,
   });
 
   const isLandscapeMindMap = nav === "mindmap" && detailView === DETAIL_VIEWS.MINDMAP;
@@ -136,11 +179,19 @@ function getScreen({
   setDetailView,
   setNav,
   setAgentStatus,
+  inputDraft,
+  setInputDraft,
+  noteSettings,
+  setNoteSettings,
+  updateAgentResult,
 }) {
   if (detailView === DETAIL_VIEWS.NOTE) {
     return (
       <NoteDetailScreen
         result={agentResult}
+        settings={noteSettings}
+        setSettings={setNoteSettings}
+        onResultChange={updateAgentResult}
         onBack={() => setDetailView(null)}
         onOpenReview={openReview}
       />
@@ -152,7 +203,7 @@ function getScreen({
   }
 
   if (detailView === DETAIL_VIEWS.MINDMAP) {
-    return <MindMapScreen result={agentResult} onBack={() => setDetailView(null)} />;
+    return <MindMapScreen result={agentResult} onResultChange={updateAgentResult} onBack={() => setDetailView(null)} />;
   }
 
   if (nav === "home") {
@@ -193,5 +244,12 @@ function getScreen({
     );
   }
 
-  return <InputScreen onRun={handleRunAgent} status={agentStatus} />;
+  return (
+    <InputScreen
+      onRun={handleRunAgent}
+      status={agentStatus}
+      draft={inputDraft}
+      onDraftChange={setInputDraft}
+    />
+  );
 }

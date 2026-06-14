@@ -19,3 +19,37 @@ export async function runAgent(input) {
   });
   return normalizeAgentResult(result?.data && typeof result.data === "object" ? result.data : result);
 }
+
+export async function getProviderStatus() {
+  if (isDemoMode()) {
+    return {
+      configuredProvider: "demo",
+      lanxin: {
+        configured: false,
+        model: "demo-mode",
+      },
+      secretsFilePresent: false,
+    };
+  }
+
+  return requestJSON("/api/providers/status");
+}
+
+export async function validateAgentResult(result) {
+  return requestJSON("/api/agent/validate", {
+    method: "POST",
+    body: JSON.stringify({ result }),
+  });
+}
+
+export async function queryRag({ resultId, chunksPath, query, topK = 5 }) {
+  return requestJSON("/api/rag/query", {
+    method: "POST",
+    body: JSON.stringify({
+      resultId,
+      chunksPath,
+      query,
+      topK,
+    }),
+  });
+}

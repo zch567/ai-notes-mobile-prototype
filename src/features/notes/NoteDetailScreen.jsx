@@ -1,16 +1,29 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
-export function NoteDetailScreen({ result, onBack, onOpenReview }) {
+const defaultSettings = {
+  reviewMode: false,
+  showCitations: true,
+  autoSave: true,
+};
+
+export function NoteDetailScreen({
+  result,
+  settings = defaultSettings,
+  setSettings = () => {},
+  onResultChange = () => {},
+  onBack,
+  onOpenReview,
+}) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [chatInput, setChatInput] = useState("");
   const [activeSourceId, setActiveSourceId] = useState(null);
   const [bubbleLayout, setBubbleLayout] = useState(null);
-  const [settings, setSettings] = useState({
-    reviewMode: false,
-    showCitations: true,
-    autoSave: true,
-  });
+  const [editHistory, setEditHistory] = useState(() => ({
+    past: [],
+    present: createNoteSnapshot(result),
+    future: [],
+  }));
   const [messages, setMessages] = useState([
     {
       role: "assistant",
@@ -18,15 +31,38 @@ export function NoteDetailScreen({ result, onBack, onOpenReview }) {
     },
   ]);
   const shellRef = useRef(null);
+  const resultIdRef = useRef(result.id);
   const messageListRef = useRef(null);
   const bubbleScrollRef = useRef(null);
   const citationButtonRefs = useRef({});
+  const noteDocumentRef = useRef(null);
 
   const sourceById = useMemo(() => new Map(result.sources.map((source) => [source.id, source])), [result.sources]);
+  const citationBySourceId = useMemo(() => {
+    const map = new Map();
+    result.citations.forEach((citation) => {
+      if (!map.has(citation.sourceId)) map.set(citation.sourceId, citation);
+    });
+    return map;
+  }, [result.citations]);
   const activeSource = activeSourceId ? sourceById.get(activeSourceId) : null;
+  const activeCitation = activeSourceId ? citationBySourceId.get(activeSourceId) : null;
   const sourceParagraphs = result.sources.map((source) => source.text);
   const citationIds = result.notes.flatMap((note) => note.citationIds);
   const missingCitationCount = citationIds.filter((sourceId) => !sourceById.has(sourceId)).length;
+  const canUndo = editHistory.past.length > 0;
+  const canRedo = editHistory.future.length > 0;
+
+  useEffect(() => {
+    if (resultIdRef.current === result.id) return;
+
+    resultIdRef.current = result.id;
+    setEditHistory({
+      past: [],
+      present: createNoteSnapshot(result),
+      future: [],
+    });
+  }, [result]);
 
   useEffect(() => {
     if (!settings.showCitations) {
@@ -76,6 +112,79 @@ export function NoteDetailScreen({ result, onBack, onOpenReview }) {
     setActiveSourceId((current) => (current === sourceId ? null : sourceId));
   }
 
+  function commitNoteSnapshot(nextSnapshot) {
+    setEditHistory((current) => {
+      if (isSameNoteSnapshot(current.present, nextSnapshot)) return current;
+
+      return {
+        past: [...current.past, current.present].slice(-80),
+        present: nextSnapshot,
+        future: [],
+      };
+    });
+    onResultChange((current) => applyNoteSnapshotToResult(current, nextSnapshot));
+  }
+
+  function updateTopic(topic) {
+    commitNoteSnapshot({
+      topic,
+      notes: cloneNotes(result.notes),
+    });
+  }
+
+  function updateNoteBlock(blockId, patch) {
+    commitNoteSnapshot({
+      topic: result.topic,
+      notes: result.notes.map((block) => (block.id === blockId ? { ...block, ...patch } : block)),
+    });
+  }
+
+  function commitNoteDocumentFromDom() {
+    if (!noteDocumentRef.current) return;
+
+    const nextNotes = result.notes.map((note) => {
+      const noteNode = noteDocumentRef.current.querySelector(`[data-note-id="${cssEscape(note.id)}"]`);
+      if (!noteNode) return note;
+
+      const title = noteNode.querySelector("[data-note-title]")?.textContent?.trim() || note.title;
+      const content = noteNode.querySelector("[data-note-content]")?.textContent?.trim() || "";
+      return {
+        ...note,
+        title,
+        content,
+      };
+    });
+
+    commitNoteSnapshot({
+      topic: result.topic,
+      notes: nextNotes,
+    });
+  }
+
+  function undoNoteEdit() {
+    if (!canUndo) return;
+
+    const previous = editHistory.past[editHistory.past.length - 1];
+    setEditHistory((current) => ({
+      past: current.past.slice(0, -1),
+      present: previous,
+      future: [current.present, ...current.future].slice(0, 80),
+    }));
+    onResultChange((current) => applyNoteSnapshotToResult(current, previous));
+  }
+
+  function redoNoteEdit() {
+    if (!canRedo) return;
+
+    const next = editHistory.future[0];
+    setEditHistory((current) => ({
+      past: [...current.past, current.present].slice(-80),
+      present: next,
+      future: current.future.slice(1),
+    }));
+    onResultChange((current) => applyNoteSnapshotToResult(current, next));
+  }
+
   function sendMessage() {
     const text = chatInput.trim();
     if (!text) return;
@@ -114,10 +223,28 @@ export function NoteDetailScreen({ result, onBack, onOpenReview }) {
 
           <div className="pointer-events-none absolute inset-x-0 top-1/2 -translate-y-1/2">
             <div className="relative flex items-center justify-start gap-3 pl-12">
-              <button className="pointer-events-auto flex h-[26px] w-[26px] items-center justify-center rounded-full border border-slate-200 bg-white text-[13px] leading-none text-slate-300 shadow-sm">
+              <button
+                type="button"
+                onClick={undoNoteEdit}
+                disabled={!canUndo}
+                className={`pointer-events-auto flex h-[26px] w-[26px] items-center justify-center rounded-full border text-[13px] leading-none shadow-sm transition ${
+                  canUndo ? "border-slate-300 bg-white text-slate-700" : "border-slate-200 bg-white text-slate-300"
+                }`}
+                aria-label="撤销笔记修改"
+                title="撤销"
+              >
                 ↺
               </button>
-              <button className="pointer-events-auto flex h-[26px] w-[26px] items-center justify-center rounded-full border border-slate-200 bg-white text-[13px] leading-none text-slate-300 shadow-sm">
+              <button
+                type="button"
+                onClick={redoNoteEdit}
+                disabled={!canRedo}
+                className={`pointer-events-auto flex h-[26px] w-[26px] items-center justify-center rounded-full border text-[13px] leading-none shadow-sm transition ${
+                  canRedo ? "border-slate-300 bg-white text-slate-700" : "border-slate-200 bg-white text-slate-300"
+                }`}
+                aria-label="重做笔记修改"
+                title="重做"
+              >
                 ↻
               </button>
               <span className="pointer-events-none absolute left-1/2 -translate-x-1/2 text-center text-[12px] font-medium tracking-[0.18em] text-slate-400">
@@ -152,7 +279,8 @@ export function NoteDetailScreen({ result, onBack, onOpenReview }) {
           <section className="space-y-3">
             <p className="text-[12px] uppercase tracking-[0.24em] text-slate-400">Agent 生成笔记</p>
             <input
-              defaultValue={result.topic}
+              value={result.topic}
+              onChange={(event) => updateTopic(event.target.value)}
               className="w-full border-0 bg-transparent p-0 text-[34px] font-normal tracking-tight text-slate-900 outline-none placeholder:text-slate-300"
               aria-label="标题"
             />
@@ -169,44 +297,64 @@ export function NoteDetailScreen({ result, onBack, onOpenReview }) {
 
           <section className="space-y-4">
             <p className="text-[12px] uppercase tracking-[0.24em] text-slate-400">正文</p>
-            <div className="space-y-5 text-[15px] leading-8 text-slate-700">
-              {result.notes.length ? result.notes.map((block) => (
-                <section
-                  key={block.id}
-                  className="space-y-2"
-                  style={{ paddingLeft: `${Math.min(Math.max(block.level - 1, 0), 3) * 16}px` }}
+            <div className="text-[15px] leading-8 text-slate-700">
+              {result.notes.length ? (
+                <div
+                  key={result.id}
+                  ref={noteDocumentRef}
+                  contentEditable
+                  suppressContentEditableWarning
+                  onBlur={commitNoteDocumentFromDom}
+                  className="min-h-[340px] rounded-[26px] border border-slate-200 bg-white/86 px-4 py-4 text-[15px] leading-8 text-slate-700 outline-none transition focus:border-blue-200 focus:bg-white focus:shadow-sm"
+                  aria-label="整篇笔记正文"
                 >
-                  <h2 className="text-[16px] font-semibold tracking-tight text-slate-900">{block.title}</h2>
-                  <p className="leading-8 text-slate-700">
-                    {block.content}
-                    {settings.showCitations ? block.citationIds.map((sourceId) => {
-                      const hasSource = sourceById.has(sourceId);
-                      return (
-                      <button
-                        key={sourceId}
-                        ref={(node) => {
-                          if (node) citationButtonRefs.current[sourceId] = node;
-                        }}
-                        type="button"
-                        disabled={!hasSource}
-                        onClick={() => toggleSource(sourceId)}
-                        className={`ml-2 inline-flex h-7 w-7 items-center justify-center rounded-full border text-[12px] font-semibold leading-none transition ${
-                          !hasSource
-                            ? "cursor-not-allowed border-amber-200 bg-amber-50 text-amber-600"
-                            : activeSourceId === sourceId
-                              ? "border-slate-900 bg-slate-900 text-white"
-                              : "border-slate-300 bg-white text-slate-600"
-                        }`}
-                        title={hasSource ? `引用 ${sourceId}` : `引用 ${sourceId} 缺少对应 sources`}
-                        aria-label={hasSource ? `引用 ${sourceId}` : `引用 ${sourceId} 缺少对应来源`}
-                      >
-                        {sourceId}
-                      </button>
-                      );
-                    }) : null}
-                  </p>
-                </section>
-              )) : (
+                  {result.notes.map((block) => (
+                    <section
+                      key={block.id}
+                      data-note-id={block.id}
+                      className="mb-6 last:mb-0"
+                      style={{ paddingLeft: `${Math.min(Math.max(block.level - 1, 0), 3) * 16}px` }}
+                    >
+                      <h2 data-note-title className="mb-2 text-[16px] font-semibold tracking-tight text-slate-900">
+                        {block.title}
+                      </h2>
+                      <p className="whitespace-pre-wrap text-[15px] leading-8 text-slate-700">
+                        <span data-note-content>{block.content}</span>
+                        {settings.showCitations && block.citationIds.length ? (
+                          <span contentEditable={false} className="ml-1.5 inline-flex flex-wrap items-center gap-1.5 align-baseline">
+                            {block.citationIds.map((sourceId) => {
+                              const hasSource = sourceById.has(sourceId);
+                              const sourceIndex = result.sources.findIndex((source) => source.id === sourceId);
+                              return (
+                                <button
+                                  key={sourceId}
+                                  ref={(node) => {
+                                    if (node) citationButtonRefs.current[sourceId] = node;
+                                  }}
+                                  type="button"
+                                  disabled={!hasSource}
+                                  onClick={() => toggleSource(sourceId)}
+                                  className={`inline-flex h-6 min-w-6 items-center justify-center rounded-full border px-1.5 text-[11px] font-semibold leading-none transition ${
+                                    !hasSource
+                                      ? "cursor-not-allowed border-amber-200 bg-amber-50 text-amber-600"
+                                      : activeSourceId === sourceId
+                                        ? "border-slate-900 bg-slate-900 text-white"
+                                        : "border-slate-300 bg-white text-slate-600"
+                                  }`}
+                                  title={hasSource ? `引用 ${sourceId}` : `引用 ${sourceId} 缺少对应 sources`}
+                                  aria-label={hasSource ? `引用 ${sourceId}` : `引用 ${sourceId} 缺少对应来源`}
+                                >
+                                  {sourceIndex >= 0 ? sourceIndex + 1 : "?"}
+                                </button>
+                              );
+                            })}
+                          </span>
+                        ) : null}
+                      </p>
+                    </section>
+                  ))}
+                </div>
+              ) : (
                 <div className="rounded-[24px] border border-dashed border-slate-300 bg-slate-50 px-4 py-5 text-[13px] leading-6 text-slate-500">
                   当前结果没有返回结构化笔记。请检查后端 JSON 中的 <span className="font-semibold text-slate-700">notes</span> 字段是否为数组。
                 </div>
@@ -245,7 +393,7 @@ export function NoteDetailScreen({ result, onBack, onOpenReview }) {
                 <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400">引用 {activeSource.id}</p>
                 <p className="mt-1 text-[13px] font-medium text-slate-800">{activeSource.title}</p>
                 <p className="mt-1 text-[11px] text-slate-400">
-                  {[activeSource.page ? `页码 ${activeSource.page}` : "", activeSource.chunkId, activeSource.sourceRef].filter(Boolean).join(" · ") || "来源片段"}
+                  {formatSourceLocation(activeSource, activeCitation)}
                 </p>
               </div>
               <button onClick={() => setActiveSourceId(null)} className="text-[13px] font-medium text-slate-500">
@@ -253,6 +401,26 @@ export function NoteDetailScreen({ result, onBack, onOpenReview }) {
               </button>
             </div>
             <div ref={bubbleScrollRef} className="max-h-[248px] overflow-y-auto px-4 py-4 text-[13px] leading-6 text-slate-700">
+              {activeCitation?.quote ? (
+                <div className="mb-3 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-3 text-amber-950">
+                  <div className="mb-2 flex flex-wrap items-center gap-2">
+                    <span className="rounded-full bg-white px-2 py-1 text-[11px] font-semibold text-amber-700 ring-1 ring-amber-100">
+                      原文 quote
+                    </span>
+                    {activeCitation.confidence ? (
+                      <span className="rounded-full bg-white px-2 py-1 text-[11px] font-semibold text-slate-500 ring-1 ring-slate-200">
+                        置信度 {Math.round(activeCitation.confidence * 100)}%
+                      </span>
+                    ) : null}
+                    {activeCitation.retrievalScore ? (
+                      <span className="rounded-full bg-white px-2 py-1 text-[11px] font-semibold text-slate-500 ring-1 ring-slate-200">
+                        score {Number(activeCitation.retrievalScore).toFixed(2)}
+                      </span>
+                    ) : null}
+                  </div>
+                  <p>{activeCitation.quote}</p>
+                </div>
+              ) : null}
               {sourceParagraphs.map((paragraph, index) => {
                 const source = result.sources[index];
                 const isActive = source?.id === activeSource.id;
@@ -283,6 +451,56 @@ export function NoteDetailScreen({ result, onBack, onOpenReview }) {
       />
     </div>
   );
+}
+
+function formatSourceLocation(source, citation) {
+  const paragraphStart = citation?.paragraphStart || source?.paragraphStart;
+  const paragraphEnd = citation?.paragraphEnd || source?.paragraphEnd;
+  const lineStart = citation?.lineStart || source?.lineStart;
+  const lineEnd = citation?.lineEnd || source?.lineEnd;
+  const values = [
+    citation?.page || source?.page ? `页码 ${citation?.page || source?.page}` : "",
+    citation?.slide || source?.slide ? `Slide ${citation?.slide || source?.slide}` : "",
+    paragraphStart ? `段落 ${[paragraphStart, paragraphEnd].filter(Boolean).join("-")}` : "",
+    lineStart ? `行 ${[lineStart, lineEnd].filter(Boolean).join("-")}` : "",
+    citation?.sourceRef || source?.sourceRef,
+    source?.chunkId,
+  ];
+
+  return values.filter(Boolean).join(" · ") || "来源片段";
+}
+
+function cssEscape(value) {
+  if (typeof window !== "undefined" && window.CSS?.escape) {
+    return window.CSS.escape(value);
+  }
+  return String(value).replace(/["\\]/g, "\\$&");
+}
+
+function createNoteSnapshot(result) {
+  return {
+    topic: result.topic,
+    notes: cloneNotes(result.notes),
+  };
+}
+
+function cloneNotes(notes) {
+  return notes.map((note) => ({
+    ...note,
+    citationIds: [...(note.citationIds || [])],
+  }));
+}
+
+function applyNoteSnapshotToResult(result, snapshot) {
+  return {
+    ...result,
+    topic: snapshot.topic,
+    notes: cloneNotes(snapshot.notes),
+  };
+}
+
+function isSameNoteSnapshot(left, right) {
+  return JSON.stringify(left) === JSON.stringify(right);
 }
 
 function NoteSettingsScreen({ settings, setSettings, onBack }) {

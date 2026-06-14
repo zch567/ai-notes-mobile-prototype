@@ -13,6 +13,7 @@ import android.view.View;
 import android.view.Window;
 import android.view.WindowInsets;
 import android.webkit.JavascriptInterface;
+import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
@@ -110,6 +111,7 @@ public class MainActivity extends Activity {
 
         view.addJavascriptInterface(new AndroidShellBridge(), "AndroidShell");
 
+        view.setWebChromeClient(new WebChromeClient());
         view.setWebViewClient(new WebViewClient() {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {

@@ -12,6 +12,7 @@ const emptyAgentResult = {
   sources: [],
   notes: [],
   citations: [],
+  citationDiagnostics: {},
   mindMap: {
     nodes: [],
     edges: [],
@@ -63,6 +64,8 @@ export function normalizeAgentResult(rawResult) {
     sources: normalizeArray(result.sources, demoAgentResult.sources).map(normalizeSource),
     notes: normalizeArray(result.notes, demoAgentResult.notes).map(normalizeNote),
     citations: normalizeArray(result.citations, demoAgentResult.citations).map(normalizeCitation),
+    citationDiagnostics: normalizeObject(result.citationDiagnostics || result.citation_diagnostics),
+    _meta: normalizeObject(result._meta || result.meta),
     mindMap: {
       nodes: normalizeArray(result.mindMap.nodes, demoAgentResult.mindMap.nodes).map(normalizeMindMapNode),
       edges: normalizeArray(result.mindMap.edges, demoAgentResult.mindMap.edges).map(normalizeMindMapEdge),
@@ -89,11 +92,17 @@ function normalizeStage(stage, index) {
 function normalizeSource(source, index) {
   const sourceRef = source?.sourceRef || source?.source_ref || source?.ref;
   return {
+    ...(source || {}),
     id: stringOrFallback(source?.id || source?.sourceId || source?.source_id || sourceRef, String(index + 1)),
     title: stringOrFallback(source?.title, `Source ${index + 1}`),
     text: stringOrFallback(source?.text || source?.content, ""),
-    page: stringOrFallback(source?.page || source?.pageNumber || source?.page_number || source?.slide, ""),
-    chunkId: stringOrFallback(source?.chunkId || source?.chunk_id, ""),
+    page: valueStringOrFallback(source?.page || source?.pageNumber || source?.page_number || source?.slide, ""),
+    slide: valueStringOrFallback(source?.slide, ""),
+    paragraphStart: valueStringOrFallback(source?.paragraphStart || source?.paragraph_start || source?.paragraph, ""),
+    paragraphEnd: valueStringOrFallback(source?.paragraphEnd || source?.paragraph_end, ""),
+    lineStart: valueStringOrFallback(source?.lineStart || source?.line_start, ""),
+    lineEnd: valueStringOrFallback(source?.lineEnd || source?.line_end, ""),
+    chunkId: stringOrFallback(source?.chunkId || source?.chunk_id || source?.id, ""),
     sourceRef: stringOrFallback(sourceRef, ""),
   };
 }
@@ -112,9 +121,21 @@ function normalizeNote(note, index) {
 
 function normalizeCitation(citation, index) {
   return {
+    ...(citation || {}),
     id: stringOrFallback(citation?.id || citation?.citation_id || citation?.citationId, String(index + 1)),
     sourceId: stringOrFallback(citation?.sourceId || citation?.source_id, citation?.id || String(index + 1)),
     noteId: stringOrFallback(citation?.noteId || citation?.note_id, ""),
+    quote: stringOrFallback(citation?.quote, ""),
+    sourceRef: stringOrFallback(citation?.sourceRef || citation?.source_ref, ""),
+    page: valueStringOrFallback(citation?.page || citation?.pageNumber || citation?.page_number, ""),
+    slide: valueStringOrFallback(citation?.slide, ""),
+    paragraphStart: valueStringOrFallback(citation?.paragraphStart || citation?.paragraph_start, ""),
+    paragraphEnd: valueStringOrFallback(citation?.paragraphEnd || citation?.paragraph_end, ""),
+    lineStart: valueStringOrFallback(citation?.lineStart || citation?.line_start, ""),
+    lineEnd: valueStringOrFallback(citation?.lineEnd || citation?.line_end, ""),
+    confidence: numberOrFallback(citation?.confidence, 0),
+    retrievalScore: numberOrFallback(citation?.retrievalScore || citation?.retrieval_score, 0),
+    matchType: stringOrFallback(citation?.matchType || citation?.match_type, ""),
   };
 }
 
@@ -177,8 +198,18 @@ function normalizeArray(value, fallback) {
   return Array.isArray(value) ? value : fallback;
 }
 
+function normalizeObject(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+
 function stringOrFallback(value, fallback) {
   return typeof value === "string" && value.trim() ? value : fallback;
+}
+
+function valueStringOrFallback(value, fallback) {
+  if (typeof value === "string" && value.trim()) return value;
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  return fallback;
 }
 
 function numberOrFallback(value, fallback, min = undefined) {

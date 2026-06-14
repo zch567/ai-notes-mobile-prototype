@@ -89,6 +89,23 @@ Android 运行要点：
 - 顶部内容在 WebView 模式下会保留状态栏安全距离。
 - 思维导图详情页会请求横屏；如果设备仍为竖屏，会隐藏导图内容并提示用户切换横屏。
 
+## Demo 本地存储
+
+Demo 阶段没有云端数据库。前端使用 `src/services/localDemoFs.js` 在浏览器或 Android WebView 的本地存储中保存演示数据。
+
+当前会保存：
+
+- 当前激活的 `AgentResult`。
+- 输入页草稿，包括输入类型、文本内容和标题。
+- 笔记设置，包括复习模式、引用显示和自动保存提示。
+- 笔记内容修改，包括标题、章节标题和正文，会实时写回 `AgentResult.topic` 和 `AgentResult.notes`。
+- 思维导图编辑，包括新增节点、同级节点、重命名和隐藏分支，会实时写回 `AgentResult.mindMap`。
+- 复习进度，包括已完成题目和最近复习时间。
+
+存储 key 统一使用 `zhixu:demo:*` 前缀。Android 包中这些数据写入 App 自己的 WebView 本地数据区，不会提交到仓库，也不会上传云端。卸载 App、清除 App 数据或清理 WebView 存储后，这些 demo 数据会丢失。
+
+页面组件不要直接访问 `localStorage`；需要读写本地 demo 数据时，统一走 `src/services/localDemoFs.js`。
+
 ## 文档
 
 - `docs/frontend-architecture.md`：前端模块边界。

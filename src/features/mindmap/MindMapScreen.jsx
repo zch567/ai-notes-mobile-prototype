@@ -61,7 +61,7 @@ export function MindMapLibraryScreen({ result, onOpenMap }) {
   );
 }
 
-export function MindMapScreen({ result, onBack }) {
+export function MindMapScreen({ result, onResultChange = () => {}, onBack }) {
   const { nodes, edges } = result.mindMap;
   const [selectedNodeId, setSelectedNodeId] = useState(null);
   const isWebView = isWebViewShell();
@@ -72,6 +72,12 @@ export function MindMapScreen({ result, onBack }) {
   const focusX = selectedNode ? 50 - selectedNode.x : 0;
   const focusY = selectedNode ? 50 - selectedNode.y : 0;
   const hasMap = nodes.length > 0;
+  const mapActions = [
+    { key: "child", label: "新增子节点", onClick: addChildNode, disabled: !hasMap },
+    { key: "sibling", label: "同级节点", onClick: addSiblingNode, disabled: !selectedNode || selectedNode.id === centerNode?.id },
+    { key: "rename", label: "重命名", onClick: renameNode, disabled: !detailNode },
+    { key: "hide", label: "隐藏分支", onClick: hideBranch, disabled: !selectedNode || selectedNode.id === centerNode?.id },
+  ];
 
   useEffect(() => {
     const androidShell = window.AndroidShell;
@@ -80,6 +86,87 @@ export function MindMapScreen({ result, onBack }) {
     androidShell.setMindMapLandscape(true);
     return () => androidShell.setMindMapLandscape(false);
   }, [isWebView]);
+
+  function updateMindMap(nextMindMap, nextSelectedNodeId = selectedNodeId) {
+    onResultChange((current) => ({
+      ...current,
+      mindMap: {
+        ...(current.mindMap || {}),
+        ...nextMindMap,
+      },
+    }));
+    setSelectedNodeId(nextSelectedNodeId);
+  }
+
+  function addChildNode() {
+    const parent = selectedNode || centerNode;
+    if (!parent) return;
+
+    const childCount = edges.filter((edge) => edge.from === parent.id).length;
+    const nodeId = createMindMapNodeId(nodes);
+    const newNode = createMindMapNode({
+      id: nodeId,
+      parent,
+      index: childCount,
+      label: "新节点",
+      desc: "点击重命名补充这个知识点",
+    });
+
+    updateMindMap({
+      nodes: [...nodes, newNode],
+      edges: [...edges, { from: parent.id, to: nodeId }],
+    }, nodeId);
+  }
+
+  function addSiblingNode() {
+    if (!selectedNode) return;
+
+    const parentEdge = edges.find((edge) => edge.to === selectedNode.id);
+    const parent = parentEdge ? nodeById.get(parentEdge.from) : centerNode;
+    if (!parent || selectedNode.id === parent.id) return;
+
+    const siblingCount = edges.filter((edge) => edge.from === parent.id).length;
+    const nodeId = createMindMapNodeId(nodes);
+    const newNode = createMindMapNode({
+      id: nodeId,
+      parent,
+      index: siblingCount,
+      label: "同级节点",
+      desc: "补充同一层级的知识点",
+    });
+
+    updateMindMap({
+      nodes: [...nodes, newNode],
+      edges: [...edges, { from: parent.id, to: nodeId }],
+    }, nodeId);
+  }
+
+  function renameNode() {
+    if (!detailNode) return;
+
+    const nextLabel = window.prompt("请输入新的节点名称", detailNode.label || "");
+    if (!nextLabel || !nextLabel.trim()) return;
+
+    const trimmedLabel = nextLabel.trim();
+    updateMindMap({
+      nodes: nodes.map((node) => (node.id === detailNode.id ? { ...node, label: trimmedLabel } : node)),
+    }, detailNode.id);
+
+    if (detailNode.id === centerNode?.id) {
+      onResultChange((current) => ({ ...current, topic: trimmedLabel }));
+    }
+  }
+
+  function hideBranch() {
+    if (!selectedNode || selectedNode.id === centerNode?.id) return;
+
+    const hiddenNodeIds = collectDescendantNodeIds(selectedNode.id, edges);
+    hiddenNodeIds.add(selectedNode.id);
+
+    const nextNodes = nodes.filter((node) => !hiddenNodeIds.has(node.id));
+    const nextEdges = edges.filter((edge) => !hiddenNodeIds.has(edge.from) && !hiddenNodeIds.has(edge.to));
+    updateMindMap({ nodes: nextNodes, edges: nextEdges }, null);
+  }
 
   return (
     <div className={`mindmap-orientation-gate relative h-full overflow-hidden bg-[#eef4f8] ${isWebView ? "mindmap-webview-orientation-gate" : ""}`}>
@@ -217,9 +304,19 @@ export function MindMapScreen({ result, onBack }) {
           </div>
 
           <div className="mt-4 grid grid-cols-2 gap-2">
-            {["新增子节点", "同级节点", "重命名", "隐藏分支"].map((item) => (
-              <button key={item} className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] font-semibold text-slate-600 shadow-sm">
-                {item}
+            {mapActions.map((item) => (
+              <button
+                key={item.key}
+                type="button"
+                onClick={item.onClick}
+                disabled={item.disabled}
+                className={`rounded-2xl border px-3 py-2 text-[11px] font-semibold shadow-sm transition ${
+                  item.disabled
+                    ? "cursor-not-allowed border-slate-100 bg-slate-50 text-slate-300"
+                    : "border-slate-200 bg-white text-slate-700 hover:border-blue-200 hover:bg-blue-50"
+                }`}
+              >
+                {item.label}
               </button>
             ))}
           </div>
@@ -258,4 +355,58 @@ function Metric({ label, value }) {
       <p className="text-[11px] text-slate-400">{label}</p>
     </div>
   );
+}
+
+function createMindMapNodeId(nodes) {
+  const existingIds = new Set(nodes.map((node) => node.id));
+  let index = nodes.length + 1;
+  let id = `node-${Date.now().toString(36)}-${index}`;
+
+  while (existingIds.has(id)) {
+    index += 1;
+    id = `node-${Date.now().toString(36)}-${index}`;
+  }
+
+  return id;
+}
+
+function createMindMapNode({ id, parent, index, label, desc }) {
+  const isRightSide = parent.x <= 50;
+  const offsetX = parent.id === "center" ? 24 : 16;
+  const offsetY = (index % 5 - 2) * 11 + Math.floor(index / 5) * 5;
+
+  return {
+    id,
+    label,
+    desc,
+    detail: `${label}\n\n${desc}`,
+    x: clamp(parent.x + (isRightSide ? offsetX : -offsetX), 14, 86),
+    y: clamp(parent.y + offsetY, 14, 86),
+    fill: index % 2 === 0 ? "#fef3c7" : "#e0f2fe",
+    line: index % 2 === 0 ? "#f59e0b" : "#38bdf8",
+  };
+}
+
+function collectDescendantNodeIds(rootId, edges) {
+  const childrenByParent = edges.reduce((map, edge) => {
+    if (!map.has(edge.from)) map.set(edge.from, []);
+    map.get(edge.from).push(edge.to);
+    return map;
+  }, new Map());
+  const collected = new Set();
+  const queue = [...(childrenByParent.get(rootId) || [])];
+
+  while (queue.length) {
+    const nodeId = queue.shift();
+    if (collected.has(nodeId)) continue;
+
+    collected.add(nodeId);
+    queue.push(...(childrenByParent.get(nodeId) || []));
+  }
+
+  return collected;
+}
+
+function clamp(value, min, max) {
+  return Math.min(Math.max(value, min), max);
 }

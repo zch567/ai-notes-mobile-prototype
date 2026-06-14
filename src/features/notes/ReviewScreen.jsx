@@ -1,10 +1,22 @@
+import { useState } from "react";
 import { Card } from "../../components/Card";
+import { readReviewProgress, saveReviewProgress } from "../../services/localDemoFs";
 
 export function ReviewScreen({ result, onBack }) {
   const { review } = result;
+  const [progress, setProgress] = useState(() => readReviewProgress(result.id));
   const hasQuestions = review.questions.length > 0;
   const hasWeakPoints = review.weakPoints.length > 0;
   const hasRecommendations = review.recommendations.length > 0;
+
+  function completeReview() {
+    const nextProgress = {
+      answeredQuestionIds: review.questions.map((question) => question.id),
+      lastReviewedAt: new Date().toISOString(),
+    };
+    setProgress(nextProgress);
+    saveReviewProgress(result.id, nextProgress);
+  }
 
   return (
     <div className="flex h-full flex-col">
@@ -26,6 +38,17 @@ export function ReviewScreen({ result, onBack }) {
             <div className="mt-3 h-2 overflow-hidden rounded-full bg-blue-100">
               <div className="h-full rounded-full bg-blue-600" style={{ width: `${review.masteryScore}%` }} />
             </div>
+            <button
+              onClick={completeReview}
+              className="mt-4 w-full rounded-2xl bg-slate-900 px-4 py-3 text-[13px] font-semibold text-white"
+            >
+              完成本次复习并保存
+            </button>
+            {progress.lastReviewedAt ? (
+              <p className="mt-3 text-[12px] leading-5 text-slate-500">
+                最近复习：{new Date(progress.lastReviewedAt).toLocaleString()}
+              </p>
+            ) : null}
           </Card>
 
           <Card title="复习题" subtitle="Questions">

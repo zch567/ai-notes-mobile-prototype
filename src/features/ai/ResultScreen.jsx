@@ -1,12 +1,50 @@
+import { useState } from "react";
 import { Card } from "../../components/Card";
 import { TopBar } from "../../components/TopBar";
+import { queryRag, validateAgentResult } from "./agentApi";
 
 export function ResultScreen({ result, onOpenNote, onOpenMindMap, onRetry }) {
+  const [validation, setValidation] = useState(null);
+  const [validationStatus, setValidationStatus] = useState("idle");
+  const [ragQuery, setRagQuery] = useState("");
+  const [ragHits, setRagHits] = useState([]);
+  const [ragStatus, setRagStatus] = useState("idle");
   const citationLinkCount = result.notes.reduce((count, note) => count + note.citationIds.length, 0);
   const recommendationText = result.review.recommendations.length
     ? result.review.recommendations.join("；")
     : "当前结果还没有复习建议，后端可在 review.recommendations 中返回下一步复习动作。";
   const diagnostics = [...result.errors, ...result.warnings];
+  const meta = result._meta || {};
+  const modelLog = meta.modelLog || {};
+  const citationDiagnostics = result.citationDiagnostics || {};
+  const hasBackendMeta = Boolean(meta.pipeline || meta.parser || modelLog.provider || Object.keys(citationDiagnostics).length);
+
+  async function runValidation() {
+    setValidationStatus("loading");
+    try {
+      const report = await validateAgentResult(result);
+      setValidation(report);
+      setValidationStatus("success");
+    } catch (err) {
+      setValidation({ valid: false, message: err instanceof Error ? err.message : "校验失败" });
+      setValidationStatus("error");
+    }
+  }
+
+  async function runRagQuery() {
+    const query = ragQuery.trim();
+    if (!query) return;
+
+    setRagStatus("loading");
+    try {
+      const response = await queryRag({ resultId: result.id, query, topK: 5 });
+      setRagHits(response.hits || []);
+      setRagStatus("success");
+    } catch (err) {
+      setRagHits([{ error: err instanceof Error ? err.message : "检索失败" }]);
+      setRagStatus("error");
+    }
+  }
 
   return (
     <div className="space-y-5 pb-6">
@@ -37,6 +75,90 @@ export function ResultScreen({ result, onOpenNote, onOpenMindMap, onRetry }) {
             </div>
           </Card>
         ) : null}
+
+        {hasBackendMeta ? (
+          <Card title="后端诊断" subtitle="Backend">
+            <div className="grid grid-cols-2 gap-2">
+              <DiagnosticPill label="Pipeline" value={meta.pipeline || "unknown"} />
+              <DiagnosticPill label="Provider" value={modelLog.provider || meta.requestedProvider || "unknown"} />
+              <DiagnosticPill label="Model" value={modelLog.model || "未记录"} />
+              <DiagnosticPill label="Fallback" value={String(Boolean(modelLog.fallbackUsed))} />
+            </div>
+
+            {Object.keys(citationDiagnostics).length ? (
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <Metric label="引用覆盖" value={percentText(citationDiagnostics.noteCitationCoverage)} />
+                <Metric label="Quote 命中" value={percentText(citationDiagnostics.quoteInSourceRate)} />
+              </div>
+            ) : null}
+
+            <button
+              onClick={runValidation}
+              disabled={validationStatus === "loading"}
+              className="mt-3 w-full rounded-2xl bg-slate-900 px-4 py-3 text-[13px] font-semibold text-white disabled:bg-slate-300"
+            >
+              {validationStatus === "loading" ? "正在校验契约..." : "校验当前 AgentResult"}
+            </button>
+
+            {validation ? (
+              <div className={`mt-3 rounded-2xl px-3 py-2 text-[12px] leading-5 ${
+                validation.valid ? "bg-emerald-50 text-emerald-800" : "bg-amber-50 text-amber-900"
+              }`}>
+                {validation.valid
+                  ? `契约有效：sources ${validation.sourceCount} · notes ${validation.noteCount} · questions ${validation.questionCount}`
+                  : validation.message || "契约校验未通过"}
+              </div>
+            ) : null}
+          </Card>
+        ) : null}
+
+        <Card title="来源检索" subtitle="RAG Query">
+          <div className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 shadow-sm">
+            <input
+              value={ragQuery}
+              onChange={(event) => setRagQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") runRagQuery();
+              }}
+              placeholder="搜索一个概念，例如：位置编码为什么必要"
+              className="min-w-0 flex-1 bg-transparent text-[13px] leading-6 text-slate-700 outline-none placeholder:text-slate-300"
+            />
+            <button
+              onClick={runRagQuery}
+              disabled={ragStatus === "loading"}
+              className="rounded-2xl bg-blue-600 px-3 py-2 text-[12px] font-semibold text-white disabled:bg-slate-300"
+            >
+              {ragStatus === "loading" ? "检索中" : "检索"}
+            </button>
+          </div>
+
+          {ragHits.length ? (
+            <div className="mt-3 space-y-2">
+              {ragHits.map((hit, index) => (
+                <div key={hit.chunk?.id || hit.error || index} className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
+                  {hit.error ? (
+                    <p className="text-[13px] leading-5 text-amber-900">{hit.error}</p>
+                  ) : (
+                    <>
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="truncate text-[13px] font-semibold text-slate-900">{hit.chunk?.title || hit.chunk?.sourceRef || `命中 ${index + 1}`}</p>
+                        <span className="shrink-0 rounded-full bg-white px-2 py-1 text-[11px] font-semibold text-blue-600 ring-1 ring-blue-100">
+                          {Number(hit.score || 0).toFixed(2)}
+                        </span>
+                      </div>
+                      <p className="mt-2 line-clamp-3 text-[12px] leading-5 text-slate-500">{hit.chunk?.text || ""}</p>
+                      {hit.matchedTerms?.length ? (
+                        <p className="mt-2 text-[11px] font-medium text-slate-400">匹配词：{hit.matchedTerms.join("、")}</p>
+                      ) : null}
+                    </>
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="mt-3 text-[12px] leading-5 text-slate-500">输入问题后可直接调用后端 `/api/rag/query`，检查来源片段召回效果。</p>
+          )}
+        </Card>
 
         {result.keywords.length || result.outline.length ? (
           <Card title="资料理解" subtitle="Understanding">
@@ -128,6 +250,15 @@ export function ResultScreen({ result, onOpenNote, onOpenMindMap, onRetry }) {
   );
 }
 
+function DiagnosticPill({ label, value }) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">{label}</p>
+      <p className="mt-1 truncate text-[12px] font-semibold text-slate-800">{value}</p>
+    </div>
+  );
+}
+
 function Metric({ label, value }) {
   return (
     <div className="rounded-2xl bg-slate-50 p-3 text-center">
@@ -135,6 +266,12 @@ function Metric({ label, value }) {
       <p className="mt-1 text-[12px] text-slate-400">{label}</p>
     </div>
   );
+}
+
+function percentText(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "-";
+  return `${Math.round(number * 100)}%`;
 }
 
 function Message({ role, text, tone = "user" }) {
