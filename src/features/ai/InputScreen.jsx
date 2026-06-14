@@ -104,6 +104,16 @@ export function InputScreen({ onRun, status, draft = defaultDraft, onDraftChange
 
       <div className="px-5">
         <Card title="学习材料" subtitle="Input">
+          <label className="mb-4 block">
+            <span className="mb-2 block text-[12px] font-semibold uppercase tracking-[0.18em] text-slate-400">资料标题</span>
+            <input
+              value={sourceTitle}
+              onChange={(event) => setSourceTitle(event.target.value)}
+              placeholder="给这份资料起一个标题"
+              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-[14px] font-semibold text-slate-800 outline-none transition placeholder:text-slate-300 focus:border-blue-200 focus:shadow-sm"
+            />
+          </label>
+
           <div className="mb-4 grid grid-cols-3 gap-2 rounded-2xl bg-slate-100 p-1">
             {inputTypes.map(([id, label]) => (
               <button

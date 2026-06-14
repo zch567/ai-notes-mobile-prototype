@@ -17,7 +17,10 @@ export async function runAgent(input) {
     method: "POST",
     body: JSON.stringify(input),
   });
-  return normalizeAgentResult(result?.data && typeof result.data === "object" ? result.data : result);
+  return applyInputFallbacks(
+    normalizeAgentResult(result?.data && typeof result.data === "object" ? result.data : result),
+    input,
+  );
 }
 
 export async function getProviderStatus() {
@@ -52,4 +55,26 @@ export async function queryRag({ resultId, chunksPath, query, topK = 5 }) {
       topK,
     }),
   });
+}
+
+function applyInputFallbacks(result, input) {
+  const title = input?.sourceMeta?.title;
+  if (!title || !looksLikeTemporaryTopic(result.topic)) return result;
+
+  return {
+    ...result,
+    topic: title,
+    mindMap: {
+      ...result.mindMap,
+      nodes: result.mindMap.nodes.map((node, index) => (
+        index === 0 || node.id === "root" || node.id === "center"
+          ? { ...node, label: title, detail: node.detail === result.topic ? title : node.detail }
+          : node
+      )),
+    },
+  };
+}
+
+function looksLikeTemporaryTopic(topic) {
+  return /^input-[0-9a-f]{8,}$/i.test(String(topic || ""));
 }
