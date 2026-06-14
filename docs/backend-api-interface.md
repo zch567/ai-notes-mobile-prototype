@@ -8,28 +8,22 @@
 
 ## 运行模式
 
-前端支持两种切换方式：环境变量默认值，以及运行时配置。
+前端只保留真实后端模式，支持两种后端地址配置方式：环境变量默认值，以及运行时配置。
 
 环境变量：
 
 ```text
-VITE_DEMO_MODE=true
+VITE_DEMO_MODE=false
 VITE_API_BASE_URL=http://127.0.0.1:8000
 ```
 
-规则：
-
-| 模式 | 行为 |
-|---|---|
-| `VITE_DEMO_MODE=true` | 不请求后端，直接使用 `src/data/demoAgentResult.js` |
-| `VITE_DEMO_MODE=false` | 调用真实后端接口 |
+规则：`VITE_DEMO_MODE` 固定为 `false`，前端不再直接返回本地 demo/mock 结果。
 
 运行时配置：
 
-- APK/WebView 包默认使用 `VITE_DEMO_MODE=true`，保证离线 demo 可用。
 - 用户可在“我的 > 后端连接”中填写 `http://电脑局域网IP:8000`，点击“测试并启用”。
 - 运行时启用真实后端后，`agentApi.runAgent`、`getProviderStatus` 等接口会使用保存的后端地址。
-- “恢复 demo”会切回离线演示；“清除本机配置”会回到环境变量默认值。
+- “清除本机配置”会回到环境变量默认后端地址。
 
 ## 接口总览
 
@@ -421,7 +415,7 @@ Content-Type: application/json
 
 ## 联调检查清单
 
-- `VITE_DEMO_MODE=false` 后，前端能请求到后端。
+- 前端能请求到真实后端。
 - APK 模式下，在“我的 > 后端连接”填写电脑局域网地址后，`/health` 测试成功。
 - 后端允许前端所在地址跨域访问，例如 Vite 默认 `http://127.0.0.1:5173`。
 - APK/WebView 联调时建议后端允许局域网访问来源，复赛 demo 可设置 `BACKEND_CORS_ORIGINS=*`。

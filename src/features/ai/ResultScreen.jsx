@@ -82,7 +82,7 @@ export function ResultScreen({ result, onOpenNote, onOpenMindMap, onRetry }) {
               <DiagnosticPill label="Pipeline" value={meta.pipeline || "unknown"} />
               <DiagnosticPill label="Provider" value={modelLog.provider || meta.requestedProvider || "unknown"} />
               <DiagnosticPill label="Model" value={modelLog.model || "未记录"} />
-              <DiagnosticPill label="Fallback" value={String(Boolean(modelLog.fallbackUsed))} />
+              <DiagnosticPill label="Status" value={modelLog.status || "unknown"} />
             </div>
 
             {Object.keys(citationDiagnostics).length ? (

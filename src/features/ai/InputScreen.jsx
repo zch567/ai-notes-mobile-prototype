@@ -10,7 +10,7 @@ const defaultDraft = {
   sourceTitle: "Logistic Regression 公开样例",
   pipeline: "hybrid",
   provider: "configured",
-  strictProvider: false,
+  strictProvider: true,
   topK: 2,
 };
 
@@ -20,7 +20,6 @@ export function InputScreen({ onRun, status, draft = defaultDraft, onDraftChange
   const [sourceTitle, setSourceTitle] = useState(draft.sourceTitle || "Logistic Regression 公开样例");
   const [pipeline, setPipeline] = useState(draft.pipeline || "hybrid");
   const [provider, setProvider] = useState(draft.provider || "configured");
-  const [strictProvider, setStrictProvider] = useState(Boolean(draft.strictProvider));
   const [topK, setTopK] = useState(draft.topK || 2);
   const [providerStatus, setProviderStatus] = useState(null);
   const [providerError, setProviderError] = useState("");
@@ -30,12 +29,10 @@ export function InputScreen({ onRun, status, draft = defaultDraft, onDraftChange
     ["ppt", "PPT"],
   ];
   const pipelineOptions = [
-    ["hybrid", "Hybrid", "模型草稿 + RAG 引用"],
-    ["rag-only", "RAG only", "离线兜底"],
+    ["hybrid", "Hybrid", "真实模型生成 + RAG 引用"],
   ];
   const providerOptions = [
     ["configured", "配置默认"],
-    ["mock", "Mock"],
     ["lanxin", "蓝心"],
   ];
 
@@ -46,10 +43,10 @@ export function InputScreen({ onRun, status, draft = defaultDraft, onDraftChange
       sourceTitle,
       pipeline,
       provider,
-      strictProvider,
+      strictProvider: true,
       topK,
     });
-  }, [inputType, sourceText, sourceTitle, pipeline, provider, strictProvider, topK, onDraftChange]);
+  }, [inputType, sourceText, sourceTitle, pipeline, provider, topK, onDraftChange]);
 
   useEffect(() => {
     let cancelled = false;
@@ -88,7 +85,7 @@ export function InputScreen({ onRun, status, draft = defaultDraft, onDraftChange
       fileName: `${safeFileStem(sourceTitle)}.${inputType === "text" ? "md" : inputType}`,
       pipeline,
       provider: provider === "configured" ? undefined : provider,
-      strictProvider,
+      strictProvider: true,
       topK,
       sourceMeta: {
         title: sourceTitle,
@@ -145,7 +142,7 @@ export function InputScreen({ onRun, status, draft = defaultDraft, onDraftChange
           </div>
 
           <div className="mb-4 space-y-3">
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid gap-2">
               {pipelineOptions.map(([id, label, desc]) => (
                 <button
                   key={id}
@@ -161,7 +158,7 @@ export function InputScreen({ onRun, status, draft = defaultDraft, onDraftChange
               ))}
             </div>
 
-            <div className="grid grid-cols-3 gap-2 rounded-2xl bg-slate-100 p-1">
+            <div className="grid grid-cols-2 gap-2 rounded-2xl bg-slate-100 p-1">
               {providerOptions.map(([id, label]) => (
                 <button
                   key={id}
@@ -191,18 +188,13 @@ export function InputScreen({ onRun, status, draft = defaultDraft, onDraftChange
               />
             </div>
 
-            <label className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-3">
+            <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-3">
               <div>
-                <p className="text-[13px] font-semibold text-slate-900">严格使用所选 Provider</p>
-                <p className="mt-1 text-[11px] leading-4 text-slate-500">蓝心失败时不静默降级到 Mock</p>
+                <p className="text-[13px] font-semibold text-slate-900">真实模型调用</p>
+                <p className="mt-1 text-[11px] leading-4 text-slate-500">后端必须调用已配置 Provider，失败时直接暴露错误</p>
               </div>
-              <input
-                type="checkbox"
-                checked={strictProvider}
-                onChange={(event) => setStrictProvider(event.target.checked)}
-                className="h-5 w-5 accent-blue-600"
-              />
-            </label>
+              <span className="rounded-full bg-emerald-50 px-3 py-1 text-[12px] font-semibold text-emerald-600">Strict</span>
+            </div>
           </div>
 
           {inputType === "text" ? (
@@ -218,7 +210,7 @@ export function InputScreen({ onRun, status, draft = defaultDraft, onDraftChange
                 前端结构已预留，后续通过 Android 文件选择或 Web 上传把文件交给后端解析。
               </p>
               <button className="mt-4 rounded-2xl border border-slate-200 bg-white px-4 py-2 text-[13px] font-semibold text-slate-600">
-                选择演示样例
+                选择文本样例
               </button>
             </div>
           )}

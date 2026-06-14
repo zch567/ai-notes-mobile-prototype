@@ -6,7 +6,7 @@ export default defineConfig(({ mode }) => {
   const isWebViewBuild =
     mode === "webview" || env.VITE_APP_SHELL_MODE === "webview";
   const shellMode = isWebViewBuild ? "webview" : env.VITE_APP_SHELL_MODE;
-  const demoMode = isWebViewBuild ? "true" : env.VITE_DEMO_MODE;
+  const demoMode = "false";
 
   return {
     base: isWebViewBuild ? "./" : "/",

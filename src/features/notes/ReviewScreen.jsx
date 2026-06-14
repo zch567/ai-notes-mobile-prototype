@@ -33,7 +33,7 @@ export function ReviewScreen({ result, onBack }) {
           <Card title="掌握度" subtitle="Evaluation">
             <div className="flex items-end justify-between">
               <span className="text-[42px] font-semibold tracking-tight text-blue-600">{review.masteryScore}%</span>
-              <span className="mb-2 text-[13px] font-semibold text-slate-400">Demo score</span>
+              <span className="mb-2 text-[13px] font-semibold text-slate-400">Mastery score</span>
             </div>
             <div className="mt-3 h-2 overflow-hidden rounded-full bg-blue-100">
               <div className="h-full rounded-full bg-blue-600" style={{ width: `${review.masteryScore}%` }} />
@@ -83,7 +83,7 @@ export function ReviewScreen({ result, onBack }) {
                   <p className="mt-3 text-[13px] leading-6 text-slate-600">{item.explanation}</p>
                 </div>
               )) : (
-                <EmptyState text="当前结果没有返回复习题。请检查 review.questions，第二周可先返回 1-2 道题用于演示闭环。" />
+                <EmptyState text="当前结果没有返回复习题。请检查真实后端的 review.questions 字段。" />
               )}
             </div>
           </Card>

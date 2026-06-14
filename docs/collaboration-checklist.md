@@ -20,4 +20,4 @@
 - 第二周 C 字段对齐优先看 `docs/frontend-adapter-checklist.md`。
 - 前端先在 `agentTypes.js` 归一化字段。
 - 页面组件不直接适配后端临时字段。
-- API 不稳定时保留 `VITE_DEMO_MODE=true` 作为演示兜底。
+- 当前版本不再保留 mock/demo 生成兜底；API 不稳定时应修复后端或在配置页更换后端地址。

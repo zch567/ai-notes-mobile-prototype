@@ -28,7 +28,7 @@ export function NotesScreen({ result, onOpenNote }) {
       </div>
 
       <div className="px-5">
-        <Card title="演示笔记" subtitle="Current Result">
+        <Card title="当前笔记" subtitle="Current Result">
           <button onClick={onOpenNote} className="w-full rounded-[28px] border border-slate-200 bg-white p-4 text-left shadow-sm">
             <div className="flex items-start justify-between gap-4">
               <div className="min-w-0">

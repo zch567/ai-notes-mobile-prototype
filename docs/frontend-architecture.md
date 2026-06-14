@@ -5,7 +5,7 @@
 ```text
 src/app/          应用入口、导航常量、全局页面状态
 src/components/   通用 UI 组件
-src/data/         最小演示数据，只用于 demoMode 兜底
+src/data/         输入样例和历史兼容数据，不再作为生成结果兜底
 src/features/     业务页面，按功能拆分
 src/services/     API 客户端、运行模式等基础服务
 ```
@@ -26,7 +26,7 @@ src/services/     API 客户端、运行模式等基础服务
 - 页面组件不直接写 `fetch`。
 - 后端字段变化先改 `src/features/ai/agentTypes.js`，不要到处改页面。
 - 导航 id 和状态值统一从 `src/app/navigation.js` 引用。
-- 演示数据只能放在 `src/data/`，不要散落到页面中。
+- 输入样例数据只能放在 `src/data/`，不要散落到页面中。
 
 ## 接后端流程
 
@@ -41,4 +41,3 @@ VITE_API_BASE_URL=http://127.0.0.1:8000
 3. 后端返回接近 `AgentResult` 的 JSON。
 4. 前端在 `agentTypes.js` 中兜底和归一化字段。
 5. 页面无需改动。
-

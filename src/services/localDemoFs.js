@@ -1,4 +1,4 @@
-import { demoAgentResult, demoInputText } from "../data/demoAgentResult";
+import { demoInputText } from "../data/demoAgentResult";
 import { normalizeAgentResult } from "../features/ai/agentTypes";
 
 const STORAGE_PREFIX = "zhixu:demo:";
@@ -32,12 +32,12 @@ export function initializeLocalDemoFs() {
 
   writeJSON(STORAGE_KEYS.meta, {
     schemaVersion: SCHEMA_VERSION,
-    activeResultId: demoAgentResult.id,
+    activeResultId: "",
     createdAt: now(),
     updatedAt: now(),
   });
 
-  writeJSON(STORAGE_KEYS.results, [createResultRecord(demoAgentResult, "seed")]);
+  writeJSON(STORAGE_KEYS.results, []);
   writeJSON(STORAGE_KEYS.inputDraft, {
     ...defaultInputDraft,
     updatedAt: now(),
@@ -53,7 +53,7 @@ export function readActiveAgentResult() {
   const results = readJSON(STORAGE_KEYS.results, []);
   const activeRecord = results.find((record) => record.id === meta?.activeResultId) || results[0];
 
-  return normalizeAgentResult(activeRecord?.agentResult || demoAgentResult);
+  return normalizeAgentResult(activeRecord?.agentResult || {});
 }
 
 export function saveActiveAgentResult(agentResult, sourceType = "generated") {

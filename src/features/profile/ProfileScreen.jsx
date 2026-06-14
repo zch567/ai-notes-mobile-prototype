@@ -1,7 +1,6 @@
 import { useMemo, useState } from "react";
 import { Card } from "../../components/Card";
 import { TopBar } from "../../components/TopBar";
-import { isDemoMode } from "../../services/demoMode";
 import {
   clearRuntimeConfig,
   getRuntimeConfig,
@@ -12,27 +11,21 @@ import {
 
 export function ProfileScreen() {
   const initialConfig = useMemo(() => getRuntimeConfig(), []);
-  const [mode, setMode] = useState(initialConfig.mode);
   const [apiBaseUrl, setApiBaseUrl] = useState(initialConfig.apiBaseUrl);
   const [savedConfig, setSavedConfig] = useState(initialConfig);
   const [testStatus, setTestStatus] = useState("idle");
   const [message, setMessage] = useState("");
-  const currentModeLabel = isDemoMode() ? "离线演示模式" : "真实后端模式";
 
   function refreshFromStorage(nextConfig = getRuntimeConfig()) {
     const effectiveConfig = nextConfig.source ? nextConfig : getRuntimeConfig();
     setSavedConfig(effectiveConfig);
-    setMode(effectiveConfig.mode);
     setApiBaseUrl(effectiveConfig.apiBaseUrl);
   }
 
-  function handleSave(nextMode = mode) {
-    const nextConfig = saveRuntimeConfig({
-      mode: nextMode,
-      apiBaseUrl,
-    });
+  function handleSave() {
+    const nextConfig = saveRuntimeConfig({ apiBaseUrl });
     refreshFromStorage(nextConfig);
-    setMessage(nextMode === "api" ? "已保存真实后端配置" : "已切换为离线演示模式");
+    setMessage("已保存真实后端配置");
   }
 
   async function handleTestAndEnable() {
@@ -41,10 +34,7 @@ export function ProfileScreen() {
 
     try {
       const result = await testBackendConnection(apiBaseUrl);
-      const nextConfig = saveRuntimeConfig({
-        mode: "api",
-        apiBaseUrl: result.baseUrl,
-      });
+      const nextConfig = saveRuntimeConfig({ apiBaseUrl: result.baseUrl });
       refreshFromStorage(nextConfig);
       setTestStatus("success");
       setMessage(`连接成功，已启用 ${result.baseUrl}`);
@@ -54,60 +44,32 @@ export function ProfileScreen() {
     }
   }
 
-  function handleResetDemo() {
-    saveRuntimeConfig({
-      mode: "demo",
-      apiBaseUrl,
-    });
-    refreshFromStorage();
-    setTestStatus("idle");
-    setMessage("已恢复离线演示模式");
-  }
-
   function handleClear() {
     clearRuntimeConfig();
     refreshFromStorage();
     setTestStatus("idle");
-    setMessage("已清除本机运行配置");
+    setMessage("已清除本机后端地址配置");
   }
 
   return (
     <div className="space-y-5 pb-6">
-      <TopBar title="我的" subtitle="运行配置与演示状态" />
+      <TopBar title="我的" subtitle="真实后端连接配置" />
 
       <div className="space-y-4 px-5">
         <Card title="当前模式" subtitle="Runtime">
           <div className="flex items-start justify-between gap-3 rounded-2xl bg-slate-50 p-4">
             <div>
-              <p className="text-[14px] font-semibold text-slate-900">{currentModeLabel}</p>
+              <p className="text-[14px] font-semibold text-slate-900">真实后端模式</p>
               <p className="mt-2 text-[13px] leading-5 text-slate-500">
-                APK 默认保留离线 demo。评审或队友启动电脑端后端后，在这里填写局域网地址即可切到真实接口。
+                当前版本不再内置 mock 生成兜底。请启动电脑端 FastAPI 后端，并在下方填写局域网地址。
               </p>
             </div>
-            <span className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${isDemoMode() ? "bg-amber-400" : "bg-emerald-500"}`} />
+            <span className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full bg-emerald-500" />
           </div>
         </Card>
 
         <Card title="后端连接" subtitle="Backend">
-          <div className="grid grid-cols-2 gap-2 rounded-2xl bg-slate-100 p-1">
-            {[
-              ["demo", "离线 demo"],
-              ["api", "真实后端"],
-            ].map(([id, label]) => (
-              <button
-                key={id}
-                type="button"
-                onClick={() => setMode(id)}
-                className={`rounded-xl px-3 py-2 text-[13px] font-semibold transition ${
-                  mode === id ? "bg-white text-blue-600 shadow-sm" : "text-slate-500"
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-
-          <label className="mt-4 block">
+          <label className="block">
             <span className="mb-2 block text-[12px] font-semibold uppercase tracking-[0.18em] text-slate-400">API Base URL</span>
             <input
               value={apiBaseUrl}
@@ -139,32 +101,23 @@ export function ProfileScreen() {
             </button>
             <button
               type="button"
-              onClick={() => handleSave(mode)}
+              onClick={handleSave}
               className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-[13px] font-semibold text-slate-700"
             >
               保存配置
             </button>
           </div>
 
-          <div className="mt-3 grid grid-cols-2 gap-2">
-            <button
-              type="button"
-              onClick={handleResetDemo}
-              className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-[13px] font-semibold text-slate-600"
-            >
-              恢复 demo
-            </button>
-            <button
-              type="button"
-              onClick={handleClear}
-              className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-[13px] font-semibold text-slate-600"
-            >
-              清除本机配置
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={handleClear}
+            className="mt-3 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-[13px] font-semibold text-slate-600"
+          >
+            清除本机配置
+          </button>
 
           <p className="mt-4 text-[12px] leading-5 text-slate-400">
-            当前保存来源：{savedConfig.source === "local" ? "本机配置" : "环境变量默认值"}。真实后端启用后，AI 生成页会调用同一个地址。
+            当前保存来源：{savedConfig.source === "local" ? "本机配置" : "环境变量默认值"}。AI 生成页会调用这个后端地址。
           </p>
         </Card>
       </div>

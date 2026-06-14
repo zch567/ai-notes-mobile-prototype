@@ -4,17 +4,13 @@ function getEnvApiBaseUrl() {
   return import.meta.env.VITE_API_BASE_URL || "";
 }
 
-function getEnvDefaultMode() {
-  return import.meta.env.VITE_DEMO_MODE === "false" ? "api" : "demo";
-}
-
 export function normalizeApiBaseUrl(value) {
   return String(value || "").trim().replace(/\/+$/, "");
 }
 
 export function getRuntimeConfig() {
   const stored = readStoredConfig();
-  const mode = stored?.mode === "api" || stored?.mode === "demo" ? stored.mode : getEnvDefaultMode();
+  const mode = "api";
   const apiBaseUrl = normalizeApiBaseUrl(stored?.apiBaseUrl || getEnvApiBaseUrl());
 
   return {
@@ -26,7 +22,7 @@ export function getRuntimeConfig() {
 
 export function saveRuntimeConfig(config) {
   const nextConfig = {
-    mode: config?.mode === "api" ? "api" : "demo",
+    mode: "api",
     apiBaseUrl: normalizeApiBaseUrl(config?.apiBaseUrl),
   };
 

@@ -7,7 +7,7 @@
 ```text
 src/app/          应用入口、导航状态
 src/components/   通用组件
-src/data/         演示数据
+src/data/         输入样例数据
 src/features/     业务页面
 src/services/     API 与运行模式
 docs/             协作与接口文档
@@ -23,20 +23,20 @@ npm install
 npm run dev
 ```
 
-默认使用演示模式。复制 `.env.example` 为 `.env` 后可切换真实 API：
+当前版本只保留真实后端模式。复制 `.env.example` 为 `.env` 后配置 API 地址：
 
 ```text
 VITE_DEMO_MODE=false
 VITE_API_BASE_URL=http://127.0.0.1:8000
 ```
 
-APK/WebView 包默认保留离线 demo。安装到手机后，也可以在“我的 > 后端连接”里填写电脑局域网后端地址，例如：
+APK/WebView 包安装到手机后，可以在“我的 > 后端连接”里填写电脑局域网后端地址，例如：
 
 ```text
 http://192.168.1.23:8000
 ```
 
-点击“测试并启用”后，AI 生成页会改为调用该真实后端。
+点击“测试并启用”后，AI 生成页会调用该真实后端。
 
 Android WebView 壳建议切换为全屏应用模式：
 
@@ -61,7 +61,7 @@ npm run build:webview
 `build:webview` 会使用相对资源路径，并默认使用：
 
 ```text
-VITE_DEMO_MODE=true
+VITE_DEMO_MODE=false
 VITE_APP_SHELL_MODE=webview
 ```
 
@@ -75,7 +75,7 @@ Android demo app 位于：
 android-shell/
 ```
 
-它是一个原生 Android WebView 壳，会把 Vite 打包后的静态资源放进 APK 本地 assets。默认可离线演示，也支持在运行时填写局域网后端地址进行真实联调。
+它是一个原生 Android WebView 壳，会把 Vite 打包后的静态资源放进 APK 本地 assets，并支持在运行时填写局域网后端地址进行真实联调。
 
 构建 debug APK：
 
@@ -95,18 +95,18 @@ APK/AAB 是可再生成的构建产物，已经被 git 忽略；不建议提交�
 Android 运行要点：
 
 - WebView 加载本地资源：`file:///android_asset/web/index.html`。
-- APK 默认保持 demo 模式；在“我的 > 后端连接”测试并启用后会调用真实后端。
+- APK 只保留真实后端链路；在“我的 > 后端连接”测试并启用后会调用真实后端。
 - Android 壳已开启 `INTERNET`、局域网 HTTP 和本地资源跨源请求能力，用于访问 `http://电脑IP:8000`。
 - 顶部内容在 WebView 模式下会保留状态栏安全距离。
 - 思维导图详情页会请求横屏；如果设备仍为竖屏，会隐藏导图内容并提示用户切换横屏。
 
 ## Demo 本地存储
 
-Demo 阶段没有云端数据库。前端使用 `src/services/localDemoFs.js` 在浏览器或 Android WebView 的本地存储中保存演示数据。
+Demo 阶段没有云端数据库。前端使用 `src/services/localDemoFs.js` 在浏览器或 Android WebView 的本地存储中保存本机数据。
 
 当前会保存：
 
-- 当前激活的 `AgentResult`。
+- 当前激活的真实后端 `AgentResult`。
 - 输入页草稿，包括输入类型、文本内容和标题。
 - 笔记设置，包括复习模式、引用显示和自动保存提示。
 - 笔记内容修改，包括标题、章节标题和正文，会实时写回 `AgentResult.topic` 和 `AgentResult.notes`。

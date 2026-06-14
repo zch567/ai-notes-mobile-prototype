@@ -1,5 +1,3 @@
-import { demoAgentResult } from "../../data/demoAgentResult";
-
 const emptyAgentResult = {
   id: "",
   topic: "",
@@ -53,28 +51,28 @@ export function normalizeAgentResult(rawResult) {
   };
 
   return {
-    id: stringOrFallback(result.id, demoAgentResult.id),
-    topic: stringOrFallback(result.topic, demoAgentResult.topic),
-    summary: stringOrFallback(result.summary, demoAgentResult.summary),
-    keywords: normalizeArray(result.keywords, demoAgentResult.keywords || []).map(String),
-    outline: normalizeArray(result.outline, demoAgentResult.outline || []).map(normalizeOutlineItem),
-    warnings: normalizeArray(result.warnings, demoAgentResult.warnings || []).map(normalizeDiagnostic).filter(Boolean),
-    errors: normalizeArray(result.errors, demoAgentResult.errors || []).map(normalizeDiagnostic).filter(Boolean),
-    agentStages: normalizeArray(result.agentStages, demoAgentResult.agentStages).map(normalizeStage),
-    sources: normalizeArray(result.sources, demoAgentResult.sources).map(normalizeSource),
-    notes: normalizeArray(result.notes, demoAgentResult.notes).map(normalizeNote),
-    citations: normalizeArray(result.citations, demoAgentResult.citations).map(normalizeCitation),
+    id: stringOrFallback(result.id, emptyAgentResult.id),
+    topic: stringOrFallback(result.topic, emptyAgentResult.topic),
+    summary: stringOrFallback(result.summary, emptyAgentResult.summary),
+    keywords: normalizeArray(result.keywords, emptyAgentResult.keywords).map(String),
+    outline: normalizeArray(result.outline, emptyAgentResult.outline).map(normalizeOutlineItem),
+    warnings: normalizeArray(result.warnings, emptyAgentResult.warnings).map(normalizeDiagnostic).filter(Boolean),
+    errors: normalizeArray(result.errors, emptyAgentResult.errors).map(normalizeDiagnostic).filter(Boolean),
+    agentStages: normalizeArray(result.agentStages, emptyAgentResult.agentStages).map(normalizeStage),
+    sources: normalizeArray(result.sources, emptyAgentResult.sources).map(normalizeSource),
+    notes: normalizeArray(result.notes, emptyAgentResult.notes).map(normalizeNote),
+    citations: normalizeArray(result.citations, emptyAgentResult.citations).map(normalizeCitation),
     citationDiagnostics: normalizeObject(result.citationDiagnostics || result.citation_diagnostics),
     _meta: normalizeObject(result._meta || result.meta),
     mindMap: {
-      nodes: normalizeArray(result.mindMap.nodes, demoAgentResult.mindMap.nodes).map(normalizeMindMapNode),
-      edges: normalizeArray(result.mindMap.edges, demoAgentResult.mindMap.edges).map(normalizeMindMapEdge),
+      nodes: normalizeArray(result.mindMap.nodes, emptyAgentResult.mindMap.nodes).map(normalizeMindMapNode),
+      edges: normalizeArray(result.mindMap.edges, emptyAgentResult.mindMap.edges).map(normalizeMindMapEdge),
     },
     review: {
-      questions: normalizeArray(result.review.questions, demoAgentResult.review.questions).map(normalizeQuestion),
-      masteryScore: clamp(numberOrFallback(result.review.masteryScore, demoAgentResult.review.masteryScore), 0, 100),
-      weakPoints: normalizeArray(result.review.weakPoints, demoAgentResult.review.weakPoints).map(String),
-      recommendations: normalizeArray(result.review.recommendations, demoAgentResult.review.recommendations)
+      questions: normalizeArray(result.review.questions, emptyAgentResult.review.questions).map(normalizeQuestion),
+      masteryScore: clamp(numberOrFallback(result.review.masteryScore, emptyAgentResult.review.masteryScore), 0, 100),
+      weakPoints: normalizeArray(result.review.weakPoints, emptyAgentResult.review.weakPoints).map(String),
+      recommendations: normalizeArray(result.review.recommendations, emptyAgentResult.review.recommendations)
         .map(normalizeRecommendation)
         .filter(Boolean),
     },
