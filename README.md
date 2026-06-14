@@ -30,6 +30,14 @@ VITE_DEMO_MODE=false
 VITE_API_BASE_URL=http://127.0.0.1:8000
 ```
 
+APK/WebView 包默认保留离线 demo。安装到手机后，也可以在“我的 > 后端连接”里填写电脑局域网后端地址，例如：
+
+```text
+http://192.168.1.23:8000
+```
+
+点击“测试并启用”后，AI 生成页会改为调用该真实后端。
+
 Android WebView 壳建议切换为全屏应用模式：
 
 ```text
@@ -50,12 +58,14 @@ WebView 专用构建：
 npm run build:webview
 ```
 
-`build:webview` 会使用相对资源路径，并强制使用：
+`build:webview` 会使用相对资源路径，并默认使用：
 
 ```text
 VITE_DEMO_MODE=true
 VITE_APP_SHELL_MODE=webview
 ```
+
+真实后端地址不需要写入 APK 包内；运行时在“我的”页配置即可。
 
 ## Android WebView Demo
 
@@ -65,7 +75,7 @@ Android demo app 位于：
 android-shell/
 ```
 
-它是一个原生 Android WebView 壳，会把 Vite 打包后的静态资源放进 APK 本地 assets，适合离线演示，不依赖后端服务。
+它是一个原生 Android WebView 壳，会把 Vite 打包后的静态资源放进 APK 本地 assets。默认可离线演示，也支持在运行时填写局域网后端地址进行真实联调。
 
 构建 debug APK：
 
@@ -85,7 +95,8 @@ APK/AAB 是可再生成的构建产物，已经被 git 忽略；不建议提交�
 Android 运行要点：
 
 - WebView 加载本地资源：`file:///android_asset/web/index.html`。
-- 目前 APK 保持 demo 模式，暂不接后端。
+- APK 默认保持 demo 模式；在“我的 > 后端连接”测试并启用后会调用真实后端。
+- Android 壳已开启 `INTERNET`、局域网 HTTP 和本地资源跨源请求能力，用于访问 `http://电脑IP:8000`。
 - 顶部内容在 WebView 模式下会保留状态栏安全距离。
 - 思维导图详情页会请求横屏；如果设备仍为竖屏，会隐藏导图内容并提示用户切换横屏。
 
