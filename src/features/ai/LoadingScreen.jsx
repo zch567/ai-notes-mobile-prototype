@@ -7,7 +7,7 @@ export function LoadingScreen({ stages, phase }) {
 
   return (
     <div className="space-y-5 pb-6">
-      <TopBar title="Agent 执行中" subtitle="展示真实 API 或演示模式下的 pipeline 状态" />
+      <TopBar title="Agent 执行中" subtitle="正在等待真实后端 Pipeline 返回结果" />
       <div className="px-5">
         <Card title={stages[current]?.label || "Running"} subtitle="Pipeline">
           <p className="text-[14px] leading-6 text-slate-600">{stages[current]?.text || "正在处理学习材料..."}</p>

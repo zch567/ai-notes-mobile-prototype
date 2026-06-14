@@ -8,25 +8,31 @@
 
 ## 运行模式
 
-前端通过环境变量切换演示模式和真实 API：
+前端只保留真实后端模式，支持两种后端地址配置方式：环境变量默认值，以及运行时配置。
+
+环境变量：
 
 ```text
-VITE_DEMO_MODE=true
+VITE_DEMO_MODE=false
 VITE_API_BASE_URL=http://127.0.0.1:8000
 ```
 
-规则：
+规则：`VITE_DEMO_MODE` 固定为 `false`，前端不再直接返回本地 demo/mock 结果。
 
-| 模式 | 行为 |
-|---|---|
-| `VITE_DEMO_MODE=true` | 不请求后端，直接使用 `src/data/demoAgentResult.js` |
-| `VITE_DEMO_MODE=false` | 调用真实后端接口 |
+运行时配置：
+
+- 用户可在“我的 > 后端连接”中填写 `http://电脑局域网IP:8000`，点击“测试并启用”。
+- 运行时启用真实后端后，`agentApi.runAgent`、`getProviderStatus` 等接口会使用保存的后端地址。
+- “清除本机配置”会回到环境变量默认后端地址。
 
 ## 接口总览
 
 | 方法 | 路径 | 用途 | 当前状态 |
 |---|---|---|---|
 | `POST` | `/api/agent/run` | 输入学习资料，返回结构化 Agent 结果 | 前端已接入 |
+| `POST` | `/api/agent/run-file` | 上传 PDF/PPTX/文档文件并返回结构化 Agent 结果 | 前端已接入 |
+| `GET` | `/api/agent/result/{result_id}` | 根据结果 id 重新读取后端保存的 AgentResult | 前端已接入 |
+| `POST` | `/api/agent/chat` | 基于已保存结果继续向 Agent 提问 | 前端已接入 |
 | `POST` | `/api/agent/edit` | 基于已生成结果进行 AI 修改、补充、压缩或重新评估 | 接口设计阶段 |
 
 第一阶段采用同步接口：前端点击“运行 Agent”或“让 AI 修改”后等待接口返回完整结果。后续如果需要真实进度流或异步任务，可以再扩展任务创建、轮询或 SSE 接口。
@@ -176,6 +182,55 @@ Content-Type: application/json
 ```
 
 但联调推荐优先直接返回 `AgentResult`，减少判断分支。
+
+## POST /api/agent/run-file
+
+用于前端选择 PDF/PPTX/文档文件后直接上传。请求类型为 `multipart/form-data`。
+
+字段：
+
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---:|---|
+| `file` | file | 是 | 支持 `.txt`、`.md`、`.docx`、`.pdf`、`.pptx` |
+| `pipeline` | string | 否 | 默认 `hybrid` |
+| `provider` | string | 否 | 当前仅支持 `lanxin`；为空时使用后端配置 |
+| `strictProvider` | boolean | 否 | 默认 `true` |
+| `topK` | number | 否 | 引用召回数量，默认 `2` |
+| `sourceTitle` | string | 否 | 前端标题，用于上传文件落盘命名和结果标题修正 |
+
+成功响应与 `/api/agent/run` 一致，返回完整 `AgentResult`。
+
+## GET /api/agent/result/{result_id}
+
+用于前端在结果页按 id 刷新后端保存的 AgentResult。成功响应为完整 `AgentResult`。
+
+## POST /api/agent/chat
+
+用于结果页 Agent 对话框继续追问当前资料。
+
+请求体：
+
+```json
+{
+  "resultId": "agent-xxxxxx",
+  "question": "这份资料最容易混淆的点是什么？",
+  "provider": "lanxin",
+  "strictProvider": true,
+  "topK": 3
+}
+```
+
+成功响应至少包含：
+
+```json
+{
+  "answer": "回答内容",
+  "used_citations": ["source-id"],
+  "_meta": {
+    "agentModule": "M7_note_chat"
+  }
+}
+```
 
 ## POST /api/agent/edit
 
@@ -412,8 +467,10 @@ Content-Type: application/json
 
 ## 联调检查清单
 
-- `VITE_DEMO_MODE=false` 后，前端能请求到后端。
+- 前端能请求到真实后端。
+- APK 模式下，在“我的 > 后端连接”填写电脑局域网地址后，`/health` 测试成功。
 - 后端允许前端所在地址跨域访问，例如 Vite 默认 `http://127.0.0.1:5173`。
+- APK/WebView 联调时建议后端允许局域网访问来源，复赛 demo 可设置 `BACKEND_CORS_ORIGINS=*`。
 - `POST /api/agent/run` 返回 JSON，且 `Content-Type` 为 `application/json`。
 - 至少一个样例返回 `topic`、`summary`、`notes`、`sources`。
 - 点击笔记引用编号能找到对应 `sources[].id`。

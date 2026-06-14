@@ -7,28 +7,58 @@
 ```text
 src/app/          应用入口、导航状态
 src/components/   通用组件
-src/data/         演示数据
+src/data/         输入样例数据
 src/features/     业务页面
 src/services/     API 与运行模式
 docs/             协作与接口文档
 android-shell/    Android 原生 WebView 壳
+backend/          FastAPI 真实后端，与前端同仓库记录
 ```
 
 核心数据结构是 `AgentResult`。页面统一消费归一化后的 `AgentResult`，后端字段变化优先在 `src/features/ai/agentTypes.js` 处理。
 
 ## 本地运行
 
-```bash
+以下命令适用于 Windows PowerShell。假设你已经进入本仓库根目录：
+
+前端：
+
+```powershell
 npm install
+copy .env.example .env
 npm run dev
 ```
 
-默认使用演示模式。复制 `.env.example` 为 `.env` 后可切换真实 API：
+后端：
+
+```powershell
+cd backend
+python -m venv .venv
+.\.venv\Scripts\activate
+copy .env.example .env
+# 编辑 .env，填入 LANXIN_API_KEY
+python run.py
+```
+
+`python run.py` 会自动检查并补齐后端依赖，首次运行可能稍慢。
+
+当前版本只保留真实后端模式。复制 `.env.example` 为 `.env` 后配置 API 地址：
 
 ```text
 VITE_DEMO_MODE=false
 VITE_API_BASE_URL=http://127.0.0.1:8000
 ```
+
+如果手机 APK 要访问电脑后端，后端 `.env` 中保持：
+
+```text
+BACKEND_HOST=0.0.0.0
+BACKEND_CORS_ORIGINS=*
+```
+
+然后在手机 App 的“我的 > 后端连接”里填写电脑的局域网 IPv4 地址，例如 `http://192.168.1.23:8000`。
+
+点击“测试并启用”后，AI 生成页会调用该真实后端。
 
 Android WebView 壳建议切换为全屏应用模式：
 
@@ -50,12 +80,14 @@ WebView 专用构建：
 npm run build:webview
 ```
 
-`build:webview` 会使用相对资源路径，并强制使用：
+`build:webview` 会使用相对资源路径，并默认使用：
 
 ```text
-VITE_DEMO_MODE=true
+VITE_DEMO_MODE=false
 VITE_APP_SHELL_MODE=webview
 ```
+
+真实后端地址不需要写入 APK 包内；运行时在“我的”页配置即可。
 
 ## Android WebView Demo
 
@@ -65,9 +97,11 @@ Android demo app 位于：
 android-shell/
 ```
 
-它是一个原生 Android WebView 壳，会把 Vite 打包后的静态资源放进 APK 本地 assets，适合离线演示，不依赖后端服务。
+它是一个原生 Android WebView 壳，会把 Vite 打包后的静态资源放进 APK 本地 assets，并支持在运行时填写局域网后端地址进行真实联调。
 
 构建 debug APK：
+
+需要先安装 JDK 17 或更高版本；如果电脑上同时存在 Java 8，请把当前 PowerShell 的 `JAVA_HOME` 指向 JDK 17。
 
 ```powershell
 cd android-shell
@@ -85,17 +119,18 @@ APK/AAB 是可再生成的构建产物，已经被 git 忽略；不建议提交�
 Android 运行要点：
 
 - WebView 加载本地资源：`file:///android_asset/web/index.html`。
-- 目前 APK 保持 demo 模式，暂不接后端。
+- APK 只保留真实后端链路；在“我的 > 后端连接”测试并启用后会调用真实后端。
+- Android 壳已开启 `INTERNET`、局域网 HTTP 和本地资源跨源请求能力，用于访问 `http://电脑IP:8000`。
 - 顶部内容在 WebView 模式下会保留状态栏安全距离。
 - 思维导图详情页会请求横屏；如果设备仍为竖屏，会隐藏导图内容并提示用户切换横屏。
 
 ## Demo 本地存储
 
-Demo 阶段没有云端数据库。前端使用 `src/services/localDemoFs.js` 在浏览器或 Android WebView 的本地存储中保存演示数据。
+Demo 阶段没有云端数据库。前端使用 `src/services/localDemoFs.js` 在浏览器或 Android WebView 的本地存储中保存本机数据。
 
 当前会保存：
 
-- 当前激活的 `AgentResult`。
+- 当前激活的真实后端 `AgentResult`。
 - 输入页草稿，包括输入类型、文本内容和标题。
 - 笔记设置，包括复习模式、引用显示和自动保存提示。
 - 笔记内容修改，包括标题、章节标题和正文，会实时写回 `AgentResult.topic` 和 `AgentResult.notes`。

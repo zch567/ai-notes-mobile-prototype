@@ -84,7 +84,7 @@
 - `normalizeAgentResult` 已提供默认值和类型归一化。
 - 页面已统一消费 `AgentResult`，不直接消费模型原文。
 - API 调用集中在 `src/features/ai/agentApi.js` 和 `src/services/apiClient.js`。
-- Demo/API 双轨保留，API 失败会回退演示数据并展示提示。
+- 当前版本只保留真实后端链路；API 失败会展示错误，不再回退样例数据。
 - Result、NoteDetail、MindMap、Review 页面已加固空状态和缺字段提示。
 - 前端已兼容 Prompt 常见字段别名，例如 `node_id`、`source_refs`、`quiz`、`question_id`、`related_note_id`、`mindmap`。
 - Result 页已能展示 `keywords`、`outline`、`warnings/errors`。

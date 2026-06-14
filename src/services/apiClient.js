@@ -1,12 +1,14 @@
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
+import { getApiBaseUrl, isApiMode } from "./runtimeConfig";
 
 export async function requestJSON(path, options = {}) {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  const { headers, ...requestOptions } = options;
+  const isFormData = typeof FormData !== "undefined" && requestOptions.body instanceof FormData;
+  const response = await fetch(buildApiUrl(path), {
+    ...requestOptions,
     headers: {
-      "Content-Type": "application/json",
-      ...(options.headers || {}),
+      ...(isFormData ? {} : { "Content-Type": "application/json" }),
+      ...(headers || {}),
     },
-    ...options,
   });
 
   if (!response.ok) {
@@ -15,6 +17,16 @@ export async function requestJSON(path, options = {}) {
   }
 
   return response.json();
+}
+
+function buildApiUrl(path) {
+  const apiBaseUrl = getApiBaseUrl();
+  if (!apiBaseUrl && isApiMode() && String(path).startsWith("/")) {
+    throw new Error("请先在「我的」页配置后端地址");
+  }
+
+  if (!apiBaseUrl) return path;
+  return `${apiBaseUrl}${String(path).startsWith("/") ? path : `/${path}`}`;
 }
 
 async function parseErrorMessage(response) {

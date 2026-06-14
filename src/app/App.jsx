@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import { AGENT_STATUS, DETAIL_VIEWS } from "./navigation";
 import { BottomNav } from "../components/BottomNav";
 import { StatusBar } from "../components/StatusBar";
-import { demoAgentResult } from "../data/demoAgentResult";
 import { InputScreen } from "../features/ai/InputScreen";
 import { LoadingScreen } from "../features/ai/LoadingScreen";
 import { ResultScreen } from "../features/ai/ResultScreen";
@@ -24,6 +23,12 @@ import {
   saveNoteSettings,
 } from "../services/localDemoFs";
 
+const REAL_API_STAGES = [
+  { id: "submit", label: "Submit Request", text: "正在向真实后端提交学习资料..." },
+  { id: "agent", label: "Agent Pipeline", text: "后端正在解析资料、调用模型并生成结构化结果..." },
+  { id: "grounding", label: "Citation Grounding", text: "正在绑定引用、导图和复习评估..." },
+];
+
 export default function App() {
   useMemo(() => initializeLocalDemoFs(), []);
   const initialAgentResult = useMemo(() => readActiveAgentResult(), []);
@@ -36,7 +41,7 @@ export default function App() {
   const [phase, setPhase] = useState(0);
   const [error, setError] = useState("");
 
-  const stages = useMemo(() => agentResult.agentStages?.length ? agentResult.agentStages : demoAgentResult.agentStages, [agentResult]);
+  const stages = useMemo(() => agentResult.agentStages?.length ? agentResult.agentStages : REAL_API_STAGES, [agentResult]);
 
   useEffect(() => {
     setNoteSettings(readNoteSettings(agentResult.id));
@@ -70,8 +75,6 @@ export default function App() {
       setAgentStatus(AGENT_STATUS.SUCCESS);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Agent 调用失败");
-      setAgentResult(demoAgentResult);
-      saveActiveAgentResult(demoAgentResult, "fallback");
       setAgentStatus(AGENT_STATUS.ERROR);
     }
   }
@@ -227,19 +230,33 @@ function getScreen({
   }
 
   if (agentStatus === AGENT_STATUS.SUCCESS || agentStatus === AGENT_STATUS.ERROR) {
+    const hasResult = Boolean(agentResult.topic || agentResult.summary || agentResult.notes?.length);
+
     return (
       <div>
         {error ? (
-          <div className="mx-5 mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-[13px] leading-5 text-amber-900">
-            API 调用失败，已回退到演示数据：{error}
+          <div className="mx-5 mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-[13px] leading-5 text-rose-900">
+            真实后端调用失败：{error}
           </div>
         ) : null}
-        <ResultScreen
-          result={agentResult}
-          onOpenNote={openNote}
-          onOpenMindMap={() => setNav("mindmap")}
-          onRetry={() => setAgentStatus(AGENT_STATUS.IDLE)}
-        />
+        {hasResult ? (
+          <ResultScreen
+            result={agentResult}
+            onOpenNote={openNote}
+            onOpenMindMap={() => setNav("mindmap")}
+            onRetry={() => setAgentStatus(AGENT_STATUS.IDLE)}
+            onResultChange={updateAgentResult}
+          />
+        ) : (
+          <div className="px-5 pt-4">
+            <button
+              onClick={() => setAgentStatus(AGENT_STATUS.IDLE)}
+              className="w-full rounded-2xl bg-blue-600 px-4 py-3 text-[14px] font-semibold text-white"
+            >
+              返回输入页重新调用
+            </button>
+          </div>
+        )}
       </div>
     );
   }
