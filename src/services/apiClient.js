@@ -10,9 +10,31 @@ export async function requestJSON(path, options = {}) {
   });
 
   if (!response.ok) {
-    const message = await response.text();
+    const message = await parseErrorMessage(response);
     throw new Error(message || `Request failed: ${response.status}`);
   }
 
   return response.json();
+}
+
+async function parseErrorMessage(response) {
+  const text = await response.text();
+  if (!text) return "";
+
+  try {
+    const errorBody = JSON.parse(text);
+    if (typeof errorBody?.message === "string" && errorBody.message.trim()) {
+      const code = typeof errorBody.code === "string" && errorBody.code.trim() ? `[${errorBody.code}] ` : "";
+      const detail = typeof errorBody.detail === "string" && errorBody.detail.trim() ? `：${errorBody.detail}` : "";
+      return `${code}${errorBody.message}${detail}`;
+    }
+
+    if (typeof errorBody?.detail === "string" && errorBody.detail.trim()) {
+      return errorBody.detail;
+    }
+  } catch {
+    return text;
+  }
+
+  return text;
 }

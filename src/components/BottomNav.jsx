@@ -1,8 +1,11 @@
 import { NAV_ITEMS } from "../app/navigation";
 
-export function BottomNav({ active, onChange }) {
+export function BottomNav({ active, onChange, isWebView = false }) {
   return (
-    <div className="border-t border-slate-200 bg-white/95 px-2 py-3 backdrop-blur">
+    <div
+      className="border-t border-slate-200 bg-white/95 px-2 pt-3 backdrop-blur"
+      style={{ paddingBottom: isWebView ? "max(12px, env(safe-area-inset-bottom))" : "12px" }}
+    >
       <div className="grid grid-cols-5 items-end gap-1">
         {NAV_ITEMS.map((tab) => {
           const isActive = active === tab.id;
