@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .bootstrap import WORKSPACE_ROOT
+from .bootstrap import WORKSPACE_ROOT, get_backend_env
 from .providers import ModelProvider, OpenAICompatibleProvider
 
 
@@ -37,12 +37,21 @@ class ProviderConfig:
 
     @classmethod
     def load(cls) -> "ProviderConfig":
-        secrets_file = Path(os.getenv("BACKEND_SECRETS_FILE", str(DEFAULT_SECRETS_FILE))).expanduser().resolve()
+        explicit_secrets_file = os.getenv("BACKEND_SECRETS_FILE")
+        secrets_file = Path(
+            explicit_secrets_file or get_backend_env("BACKEND_SECRETS_FILE", str(DEFAULT_SECRETS_FILE))
+        ).expanduser().resolve()
         file_values = load_key_values(secrets_file)
 
         def value(name: str, default: str = "") -> str:
             env_value = os.getenv(name)
-            return env_value if env_value is not None else file_values.get(name, default)
+            if env_value is not None:
+                return env_value
+            if name in file_values:
+                return file_values[name]
+            if explicit_secrets_file is not None and name == "LANXIN_API_KEY":
+                return default
+            return get_backend_env(name, default)
 
         return cls(
             configured_provider=value("MODEL_PROVIDER", "lanxin").lower(),

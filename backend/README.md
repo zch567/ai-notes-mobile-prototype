@@ -44,10 +44,11 @@ M1 app/rag or app/parsers
 cd backend
 python -m venv .venv
 .\.venv\Scripts\activate
-python -m pip install -r requirements.txt
 copy .env.example .env
 python run.py
 ```
+
+`python run.py` 会先检查当前 Python 环境是否已安装 `requirements.txt` 中的依赖；缺失或版本不匹配时会自动执行 `python -m pip install -r requirements.txt`，再启动后端。
 
 默认监听：
 

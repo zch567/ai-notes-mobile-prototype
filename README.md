@@ -35,11 +35,12 @@ npm run dev
 cd backend
 python -m venv .venv
 .\.venv\Scripts\activate
-pip install -r requirements.txt
 copy .env.example .env
 # 编辑 .env，填入 LANXIN_API_KEY
 python run.py
 ```
+
+`python run.py` 会自动检查并补齐后端依赖，首次运行可能稍慢。
 
 当前版本只保留真实后端模式。复制 `.env.example` 为 `.env` 后配置 API 地址：
 
