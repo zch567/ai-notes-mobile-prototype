@@ -19,10 +19,13 @@ backend/          FastAPI 真实后端，与前端同仓库记录
 
 ## 本地运行
 
+以下命令适用于 Windows PowerShell。假设你已经进入本仓库根目录：
+
 前端：
 
-```bash
+```powershell
 npm install
+copy .env.example .env
 npm run dev
 ```
 
@@ -33,6 +36,8 @@ cd backend
 python -m venv .venv
 .\.venv\Scripts\activate
 pip install -r requirements.txt
+copy .env.example .env
+# 编辑 .env，填入 LANXIN_API_KEY
 python run.py
 ```
 
@@ -43,11 +48,14 @@ VITE_DEMO_MODE=false
 VITE_API_BASE_URL=http://127.0.0.1:8000
 ```
 
-APK/WebView 包安装到手机后，可以在“我的 > 后端连接”里填写电脑局域网后端地址，例如：
+如果手机 APK 要访问电脑后端，后端 `.env` 中保持：
 
 ```text
-http://192.168.1.23:8000
+BACKEND_HOST=0.0.0.0
+BACKEND_CORS_ORIGINS=*
 ```
+
+然后在手机 App 的“我的 > 后端连接”里填写电脑的局域网 IPv4 地址，例如 `http://192.168.1.23:8000`。
 
 点击“测试并启用”后，AI 生成页会调用该真实后端。
 
@@ -91,6 +99,8 @@ android-shell/
 它是一个原生 Android WebView 壳，会把 Vite 打包后的静态资源放进 APK 本地 assets，并支持在运行时填写局域网后端地址进行真实联调。
 
 构建 debug APK：
+
+需要先安装 JDK 17 或更高版本；如果电脑上同时存在 Java 8，请把当前 PowerShell 的 `JAVA_HOME` 指向 JDK 17。
 
 ```powershell
 cd android-shell

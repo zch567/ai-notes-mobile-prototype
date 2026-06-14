@@ -55,6 +55,21 @@ def test_source_text_request_is_supported(tmp_path: Path):
     assert response.json()["topic"]
 
 
+def test_file_upload_request_is_supported(tmp_path: Path):
+    object.__setattr__(settings, "allowed_input_root", tmp_path.resolve())
+    object.__setattr__(settings, "output_dir", (tmp_path / "runtime").resolve())
+    response = client.post(
+        "/api/agent/run-file",
+        data={"pipeline": "rag-only", "sourceTitle": "上传资料", "topK": "2"},
+        files={"file": ("notes.md", b"# RAG\n\nRAG grounds generated answers in source chunks.", "text/markdown")},
+    )
+    assert response.status_code == 200, response.text
+    result = response.json()
+    assert result["topic"]
+    assert result["notes"]
+    assert result["sources"][0]["fileName"].endswith(".md")
+
+
 def test_result_id_rejects_path_traversal():
     with pytest.raises(ValueError, match="Invalid resultId"):
         AgentService().get_result("../outside")

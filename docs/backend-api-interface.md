@@ -30,6 +30,9 @@ VITE_API_BASE_URL=http://127.0.0.1:8000
 | 方法 | 路径 | 用途 | 当前状态 |
 |---|---|---|---|
 | `POST` | `/api/agent/run` | 输入学习资料，返回结构化 Agent 结果 | 前端已接入 |
+| `POST` | `/api/agent/run-file` | 上传 PDF/PPTX/文档文件并返回结构化 Agent 结果 | 前端已接入 |
+| `GET` | `/api/agent/result/{result_id}` | 根据结果 id 重新读取后端保存的 AgentResult | 前端已接入 |
+| `POST` | `/api/agent/chat` | 基于已保存结果继续向 Agent 提问 | 前端已接入 |
 | `POST` | `/api/agent/edit` | 基于已生成结果进行 AI 修改、补充、压缩或重新评估 | 接口设计阶段 |
 
 第一阶段采用同步接口：前端点击“运行 Agent”或“让 AI 修改”后等待接口返回完整结果。后续如果需要真实进度流或异步任务，可以再扩展任务创建、轮询或 SSE 接口。
@@ -179,6 +182,55 @@ Content-Type: application/json
 ```
 
 但联调推荐优先直接返回 `AgentResult`，减少判断分支。
+
+## POST /api/agent/run-file
+
+用于前端选择 PDF/PPTX/文档文件后直接上传。请求类型为 `multipart/form-data`。
+
+字段：
+
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---:|---|
+| `file` | file | 是 | 支持 `.txt`、`.md`、`.docx`、`.pdf`、`.pptx` |
+| `pipeline` | string | 否 | 默认 `hybrid` |
+| `provider` | string | 否 | 当前仅支持 `lanxin`；为空时使用后端配置 |
+| `strictProvider` | boolean | 否 | 默认 `true` |
+| `topK` | number | 否 | 引用召回数量，默认 `2` |
+| `sourceTitle` | string | 否 | 前端标题，用于上传文件落盘命名和结果标题修正 |
+
+成功响应与 `/api/agent/run` 一致，返回完整 `AgentResult`。
+
+## GET /api/agent/result/{result_id}
+
+用于前端在结果页按 id 刷新后端保存的 AgentResult。成功响应为完整 `AgentResult`。
+
+## POST /api/agent/chat
+
+用于结果页 Agent 对话框继续追问当前资料。
+
+请求体：
+
+```json
+{
+  "resultId": "agent-xxxxxx",
+  "question": "这份资料最容易混淆的点是什么？",
+  "provider": "lanxin",
+  "strictProvider": true,
+  "topK": 3
+}
+```
+
+成功响应至少包含：
+
+```json
+{
+  "answer": "回答内容",
+  "used_citations": ["source-id"],
+  "_meta": {
+    "agentModule": "M7_note_chat"
+  }
+}
+```
 
 ## POST /api/agent/edit
 

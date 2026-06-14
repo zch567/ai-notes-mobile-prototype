@@ -245,6 +245,7 @@ function getScreen({
             onOpenNote={openNote}
             onOpenMindMap={() => setNav("mindmap")}
             onRetry={() => setAgentStatus(AGENT_STATUS.IDLE)}
+            onResultChange={updateAgentResult}
           />
         ) : (
           <div className="px-5 pt-4">

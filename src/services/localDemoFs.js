@@ -1,4 +1,4 @@
-import { demoInputText } from "../data/demoAgentResult";
+import { sampleInputText } from "../data/sampleInputText";
 import { normalizeAgentResult } from "../features/ai/agentTypes";
 
 const STORAGE_PREFIX = "zhixu:demo:";
@@ -14,7 +14,7 @@ const STORAGE_KEYS = {
 
 const defaultInputDraft = {
   inputType: "text",
-  sourceText: demoInputText,
+  sourceText: sampleInputText,
   sourceTitle: "Logistic Regression 公开样例",
 };
 

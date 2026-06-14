@@ -10,6 +10,10 @@ export default defineConfig(({ mode }) => {
 
   return {
     base: isWebViewBuild ? "./" : "/",
+    build: {
+      outDir: isWebViewBuild ? "dist-webview" : "dist",
+      emptyOutDir: true,
+    },
     plugins: [react()],
     define: {
       "import.meta.env.VITE_APP_SHELL_MODE": JSON.stringify(shellMode),

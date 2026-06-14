@@ -38,16 +38,21 @@ M1 app/rag or app/parsers
 
 ## 启动
 
+以下命令假设你已经在 Windows 上克隆了本仓库。不要依赖固定盘符；从仓库根目录进入 `backend` 即可。
+
 ```powershell
-cd D:\AIGC\backend
+cd backend
+python -m venv .venv
+.\.venv\Scripts\activate
 python -m pip install -r requirements.txt
+copy .env.example .env
 python run.py
 ```
 
 默认监听：
 
 ```text
-http://127.0.0.1:8000
+http://0.0.0.0:8000
 ```
 
 健康检查：
@@ -58,7 +63,7 @@ curl http://127.0.0.1:8000/health
 
 ## 蓝心配置
 
-可在环境变量或 `D:\AIGC\api` 中配置：
+推荐复制 `backend/.env.example` 为 `backend/.env` 后填写蓝心 Key。也可以在 `backend/api` 文件中配置，文件格式同 `.env`。
 
 ```text
 MODEL_PROVIDER=lanxin
@@ -69,7 +74,7 @@ MODEL_TIMEOUT_MS=90
 LANXIN_RETRIES=1
 ```
 
-交付时不要把 `D:\AIGC\api` 打包给队友；让队友自行配置 Key。
+交付时不要提交 `.env`、`api` 或任何真实密钥；让队友在自己的电脑上配置 Key。
 
 ## API
 
@@ -77,31 +82,41 @@ LANXIN_RETRIES=1
 GET  /health
 GET  /api/providers/status
 POST /api/agent/run
+POST /api/agent/run-file
 GET  /api/agent/result/{result_id}
 POST /api/agent/chat
 POST /api/agent/validate
 POST /api/rag/query
 ```
 
-运行 Agent：
+推荐前端和 demo 使用文件上传接口，不需要关心后端电脑上的文件路径：
 
-```json
-{
-  "filePath": "D:/AIGC/ai-notes-mobile-prototype/ai-notes-mobile-prototype/test_set/text/Transformer介绍.docx",
-  "pipeline": "hybrid",
-  "provider": "lanxin",
-  "strictProvider": true,
-  "topK": 2
-}
+```powershell
+curl -X POST http://127.0.0.1:8000/api/agent/run-file `
+  -F "file=@C:/path/to/your/sample.pdf" `
+  -F "pipeline=hybrid" `
+  -F "sourceTitle=课程资料"
 ```
 
-直接提交文本：
+也可以直接提交文本：
 
 ```json
 {
   "sourceText": "# RAG\n\nRAG 使用检索结果约束生成，并提供可回链引用。",
   "pipeline": "hybrid",
   "provider": "lanxin"
+}
+```
+
+如果后端本机脚本要传 `filePath`，文件必须位于 `BACKEND_ALLOWED_INPUT_ROOT` 允许的目录下。默认示例使用当前 `backend` 目录；如需读取其他资料目录，请在 `.env` 中改成自己的本机目录，例如 `BACKEND_ALLOWED_INPUT_ROOT=C:/path/to/your/materials`。
+
+```json
+{
+  "filePath": "C:/path/to/your/materials/material.docx",
+  "pipeline": "hybrid",
+  "provider": "lanxin",
+  "strictProvider": true,
+  "topK": 2
 }
 ```
 
@@ -122,16 +137,17 @@ POST /api/rag/query
 
 ```json
 {
-  "filePath": "D:/AIGC/test/input.pdf",
+  "filePath": "C:/path/to/your/input.pdf",
   "pipeline": "hybrid",
-  "ocrTextDir": "D:/AIGC/ocr_outputs/text"
+  "ocrTextDir": "C:/path/to/your/ocr_outputs/text"
 }
 ```
 
 ## 测试
 
 ```powershell
-cd D:\AIGC\backend
+cd backend
+.\.venv\Scripts\activate
 $env:PYTHONDONTWRITEBYTECODE="1"
 python -m pytest -q -p no:cacheprovider
 ```
@@ -146,7 +162,8 @@ python -m pytest tests\test_lanxin_integration.py -q
 ## 蓝心与离线 RAG 对比
 
 ```powershell
-cd D:\AIGC\backend
+cd backend
+.\.venv\Scripts\activate
 python scripts\compare_rag.py
 ```
 

@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
 import { Card } from "../../components/Card";
 import { TopBar } from "../../components/TopBar";
-import { demoInputText } from "../../data/demoAgentResult";
+import { sampleInputText } from "../../data/sampleInputText";
 import { getProviderStatus } from "./agentApi";
 
 const defaultDraft = {
   inputType: "text",
-  sourceText: demoInputText,
+  sourceText: sampleInputText,
   sourceTitle: "Logistic Regression 公开样例",
   pipeline: "hybrid",
   provider: "configured",
@@ -15,18 +15,20 @@ const defaultDraft = {
 };
 
 export function InputScreen({ onRun, status, draft = defaultDraft, onDraftChange }) {
-  const [sourceText, setSourceText] = useState(draft.sourceText || demoInputText);
-  const [inputType, setInputType] = useState(draft.inputType || "text");
+  const [sourceText, setSourceText] = useState(draft.sourceText || sampleInputText);
+  const [inputType, setInputType] = useState(normalizeInputType(draft.inputType));
   const [sourceTitle, setSourceTitle] = useState(draft.sourceTitle || "Logistic Regression 公开样例");
   const [pipeline, setPipeline] = useState(draft.pipeline || "hybrid");
   const [provider, setProvider] = useState(draft.provider || "configured");
   const [topK, setTopK] = useState(draft.topK || 2);
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [fileError, setFileError] = useState("");
   const [providerStatus, setProviderStatus] = useState(null);
   const [providerError, setProviderError] = useState("");
   const inputTypes = [
     ["text", "文本"],
     ["pdf", "PDF"],
-    ["ppt", "PPT"],
+    ["pptx", "PPTX"],
   ];
   const pipelineOptions = [
     ["hybrid", "Hybrid", "真实模型生成 + RAG 引用"],
@@ -73,26 +75,51 @@ export function InputScreen({ onRun, status, draft = defaultDraft, onDraftChange
   }, []);
 
   function useSample(title) {
-    setSourceText(demoInputText);
+    setSourceText(sampleInputText);
     setSourceTitle(title);
     setInputType("text");
   }
 
   function runCurrentInput() {
+    if (inputType !== "text" && !selectedFile) {
+      setFileError("请先选择要上传的文件");
+      return;
+    }
+
     onRun({
       inputType,
       sourceText: inputType === "text" ? sourceText : "",
-      fileName: `${safeFileStem(sourceTitle)}.${inputType === "text" ? "md" : inputType}`,
+      file: inputType === "text" ? undefined : selectedFile,
+      fileName: inputType === "text" ? `${safeFileStem(sourceTitle)}.md` : selectedFile?.name,
       pipeline,
       provider: provider === "configured" ? undefined : provider,
       strictProvider: true,
       topK,
       sourceMeta: {
         title: sourceTitle,
-        fileName: "",
-        mimeType: inputType === "text" ? "text/plain" : "",
+        fileName: inputType === "text" ? "" : selectedFile?.name || "",
+        mimeType: inputType === "text" ? "text/plain" : selectedFile?.type || "",
       },
     });
+  }
+
+  function handleFileChange(event) {
+    const file = event.target.files?.[0] || null;
+    setSelectedFile(file);
+    setFileError("");
+    if (file && (!sourceTitle || sourceTitle === "Logistic Regression 公开样例")) {
+      setSourceTitle(file.name.replace(/\.[^.]+$/, ""));
+    }
+  }
+
+  function changeInputType(nextType) {
+    setInputType(nextType);
+    setFileError("");
+    if (nextType === "text") {
+      setSelectedFile(null);
+    } else if (selectedFile && !fileMatchesType(selectedFile, nextType)) {
+      setSelectedFile(null);
+    }
   }
 
   return (
@@ -115,7 +142,7 @@ export function InputScreen({ onRun, status, draft = defaultDraft, onDraftChange
             {inputTypes.map(([id, label]) => (
               <button
                 key={id}
-                onClick={() => setInputType(id)}
+                onClick={() => changeInputType(id)}
                 className={`rounded-xl px-3 py-2 text-[13px] font-semibold ${
                   inputType === id ? "bg-white text-blue-600 shadow-sm" : "text-slate-500"
                 }`}
@@ -207,11 +234,21 @@ export function InputScreen({ onRun, status, draft = defaultDraft, onDraftChange
             <div className="flex h-56 flex-col items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-6 text-center">
               <p className="text-[15px] font-semibold text-slate-900">{inputType.toUpperCase()} 文件接入位</p>
               <p className="mt-2 text-[13px] leading-5 text-slate-500">
-                前端结构已预留，后续通过 Android 文件选择或 Web 上传把文件交给后端解析。
+                选择文件后会通过 multipart 上传到后端，再由后端解析并生成 AgentResult。
               </p>
-              <button className="mt-4 rounded-2xl border border-slate-200 bg-white px-4 py-2 text-[13px] font-semibold text-slate-600">
-                选择文本样例
-              </button>
+              <label className="mt-4 cursor-pointer rounded-2xl border border-slate-200 bg-white px-4 py-2 text-[13px] font-semibold text-slate-600">
+                选择文件
+                <input
+                  type="file"
+                  accept={inputType === "pdf" ? ".pdf,application/pdf" : ".pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation"}
+                  onChange={handleFileChange}
+                  className="hidden"
+                />
+              </label>
+              {selectedFile ? (
+                <p className="mt-3 max-w-full truncate text-[12px] font-medium text-slate-500">{selectedFile.name}</p>
+              ) : null}
+              {fileError ? <p className="mt-2 text-[12px] font-medium text-rose-600">{fileError}</p> : null}
             </div>
           )}
 
@@ -229,7 +266,7 @@ export function InputScreen({ onRun, status, draft = defaultDraft, onDraftChange
 
           <button
             onClick={runCurrentInput}
-            disabled={status === "loading"}
+            disabled={status === "loading" || (inputType !== "text" && !selectedFile)}
             className="mt-4 w-full rounded-2xl bg-blue-600 px-4 py-3 text-[14px] font-semibold text-white disabled:bg-slate-300"
           >
             {status === "loading" ? "正在运行 Agent..." : "运行 Agent"}
@@ -246,4 +283,17 @@ function safeFileStem(value) {
     .replace(/[\\/:*?"<>|]+/g, "-")
     .replace(/\s+/g, "-");
   return stem || "学习资料";
+}
+
+function normalizeInputType(value) {
+  if (value === "pdf" || value === "pptx") return value;
+  if (value === "ppt") return "pptx";
+  return "text";
+}
+
+function fileMatchesType(file, inputType) {
+  const name = file?.name?.toLowerCase() || "";
+  if (inputType === "pdf") return name.endsWith(".pdf");
+  if (inputType === "pptx") return name.endsWith(".pptx");
+  return false;
 }

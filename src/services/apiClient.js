@@ -2,10 +2,11 @@ import { getApiBaseUrl, isApiMode } from "./runtimeConfig";
 
 export async function requestJSON(path, options = {}) {
   const { headers, ...requestOptions } = options;
+  const isFormData = typeof FormData !== "undefined" && requestOptions.body instanceof FormData;
   const response = await fetch(buildApiUrl(path), {
     ...requestOptions,
     headers: {
-      "Content-Type": "application/json",
+      ...(isFormData ? {} : { "Content-Type": "application/json" }),
       ...(headers || {}),
     },
   });

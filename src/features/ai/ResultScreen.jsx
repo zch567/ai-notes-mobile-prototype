@@ -1,14 +1,19 @@
 import { useState } from "react";
 import { Card } from "../../components/Card";
 import { TopBar } from "../../components/TopBar";
-import { queryRag, validateAgentResult } from "./agentApi";
+import { chatAgent, getAgentResult, queryRag, validateAgentResult } from "./agentApi";
 
-export function ResultScreen({ result, onOpenNote, onOpenMindMap, onRetry }) {
+export function ResultScreen({ result, onOpenNote, onOpenMindMap, onRetry, onResultChange }) {
   const [validation, setValidation] = useState(null);
   const [validationStatus, setValidationStatus] = useState("idle");
+  const [refreshStatus, setRefreshStatus] = useState("idle");
+  const [refreshMessage, setRefreshMessage] = useState("");
   const [ragQuery, setRagQuery] = useState("");
   const [ragHits, setRagHits] = useState([]);
   const [ragStatus, setRagStatus] = useState("idle");
+  const [chatInput, setChatInput] = useState("");
+  const [chatMessages, setChatMessages] = useState([]);
+  const [chatStatus, setChatStatus] = useState("idle");
   const citationLinkCount = result.notes.reduce((count, note) => count + note.citationIds.length, 0);
   const recommendationText = result.review.recommendations.length
     ? result.review.recommendations.join("；")
@@ -31,6 +36,22 @@ export function ResultScreen({ result, onOpenNote, onOpenMindMap, onRetry }) {
     }
   }
 
+  async function refreshBackendResult() {
+    if (!result.id) return;
+    setRefreshStatus("loading");
+    setRefreshMessage("");
+
+    try {
+      const nextResult = await getAgentResult(result.id);
+      onResultChange?.(nextResult);
+      setRefreshStatus("success");
+      setRefreshMessage("已从后端刷新当前结果");
+    } catch (err) {
+      setRefreshStatus("error");
+      setRefreshMessage(err instanceof Error ? err.message : "刷新失败");
+    }
+  }
+
   async function runRagQuery() {
     const query = ragQuery.trim();
     if (!query) return;
@@ -43,6 +64,44 @@ export function ResultScreen({ result, onOpenNote, onOpenMindMap, onRetry }) {
     } catch (err) {
       setRagHits([{ error: err instanceof Error ? err.message : "检索失败" }]);
       setRagStatus("error");
+    }
+  }
+
+  async function sendChatMessage() {
+    const question = chatInput.trim();
+    if (!question || !result.id || chatStatus === "loading") return;
+
+    const userMessage = { id: `u-${Date.now()}`, role: "我", text: question, tone: "user" };
+    setChatMessages((messages) => [...messages, userMessage]);
+    setChatInput("");
+    setChatStatus("loading");
+
+    try {
+      const response = await chatAgent({ resultId: result.id, question, topK: 3 });
+      const used = Array.isArray(response.used_citations) && response.used_citations.length
+        ? `\n\n引用：${response.used_citations.join("、")}`
+        : "";
+      setChatMessages((messages) => [
+        ...messages,
+        {
+          id: `a-${Date.now()}`,
+          role: "Agent",
+          tone: "agent",
+          text: `${response.answer || "后端没有返回 answer 字段。"}${used}`,
+        },
+      ]);
+    } catch (err) {
+      setChatMessages((messages) => [
+        ...messages,
+        {
+          id: `e-${Date.now()}`,
+          role: "Agent",
+          tone: "agent",
+          text: err instanceof Error ? `问答失败：${err.message}` : "问答失败",
+        },
+      ]);
+    } finally {
+      setChatStatus("idle");
     }
   }
 
@@ -108,6 +167,19 @@ export function ResultScreen({ result, onOpenNote, onOpenMindMap, onRetry }) {
                   ? `契约有效：sources ${validation.sourceCount} · notes ${validation.noteCount} · questions ${validation.questionCount}`
                   : validation.message || "契约校验未通过"}
               </div>
+            ) : null}
+
+            <button
+              onClick={refreshBackendResult}
+              disabled={refreshStatus === "loading" || !result.id}
+              className="mt-3 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-[13px] font-semibold text-slate-700 disabled:bg-slate-100 disabled:text-slate-300"
+            >
+              {refreshStatus === "loading" ? "正在刷新..." : "从后端刷新当前结果"}
+            </button>
+            {refreshMessage ? (
+              <p className={`mt-2 text-[12px] leading-5 ${refreshStatus === "error" ? "text-rose-600" : "text-slate-500"}`}>
+                {refreshMessage}
+              </p>
             ) : null}
           </Card>
         ) : null}
@@ -212,25 +284,37 @@ export function ResultScreen({ result, onOpenNote, onOpenMindMap, onRetry }) {
         <Card title="Agent 对话框" subtitle="Follow-up">
           <div className="rounded-[24px] border border-slate-200 bg-slate-50 p-4">
             <div className="h-48 space-y-3 overflow-y-auto pr-1">
-              <Message role="我" text={`把 ${result.topic} 的核心定义和易错点再总结一下。`} />
-              <Message
-                role="Agent"
-                tone="agent"
-                text="它主要用于分类任务，通过 Sigmoid 输出概率；名称里的 regression 容易让人误以为它是回归模型。"
-              />
-              <Message role="我" text="哪些部分适合优先复习？" />
-              <Message
-                role="Agent"
-                tone="agent"
-                text={recommendationText}
-              />
+              {chatMessages.length ? (
+                chatMessages.map((message) => (
+                  <Message key={message.id} role={message.role} tone={message.tone} text={message.text} />
+                ))
+              ) : (
+                <Message
+                  role="Agent"
+                  tone="agent"
+                  text={`可以继续追问“${result.topic || "当前资料"}”。${recommendationText}`}
+                />
+              )}
+              {chatStatus === "loading" ? <Message role="Agent" tone="agent" text="正在调用后端 M7 问答..." /> : null}
             </div>
           </div>
           <div className="mt-3 flex items-center gap-2 rounded-[22px] border border-slate-200 bg-white px-3 py-2 shadow-sm">
-            <div className="h-10 flex-1 rounded-2xl bg-slate-100 px-3 py-2 text-[13px] text-slate-400">
-              继续追问这份学习结果...
-            </div>
-            <button className="rounded-2xl bg-slate-900 px-4 py-2 text-[13px] font-semibold text-white">发送</button>
+            <input
+              value={chatInput}
+              onChange={(event) => setChatInput(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") sendChatMessage();
+              }}
+              placeholder="继续追问这份学习结果..."
+              className="min-w-0 flex-1 rounded-2xl bg-slate-100 px-3 py-2 text-[13px] text-slate-700 outline-none placeholder:text-slate-400"
+            />
+            <button
+              onClick={sendChatMessage}
+              disabled={chatStatus === "loading" || !chatInput.trim() || !result.id}
+              className="rounded-2xl bg-slate-900 px-4 py-2 text-[13px] font-semibold text-white disabled:bg-slate-300"
+            >
+              发送
+            </button>
           </div>
         </Card>
 
