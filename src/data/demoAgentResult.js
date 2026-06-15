@@ -226,3 +226,5 @@ export const demoAgentResult = {
     recommendations: ["优先回看交叉熵损失", "结合引用 [3] 检查训练目标", "用一道分类题复述完整流程"],
   },
 };
+
+export const demoInputText = demoAgentResult.sources.map((source) => source.text).join("\n\n");

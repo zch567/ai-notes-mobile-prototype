@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 const defaultSettings = {
   reviewMode: false,
@@ -34,7 +34,8 @@ export function NoteDetailScreen({
   const resultIdRef = useRef(result.id);
   const messageListRef = useRef(null);
   const bubbleScrollRef = useRef(null);
-  const citationButtonRefs = useRef({});
+  const activeAnchorRef = useRef(null);
+  const noteScrollRef = useRef(null);
   const noteDocumentRef = useRef(null);
 
   const sourceById = useMemo(() => new Map(result.sources.map((source) => [source.id, source])), [result.sources]);
@@ -81,19 +82,19 @@ export function NoteDetailScreen({
     bubbleScrollRef.current.scrollTop = Math.max(index, 0) * 72;
   }, [activeSource, result.sources]);
 
-  useEffect(() => {
+  const updateBubbleLayout = useCallback(() => {
     if (!activeSource || !shellRef.current) {
       setBubbleLayout(null);
       return;
     }
 
-    const anchor = citationButtonRefs.current[activeSource.id];
+    const anchor = activeAnchorRef.current;
     if (!anchor) return;
 
     const containerRect = shellRef.current.getBoundingClientRect();
     const anchorRect = anchor.getBoundingClientRect();
     const bubbleWidth = Math.min(306, containerRect.width - 32);
-    const bubbleHeight = 248;
+    const bubbleHeight = 332;
     const anchorCenterX = anchorRect.left - containerRect.left + anchorRect.width / 2;
 
     let left = anchorCenterX - bubbleWidth / 2;
@@ -108,8 +109,39 @@ export function NoteDetailScreen({
     setBubbleLayout({ left, top, width: bubbleWidth, height: bubbleHeight });
   }, [activeSource]);
 
-  function toggleSource(sourceId) {
-    setActiveSourceId((current) => (current === sourceId ? null : sourceId));
+  useEffect(() => {
+    updateBubbleLayout();
+  }, [updateBubbleLayout]);
+
+  useEffect(() => {
+    if (!activeSource) return undefined;
+
+    const scrollContainer = noteScrollRef.current;
+    const handleLayoutChange = () => updateBubbleLayout();
+    scrollContainer?.addEventListener("scroll", handleLayoutChange, { passive: true });
+    window.addEventListener("resize", handleLayoutChange);
+
+    return () => {
+      scrollContainer?.removeEventListener("scroll", handleLayoutChange);
+      window.removeEventListener("resize", handleLayoutChange);
+    };
+  }, [activeSource, updateBubbleLayout]);
+
+  function toggleSource(sourceId, anchor) {
+    const isSameAnchor = activeSourceId === sourceId && activeAnchorRef.current === anchor;
+
+    if (isSameAnchor) {
+      activeAnchorRef.current = null;
+      setActiveSourceId(null);
+      return;
+    }
+
+    activeAnchorRef.current = anchor;
+    setActiveSourceId(sourceId);
+
+    if (activeSourceId === sourceId) {
+      window.requestAnimationFrame(updateBubbleLayout);
+    }
   }
 
   function commitNoteSnapshot(nextSnapshot) {
@@ -274,7 +306,7 @@ export function NoteDetailScreen({
         </div>
       </header>
 
-      <main className="min-h-0 flex-1 overflow-y-auto pt-16" style={{ paddingBottom: contentPaddingBottom }}>
+      <main ref={noteScrollRef} className="min-h-0 flex-1 overflow-y-auto pt-16" style={{ paddingBottom: contentPaddingBottom }}>
         <article className="space-y-6">
           <section className="space-y-3">
             <p className="text-[12px] uppercase tracking-[0.24em] text-slate-400">Agent 生成笔记</p>
@@ -328,12 +360,9 @@ export function NoteDetailScreen({
                               return (
                                 <button
                                   key={sourceId}
-                                  ref={(node) => {
-                                    if (node) citationButtonRefs.current[sourceId] = node;
-                                  }}
                                   type="button"
                                   disabled={!hasSource}
-                                  onClick={() => toggleSource(sourceId)}
+                                  onClick={(event) => toggleSource(sourceId, event.currentTarget)}
                                   className={`inline-flex h-6 min-w-6 items-center justify-center rounded-full border px-1.5 text-[11px] font-semibold leading-none transition ${
                                     !hasSource
                                       ? "cursor-not-allowed border-amber-200 bg-amber-50 text-amber-600"
@@ -390,8 +419,8 @@ export function NoteDetailScreen({
           <div className="relative overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-[0_20px_60px_rgba(15,23,42,0.18)]">
             <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
               <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400">引用 {activeSource.id}</p>
-                <p className="mt-1 text-[13px] font-medium text-slate-800">{activeSource.title}</p>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400">引用来源</p>
+                <p className="mt-1 text-[13px] font-medium text-slate-800">{getReadableSourceTitle(activeSource)}</p>
                 <p className="mt-1 text-[11px] text-slate-400">
                   {formatSourceLocation(activeSource, activeCitation)}
                 </p>
@@ -463,11 +492,31 @@ function formatSourceLocation(source, citation) {
     citation?.slide || source?.slide ? `Slide ${citation?.slide || source?.slide}` : "",
     paragraphStart ? `段落 ${[paragraphStart, paragraphEnd].filter(Boolean).join("-")}` : "",
     lineStart ? `行 ${[lineStart, lineEnd].filter(Boolean).join("-")}` : "",
-    citation?.sourceRef || source?.sourceRef,
-    source?.chunkId,
   ];
 
   return values.filter(Boolean).join(" · ") || "来源片段";
+}
+
+function getReadableSourceTitle(source) {
+  const title = source?.title?.trim();
+  if (!title || isMachineSourceLabel(title, source)) {
+    return "原文片段";
+  }
+  return title;
+}
+
+function isMachineSourceLabel(title, source) {
+  const normalized = title.toLowerCase();
+  const machineValues = [source?.id, source?.sourceRef, source?.chunkId]
+    .filter(Boolean)
+    .map((value) => String(value).toLowerCase());
+
+  return (
+    machineValues.some((value) => value && normalized.includes(value)) ||
+    /input-[0-9a-f]{8,}/i.test(title) ||
+    /(?:^|[\s/_-])para[_-]?\d+/i.test(title) ||
+    /doc-[0-9a-f-]{8,}/i.test(title)
+  );
 }
 
 function cssEscape(value) {

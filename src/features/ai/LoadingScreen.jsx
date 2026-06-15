@@ -16,12 +16,12 @@ export function LoadingScreen({ stages, phase }) {
           </div>
           <div className="mt-4 space-y-2">
             {stages.map((stage, index) => (
-              <div key={stage.id} className="flex items-center justify-between rounded-2xl bg-slate-50 px-3 py-3">
-                <div className="min-w-0">
+              <div key={stage.id} className="flex items-start justify-between gap-3 rounded-2xl bg-slate-50 px-3 py-3">
+                <div className="min-w-0 flex-1">
                   <p className="text-[13px] font-semibold text-slate-900">{stage.label}</p>
-                  <p className="truncate text-[12px] text-slate-500">{stage.text}</p>
+                  <p className="break-words text-[12px] leading-5 text-slate-500">{stage.text}</p>
                 </div>
-                <span className={`text-[12px] font-semibold ${index <= current ? "text-blue-600" : "text-slate-300"}`}>
+                <span className={`shrink-0 whitespace-nowrap text-[12px] font-semibold leading-5 ${index <= current ? "text-blue-600" : "text-slate-300"}`}>
                   {index < current ? "完成" : index === current ? "进行中" : "等待"}
                 </span>
               </div>

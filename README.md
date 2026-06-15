@@ -128,6 +128,8 @@ Android 运行要点：
 
 Demo 阶段没有云端数据库。前端使用 `src/services/localDemoFs.js` 在浏览器或 Android WebView 的本地存储中保存本机数据。
 
+首次启动或本地结果被清空时，会自动写入 `src/data/demoAgentResult.js` 中的初始调试结果，方便前端直接查看笔记、引用、思维导图和复习评估。真实后端生成的新结果会覆盖当前激活结果，不会被初始调试数据反复覆盖。
+
 当前会保存：
 
 - 当前激活的真实后端 `AgentResult`。

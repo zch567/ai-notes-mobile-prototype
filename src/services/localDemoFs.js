@@ -1,4 +1,5 @@
 import { sampleInputText } from "../data/sampleInputText";
+import { demoAgentResult } from "../data/demoAgentResult";
 import { normalizeAgentResult } from "../features/ai/agentTypes";
 
 const STORAGE_PREFIX = "zhixu:demo:";
@@ -28,16 +29,19 @@ export function initializeLocalDemoFs() {
   if (!canUseStorage()) return;
 
   const meta = readJSON(STORAGE_KEYS.meta, null);
-  if (meta?.schemaVersion === SCHEMA_VERSION) return;
+  if (meta?.schemaVersion === SCHEMA_VERSION) {
+    ensureInitialAgentResult(meta);
+    return;
+  }
 
   writeJSON(STORAGE_KEYS.meta, {
     schemaVersion: SCHEMA_VERSION,
-    activeResultId: "",
+    activeResultId: demoAgentResult.id,
     createdAt: now(),
     updatedAt: now(),
   });
 
-  writeJSON(STORAGE_KEYS.results, []);
+  writeJSON(STORAGE_KEYS.results, [createResultRecord(demoAgentResult, "seed")]);
   writeJSON(STORAGE_KEYS.inputDraft, {
     ...defaultInputDraft,
     updatedAt: now(),
@@ -54,6 +58,20 @@ export function readActiveAgentResult() {
   const activeRecord = results.find((record) => record.id === meta?.activeResultId) || results[0];
 
   return normalizeAgentResult(activeRecord?.agentResult || {});
+}
+
+function ensureInitialAgentResult(meta) {
+  const results = readJSON(STORAGE_KEYS.results, []);
+  if (Array.isArray(results) && results.length > 0) return;
+
+  const seedRecord = createResultRecord(demoAgentResult, "seed");
+  writeJSON(STORAGE_KEYS.results, [seedRecord]);
+  writeJSON(STORAGE_KEYS.meta, {
+    ...(meta || {}),
+    schemaVersion: SCHEMA_VERSION,
+    activeResultId: seedRecord.id,
+    updatedAt: now(),
+  });
 }
 
 export function saveActiveAgentResult(agentResult, sourceType = "generated") {
