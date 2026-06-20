@@ -143,6 +143,7 @@ class OpenAICompatibleProvider(ModelProvider):
             ],
             "temperature": 0.2,
             "max_tokens": max_tokens,
+            "response_format": {"type": "json_object"},
         }
         url = f"{self.base_url}/chat/completions"
         if self.name == "lanxin":

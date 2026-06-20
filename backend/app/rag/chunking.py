@@ -64,7 +64,7 @@ def build_chunks(
             continue
         current_len = sum(len(item.text) for item in buffer)
         boundary_changed = _locator(block) != _locator(buffer[0])
-        heading_changed = bool(block.heading and block.heading != buffer[-1].heading and current_len >= target_chars // 2)
+        heading_changed = bool(block.heading and block.heading != buffer[-1].heading)
         would_overflow = current_len + len(block.text) > max_chars
         if boundary_changed or heading_changed or would_overflow:
             flush()

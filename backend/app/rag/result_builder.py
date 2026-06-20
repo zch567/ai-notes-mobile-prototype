@@ -1,19 +1,22 @@
 from __future__ import annotations
 
 import re
+import math
 import uuid
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .enrichment import chunk_structure_overview
 from .grounding import ground_result
+from .learning_notes import enrich_learning_notes
 from .schemas import SourceChunk
 from .text_utils import compact, extract_keywords, split_sentences
 
 
 def build_agent_result(chunks: list[SourceChunk], *, input_path: Path | None = None) -> dict[str, Any]:
-    selected = _representative_chunks(chunks, limit=8)
+    selected = _representative_chunks(chunks)
     topic = _infer_topic(chunks)
     notes = []
     heading_counts = Counter(chunk.heading for chunk in selected if chunk.heading)
@@ -28,11 +31,15 @@ def build_agent_result(chunks: list[SourceChunk], *, input_path: Path | None = N
                 "id": f"note-{index}",
                 "title": title,
                 "content": _note_content(chunk),
+                "summary": _note_content(chunk),
+                "sourceRefs": [chunk.id],
+                "source_refs": [chunk.id],
                 "level": 1,
                 "parentId": None,
                 "citationIds": [],
             }
         )
+    notes = enrich_learning_notes(notes, chunks)
     questions = _build_questions(notes)
     result: dict[str, Any] = {
         "id": f"rag-{uuid.uuid4().hex[:8]}",
@@ -42,8 +49,8 @@ def build_agent_result(chunks: list[SourceChunk], *, input_path: Path | None = N
         "outline": _build_outline(chunks),
         "agentStages": [
             {"id": "parse", "label": "Document Parsing", "text": f"统一抽取得到 {len(chunks)} 个可定位片段。"},
-            {"id": "chunk", "label": "Structure-aware Chunking", "text": "按页/幻灯片/段落边界分块并生成全局唯一 ID。"},
-            {"id": "retrieve", "label": "Hybrid Retrieval", "text": "使用 BM25、短语匹配、标题加权与来源多样化召回。"},
+            {"id": "chunk", "label": "RAGFlow-style Structure Chunking", "text": "按页/幻灯片/段落边界构建层级 parentId、关键词和全局唯一 chunk ID。"},
+            {"id": "retrieve", "label": "Quivr-style Hybrid Retrieval", "text": "使用 BM25、短语匹配、标题加权、查询扩展、来源多样化和邻近上下文证据包召回。"},
             {"id": "citation", "label": "Citation Grounding", "text": "为笔记和复习题绑定来源片段、原文 quote 与细粒度位置。"},
         ],
         "sources": [],
@@ -65,34 +72,64 @@ def build_agent_result(chunks: list[SourceChunk], *, input_path: Path | None = N
             "inputFile": str(input_path) if input_path else "",
             "generatedAt": datetime.now(timezone.utc).isoformat(),
             "chunkCount": len(chunks),
-            "ragVersion": "lightweight-rag-v1",
+            "ragVersion": "ragflow-quivr-inspired-v2",
+            "ragStructure": chunk_structure_overview(chunks),
             "provider": "deterministic-grounded-builder",
         },
     }
     return ground_result(result, chunks)
 
 
-def _representative_chunks(chunks: list[SourceChunk], limit: int) -> list[SourceChunk]:
-    candidates = [chunk for chunk in chunks if len(chunk.text) >= 80 and not _looks_like_toc(chunk.text)]
-    candidates = candidates or chunks
-    if len(candidates) <= limit:
+def _representative_chunks(
+    chunks: list[SourceChunk],
+    *,
+    min_notes: int = 8,
+    max_notes: int = 24,
+    keyword_coverage: float = 0.88,
+) -> list[SourceChunk]:
+    candidates = [chunk for chunk in chunks if _is_learning_chunk(chunk)]
+    candidates = candidates or [chunk for chunk in chunks if not _looks_like_toc(chunk.text)] or chunks
+    if len(candidates) <= min_notes:
         return candidates
-    # Spread learning units across the whole document instead of only taking
-    # early pages. This directly fixes Week 02's "later chapters missing" issue.
-    positions = [round(index * (len(candidates) - 1) / (limit - 1)) for index in range(limit)]
-    selected = [candidates[position] for position in positions]
-    unique: list[SourceChunk] = []
-    seen: set[str] = set()
-    for chunk in selected + candidates:
-        if chunk.id in seen:
+
+    corpus_keywords = set(extract_keywords(" ".join(chunk.text for chunk in candidates), limit=32))
+    covered: set[str] = set()
+    selected: list[SourceChunk] = []
+    low_gain_streak = 0
+
+    for chunk in candidates:
+        chunk_keywords = set(extract_keywords(f"{chunk.heading} {chunk.text}", limit=12))
+        new_keywords = chunk_keywords - covered
+        gain = len(new_keywords)
+        selected.append(chunk)
+        covered.update(chunk_keywords)
+
+        if len(selected) < min_notes:
             continue
-        seen.add(chunk.id)
-        unique.append(chunk)
-        if len(unique) >= limit:
+        if gain <= 1:
+            low_gain_streak += 1
+        else:
+            low_gain_streak = 0
+        coverage = len(covered & corpus_keywords) / max(1, len(corpus_keywords))
+        if coverage >= keyword_coverage and low_gain_streak >= 3:
             break
-    return unique
+        if len(selected) >= max_notes:
+            break
+    return selected
 
 
+def _is_learning_chunk(chunk: SourceChunk) -> bool:
+    if _looks_like_toc(chunk.text):
+        return False
+    text = chunk.text.strip()
+    if len(text) < 40:
+        return False
+    heading = (chunk.heading or "").strip()
+    # Skip tiny list fragments such as standalone GPT-2/GPT-3 entries; they are
+    # still available as sources and citations, but not as top-level notes.
+    if len(text) < 80 and re.match(r"^\d+[.、]|^GPT-\d+$", heading, flags=re.I):
+        return False
+    return True
 def _looks_like_toc(text: str) -> bool:
     value = re.sub(r"\s+", "", text)
     return value.startswith("目录") and len(value) < 250
@@ -181,16 +218,19 @@ def _build_outline(chunks: list[SourceChunk]) -> list[dict[str, Any]]:
 
 
 def _build_mind_map(topic: str, notes: list[dict[str, Any]]) -> dict[str, Any]:
-    nodes = [{"id": "root", "label": topic, "desc": "课程主题", "detail": topic, "x": 50, "y": 45}]
+    nodes = [{"id": "root", "label": topic, "desc": "????", "detail": topic, "x": 50, "y": 45}]
     edges = []
-    positions = [(20, 20), (50, 15), (80, 20), (18, 55), (82, 55), (25, 82), (50, 86), (75, 82)]
-    for note, (x, y) in zip(notes, positions):
+    total = max(1, len(notes))
+    for index, note in enumerate(notes):
+        angle = -math.pi / 2 + (2 * math.pi * index / total)
+        x = round(50 + 36 * math.cos(angle), 2)
+        y = round(48 + 34 * math.sin(angle), 2)
         nodes.append(
             {
                 "id": note["id"],
                 "label": compact(note["title"], 24),
-                "desc": compact(note["content"], 52),
-                "detail": note["content"],
+                "desc": compact(note.get("summary") or note.get("content", ""), 52),
+                "detail": note.get("summary") or note.get("content", ""),
                 "x": x,
                 "y": y,
             }

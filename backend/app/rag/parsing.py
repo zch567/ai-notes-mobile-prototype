@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import logging
 import re
 import zipfile
@@ -12,6 +13,8 @@ from .text_utils import looks_like_heading, normalize_text
 
 
 SUPPORTED_SUFFIXES = {".txt", ".md", ".markdown", ".docx", ".pdf", ".pptx"}
+_PARSE_CACHE: dict[tuple[str, float, int], list[RawBlock]] = {}
+_PARSE_CACHE_LIMIT = 16
 logging.getLogger("pypdf").setLevel(logging.ERROR)
 
 
@@ -28,13 +31,25 @@ def parse_document(path: Path) -> list[RawBlock]:
     suffix = path.suffix.lower()
     if suffix not in SUPPORTED_SUFFIXES:
         raise ValueError(f"Unsupported file type: {path.suffix}")
+    resolved = path.resolve()
+    stat = resolved.stat()
+    cache_key = (str(resolved), stat.st_mtime, stat.st_size)
+    cached = _PARSE_CACHE.get(cache_key)
+    if cached is not None:
+        return copy.deepcopy(cached)
+
     if suffix in {".txt", ".md", ".markdown"}:
-        return _parse_plain_text(path)
-    if suffix == ".docx":
-        return _parse_docx(path)
-    if suffix == ".pdf":
-        return _parse_pdf(path)
-    return _parse_pptx(path)
+        blocks = _parse_plain_text(path)
+    elif suffix == ".docx":
+        blocks = _parse_docx(path)
+    elif suffix == ".pdf":
+        blocks = _parse_pdf(path)
+    else:
+        blocks = _parse_pptx(path)
+    _PARSE_CACHE[cache_key] = copy.deepcopy(blocks)
+    if len(_PARSE_CACHE) > _PARSE_CACHE_LIMIT:
+        _PARSE_CACHE.pop(next(iter(_PARSE_CACHE)))
+    return blocks
 
 
 def _parse_plain_text(path: Path) -> list[RawBlock]:
