@@ -350,6 +350,7 @@ export function NoteDetailScreen({
                       <h2 data-note-title className="mb-2 text-[16px] font-semibold tracking-tight text-slate-900">
                         {block.title}
                       </h2>
+                      <SemanticNoteDetails note={block} />
                       <p className="whitespace-pre-wrap text-[15px] leading-8 text-slate-700">
                         <span data-note-content>{block.content}</span>
                         {settings.showCitations && block.citationIds.length ? (
@@ -480,6 +481,103 @@ export function NoteDetailScreen({
       />
     </div>
   );
+}
+
+function SemanticNoteDetails({ note }) {
+  const visibleBlocks = (note.blocks || []).filter(
+    (block) => block.type !== "summary" || block.text !== note.summary,
+  );
+  const hasDetails = note.summary || note.keyPoints?.length || visibleBlocks.length;
+  if (!hasDetails) return null;
+
+  return (
+    <div contentEditable={false} className="mb-4 space-y-3">
+      {note.summary ? (
+        <div className="rounded-[18px] border border-blue-100 bg-blue-50/80 px-3.5 py-3">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-blue-500">本节摘要</p>
+          <p className="mt-1.5 text-[13px] leading-6 text-blue-950">{note.summary}</p>
+        </div>
+      ) : null}
+
+      {note.keyPoints?.length ? (
+        <div className="rounded-[18px] border border-slate-200 bg-slate-50/80 px-3.5 py-3">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">核心知识点</p>
+          <ul className="mt-2 space-y-1.5 text-[13px] leading-6 text-slate-700">
+            {note.keyPoints.map((point, index) => (
+              <li key={`${point}-${index}`} className="flex gap-2">
+                <span className="mt-[9px] h-1.5 w-1.5 shrink-0 rounded-full bg-blue-500" />
+                <span>{point}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {visibleBlocks.map((block, index) => (
+        <NoteStructureBlock key={block.id || `${block.type}-${index}`} block={block} />
+      ))}
+    </div>
+  );
+}
+
+function NoteStructureBlock({ block }) {
+  const items = block.structuredItems?.length ? block.structuredItems : block.items || [];
+  if (!block.title && !block.text && !items.length) return null;
+
+  return (
+    <div className="rounded-[18px] border border-slate-200 bg-white px-3.5 py-3 shadow-[0_8px_24px_rgba(15,23,42,0.05)]">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-[13px] font-semibold text-slate-900">{block.title || noteBlockLabel(block.type)}</p>
+        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-slate-400">
+          {noteBlockLabel(block.type)}
+        </span>
+      </div>
+      {block.text ? <p className="mt-2 text-[13px] leading-6 text-slate-600">{block.text}</p> : null}
+      {items.length ? (
+        <ul className="mt-2 space-y-2 text-[13px] leading-6 text-slate-700">
+          {items.map((item, index) => {
+            const text = structuredItemText(item);
+            const children = typeof item === "object" && item ? item.children || [] : [];
+            return (
+              <li key={`${text}-${index}`} className="rounded-2xl bg-slate-50 px-3 py-2">
+                <div className="flex gap-2">
+                  <span className="mt-[9px] h-1.5 w-1.5 shrink-0 rounded-full bg-slate-400" />
+                  <span>{text}</span>
+                </div>
+                {children.length ? (
+                  <ul className="ml-3 mt-1.5 space-y-1 border-l border-slate-200 pl-3 text-[12px] text-slate-500">
+                    {children.map((child, childIndex) => (
+                      <li key={`${structuredItemText(child)}-${childIndex}`}>{structuredItemText(child)}</li>
+                    ))}
+                  </ul>
+                ) : null}
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
+function structuredItemText(item) {
+  if (typeof item === "string") return item;
+  return item?.text || item?.title || item?.label || item?.description || "";
+}
+
+function noteBlockLabel(type) {
+  return {
+    summary: "摘要",
+    outline: "结构",
+    definition: "定义",
+    mechanism: "机制",
+    procedure: "过程",
+    formula: "公式",
+    effect: "作用",
+    evidence: "证据",
+    example: "示例",
+    text: "说明",
+  }[type] || "知识块";
 }
 
 function formatSourceLocation(source, citation) {

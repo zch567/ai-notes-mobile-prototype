@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "test": "node --test src/features/ai/agentTypes.test.js",
     "build": "vite build",
     "build:webview": "vite build --mode webview",
     "preview": "vite preview"

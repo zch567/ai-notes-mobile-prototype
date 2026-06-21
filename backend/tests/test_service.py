@@ -7,6 +7,7 @@ from pydantic import ValidationError
 
 from app.config import settings
 from app.contracts import RunAgentRequest
+from app.errors import BadRequestError
 from app.main import app
 from app.service import AgentService
 
@@ -71,7 +72,7 @@ def test_file_upload_request_is_supported(tmp_path: Path):
 
 
 def test_result_id_rejects_path_traversal():
-    with pytest.raises(ValueError, match="Invalid resultId"):
+    with pytest.raises(BadRequestError, match="Invalid resultId"):
         AgentService().get_result("../outside")
 
 
