@@ -69,7 +69,15 @@ def test_mindmap_converter_handles_tree_and_frontend_nodes():
     frontend_result = convert_mindmap(frontend, "RAG", notes)
 
     assert tree_result["nodes"][1]["relatedNoteId"] == "n1"
-    assert tree_result["edges"] == [{"from": "m0", "to": "m1"}]
+    assert tree_result["edges"][0] == {
+        "from": "m0",
+        "to": "m1",
+        "type": "hierarchy",
+        "label": "归属",
+        "reason": "Tree parent-child relation returned by M4.",
+        "confidence": 0.72,
+        "source_refs": [],
+    }
     assert frontend_result["nodes"][0]["id"] == "x1"
 
 

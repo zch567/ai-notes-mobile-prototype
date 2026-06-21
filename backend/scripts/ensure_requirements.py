@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.metadata as metadata
 import os
+import platform
 import re
 import subprocess
 import sys
@@ -25,10 +26,22 @@ def _read_requirements(path: Path) -> list[Requirement]:
         line = raw.split("#", 1)[0].strip()
         if not line:
             continue
-        match = REQ_PATTERN.match(line)
+        requirement_text, separator, marker = line.partition(";")
+        if separator and not _marker_applies(marker.strip()):
+            continue
+        match = REQ_PATTERN.match(requirement_text.strip())
         if match:
             requirements.append(Requirement(match.group(1), match.group(2).strip(), raw.strip()))
     return requirements
+
+
+def _marker_applies(marker: str) -> bool:
+    match = re.fullmatch(r"""platform_system\s*(==|!=)\s*["']([^"']+)["']""", marker)
+    if not match:
+        return True
+    operator, expected = match.groups()
+    matches = platform.system().lower() == expected.lower()
+    return matches if operator == "==" else not matches
 
 
 def _version_key(version: str) -> tuple[tuple[int, int | str], ...]:

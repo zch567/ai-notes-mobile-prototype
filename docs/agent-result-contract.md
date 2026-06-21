@@ -81,6 +81,7 @@ POST /api/agent/edit
   "summary": "主题摘要",
   "keywords": [],
   "outline": [],
+  "reportPlan": [],
   "warnings": [],
   "errors": [],
   "agentStages": [],
@@ -107,6 +108,7 @@ POST /api/agent/edit
 | `agentStages` | array | Loading 页阶段展示 |
 | `keywords` | array | M1 主题理解提取的关键词 |
 | `outline` | array | M1 主题理解归纳的章节结构 |
+| `reportPlan` | array | 面向学习问题组织的报告计划，结构与 `outline` 一致 |
 | `warnings` | array | 可展示的解析质量提示，例如 OCR、页码缺失、结构混乱 |
 | `errors` | array | 可展示的严重问题，页面会在结果页提示 |
 | `sources` | array | 来源片段与引用浮层 |
@@ -118,6 +120,69 @@ POST /api/agent/edit
 | `review.masteryScore` | number | 掌握度 |
 | `review.weakPoints` | array | 薄弱点 |
 | `review.recommendations` | array | 复习建议 |
+
+## 语义化笔记字段
+
+`notes[]` 保留原有必需字段 `id`、`title`、`content` 和 `citationIds`，并支持以下可选扩展：
+
+| 字段 | 类型 | 用途 |
+|---|---|---|
+| `summary` | string | 本节摘要 |
+| `keyPoints` | string[] | 核心知识点 |
+| `examples` | array | 示例、公式或映射 |
+| `relations` | array | 与其他概念的关系 |
+| `blocks` | array | 语义化结构块 |
+| `sourceRefs` | string[] | 生成该笔记时使用的原始 chunk id |
+
+结构块推荐格式：
+
+```json
+{
+  "type": "outline",
+  "title": "结构拆解",
+  "text": "",
+  "items": [],
+  "structuredItems": [
+    {
+      "text": "一个完整知识点",
+      "children": ["该知识点的子项"]
+    }
+  ]
+}
+```
+
+`type` 当前常用值包括 `summary`、`outline`、`definition`、`mechanism`、`procedure`、`formula`、`effect`、`evidence`、`example` 和 `text`。前端会保留未知类型，并使用通用知识块样式展示。
+
+`sourceRefs` 用于保留生成证据关系；`citationIds` 用于页面引用点击。后端可以同时返回两者，且两者均应引用 `sources[].id`。
+
+## 思维导图关系字段
+
+`mindMap.edges[]` 除 `from` 和 `to` 外支持以下可选字段：
+
+| 字段 | 类型 | 用途 |
+|---|---|---|
+| `type` | string | 关系类型 |
+| `label` | string | 页面展示的短标签 |
+| `reason` | string | 关系成立的解释 |
+| `confidence` | number | `0` 到 `1` 的置信度 |
+| `sourceRefs` | string[] | 支撑该关系的来源 chunk id |
+
+关系类型允许：
+
+```text
+hierarchy
+prerequisite
+component
+mechanism
+training-flow
+evolution
+application
+contrast
+evidence
+solution
+```
+
+旧版只包含 `from/to` 的边仍然有效。前端仅在存在关系元数据时显示边标签和关系说明。
 
 ## 后端最小可返回
 
@@ -172,6 +237,12 @@ notes[].citationIds -> sources[].id
 |---|---|
 | `node_id`、`nodeId` | `id` |
 | `source_refs`、`sourceRefs`、`refs` | `citationIds` 或 `outline[].refs` |
+| `key_points` | `notes[].keyPoints` |
+| `structured_items` | `notes[].blocks[].structuredItems` |
+| `report_plan` | `reportPlan` |
+| `relation_type`、`relation` | `mindMap.edges[].type` |
+| `edge_label`、`relation_label` | `mindMap.edges[].label` |
+| `relation_reason` | `mindMap.edges[].reason` |
 | `question_id`、`questionId` | `review.questions[].id` |
 | `question_type`、`questionType` | `review.questions[].type` |
 | `related_note_id` | `review.questions[].relatedNoteId` 或 `mindMap.nodes[].relatedNoteId` |

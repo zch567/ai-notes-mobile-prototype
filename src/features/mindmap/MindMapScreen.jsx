@@ -76,6 +76,16 @@ export function MindMapScreen({ result, onResultChange = () => {}, onBack }) {
   const displayCenterNode = displayNodeById.get(centerNode?.id) || displayNodes[0];
   const displaySelectedNode = selectedNodeId ? displayNodeById.get(selectedNodeId) : null;
   const detailNode = displaySelectedNode || displayCenterNode;
+  const selectedRelations = useMemo(
+    () =>
+      displayEdges.filter(
+        (edge) =>
+          selectedNodeId &&
+          hasRelationMetadata(edge) &&
+          (edge.from === selectedNodeId || edge.to === selectedNodeId),
+      ),
+    [displayEdges, selectedNodeId],
+  );
   const focusX = displaySelectedNode ? 50 - displaySelectedNode.x : 0;
   const focusY = displaySelectedNode ? 50 - displaySelectedNode.y : 0;
   const toolboxSide = displaySelectedNode?.x > 58 ? "left" : "right";
@@ -124,7 +134,7 @@ export function MindMapScreen({ result, onResultChange = () => {}, onBack }) {
 
     updateMindMap({
       nodes: [...nodes, newNode],
-      edges: [...edges, { from: parent.id, to: nodeId }],
+      edges: [...edges, { from: parent.id, to: nodeId, type: "hierarchy", label: "归属" }],
     }, nodeId);
   }
 
@@ -147,7 +157,7 @@ export function MindMapScreen({ result, onResultChange = () => {}, onBack }) {
 
     updateMindMap({
       nodes: [...nodes, newNode],
-      edges: [...edges, { from: parent.id, to: nodeId }],
+      edges: [...edges, { from: parent.id, to: nodeId, type: "hierarchy", label: "归属" }],
     }, nodeId);
   }
 
@@ -253,6 +263,24 @@ export function MindMapScreen({ result, onResultChange = () => {}, onBack }) {
                 );
               })}
             </svg>
+
+            {displayEdges.map((edge, index) => {
+              const from = displayNodeById.get(edge.from);
+              const to = displayNodeById.get(edge.to);
+              if (!from || !to || !hasRelationMetadata(edge)) return null;
+              return (
+                <div
+                  key={`label-${edge.from}-${edge.to}-${index}`}
+                  className="pointer-events-none absolute z-[5] -translate-x-1/2 -translate-y-1/2 rounded-full border border-white/90 bg-white/90 px-2 py-0.5 text-[8px] font-semibold tracking-wide text-slate-500 shadow-sm backdrop-blur"
+                  style={{
+                    left: `${(from.x + to.x) / 2}%`,
+                    top: `${(from.y + to.y) / 2}%`,
+                  }}
+                >
+                  {edge.label || mindMapRelationLabel(edge.type)}
+                </div>
+              );
+            })}
 
             {displayNodes.map((node) => {
               const isCenter = node.id === displayCenterNode?.id;
@@ -388,6 +416,26 @@ export function MindMapScreen({ result, onResultChange = () => {}, onBack }) {
                     ))}
                 </div>
               </div>
+
+              {selectedRelations.length ? (
+                <div className="mt-3 rounded-[22px] border border-blue-100 bg-blue-50/80 p-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-blue-500">关联关系</p>
+                  <div className="mt-2 max-h-28 space-y-2 overflow-y-auto">
+                    {selectedRelations.map((edge, index) => {
+                      const isOutgoing = edge.from === selectedNodeId;
+                      const peer = displayNodeById.get(isOutgoing ? edge.to : edge.from);
+                      return (
+                        <div key={`${edge.from}-${edge.to}-${index}`} className="rounded-2xl bg-white px-3 py-2 text-[11px] leading-5 text-slate-600">
+                          <p className="font-semibold text-slate-800">
+                            {isOutgoing ? "指向" : "来自"} {peer?.label || "关联节点"} · {edge.label || mindMapRelationLabel(edge.type)}
+                          </p>
+                          {edge.reason ? <p className="mt-1 text-slate-500">{edge.reason}</p> : null}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : null}
             </aside>
           ) : (
             <div className="absolute right-5 top-5 z-30 rounded-[24px] border border-white/80 bg-white/80 px-4 py-3 shadow-[0_14px_36px_rgba(15,23,42,0.12)] backdrop-blur-xl">
@@ -471,7 +519,7 @@ function createPresentableMindMap(nodes, edges, topic) {
   const presentableNodeIds = new Set(presentableNodes.map((node) => node.id));
   const presentableEdges = edges
     .filter((edge) => presentableNodeIds.has(edge.from) && presentableNodeIds.has(edge.to) && edge.from !== edge.to)
-    .map((edge) => ({ from: edge.from, to: edge.to }));
+    .map((edge) => ({ ...edge, from: edge.from, to: edge.to }));
   const connectedTargets = new Set(presentableEdges.map((edge) => edge.to));
   nonCenterNodes.forEach((node) => {
     if (!connectedTargets.has(node.id)) {
@@ -483,6 +531,25 @@ function createPresentableMindMap(nodes, edges, topic) {
     nodes: presentableNodes,
     edges: presentableEdges.length ? presentableEdges : edges,
   };
+}
+
+function hasRelationMetadata(edge) {
+  return Boolean(edge.label || edge.reason || edge.sourceRefs?.length || edge.confidence);
+}
+
+function mindMapRelationLabel(type) {
+  return {
+    hierarchy: "归属",
+    prerequisite: "先修",
+    component: "组成",
+    mechanism: "机制",
+    "training-flow": "训练流",
+    evolution: "演进",
+    application: "应用",
+    contrast: "对比",
+    evidence: "证据",
+    solution: "解决",
+  }[type] || "关联";
 }
 
 function nodeColor(node, index) {

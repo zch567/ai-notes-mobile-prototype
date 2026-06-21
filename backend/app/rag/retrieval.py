@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import math
-from collections import Counter
+from collections import Counter, defaultdict
 from dataclasses import dataclass
+from typing import Any
 
+from .enrichment import build_evidence_packs, expand_query
 from .schemas import SourceChunk
 from .text_utils import tokenize
 
@@ -16,18 +18,26 @@ class RetrievalHit:
     phrase: float
     heading: float
     matched_terms: list[str]
+    expanded_query: str = ""
+    evidence: dict[str, Any] | None = None
 
     def to_dict(self) -> dict:
-        return {
+        item = {
             "sourceId": self.chunk.id,
             "sourceRef": self.chunk.sourceRef,
             "title": self.chunk.title,
+            "chunkIndex": self.chunk.chunkIndex,
+            "chunkHeading": self.chunk.heading,
             "score": round(self.score, 6),
             "bm25": round(self.bm25, 6),
             "phrase": round(self.phrase, 6),
             "heading": round(self.heading, 6),
             "matchedTerms": self.matched_terms,
+            "expandedQuery": self.expanded_query,
         }
+        if self.evidence:
+            item["evidence"] = self.evidence
+        return item
 
 
 class HybridRetriever:
@@ -41,28 +51,55 @@ class HybridRetriever:
         self.counters = [Counter(tokens) for tokens in self.docs]
         self.avg_len = sum(map(len, self.docs)) / max(1, len(self.docs))
         self.df: Counter[str] = Counter()
-        for tokens in self.docs:
-            self.df.update(set(tokens))
+        self.inverted: dict[str, set[int]] = defaultdict(set)
+        self.heading_token_sets = [set(tokenize(chunk.heading)) for chunk in chunks]
+        self.chunk_compacts = ["".join(chunk.text.lower().split()) for chunk in chunks]
+        for index, tokens in enumerate(self.docs):
+            unique_tokens = set(tokens)
+            self.df.update(unique_tokens)
+            for token in unique_tokens:
+                self.inverted[token].add(index)
 
-    def retrieve(self, query: str, *, top_k: int = 5, diversify: bool = True) -> list[RetrievalHit]:
-        query_tokens = tokenize(query)
+    def retrieve(
+        self,
+        query: str,
+        *,
+        top_k: int = 5,
+        diversify: bool = True,
+        expand: bool = True,
+        include_context: bool = False,
+    ) -> list[RetrievalHit]:
+        expanded_query = expand_query(query, self.chunks) if expand else query
+        query_tokens = tokenize(expanded_query)
         if not query_tokens or not self.chunks:
             return []
         query_counter = Counter(query_tokens)
         hits: list[RetrievalHit] = []
-        query_compact = "".join(query.lower().split())
-        for chunk, tokens, counter in zip(self.chunks, self.docs, self.counters):
+        query_compact = "".join(expanded_query.lower().split())
+        candidate_indexes = self._candidate_indexes(query_tokens)
+        query_token_set = set(query_tokens)
+        for index in candidate_indexes:
+            chunk = self.chunks[index]
+            tokens = self.docs[index]
+            counter = self.counters[index]
             bm25 = self._bm25(query_counter, tokens, counter)
-            chunk_compact = "".join(chunk.text.lower().split())
-            phrase = _phrase_score(query_compact, chunk_compact)
-            heading_tokens = set(tokenize(chunk.heading))
-            heading = len(set(query_tokens) & heading_tokens) / max(1, len(set(query_tokens)))
-            matched = sorted(set(query_tokens) & set(tokens), key=lambda item: (-query_counter[item], -len(item)))[:10]
+            phrase = _phrase_score(query_compact, self.chunk_compacts[index])
+            heading = len(query_token_set & self.heading_token_sets[index]) / max(1, len(query_token_set))
+            matched = sorted(query_token_set & set(tokens), key=lambda item: (-query_counter[item], -len(item)))[:10]
             score = bm25 + phrase * 2.0 + heading * 1.5
             if score > 0:
-                hits.append(RetrievalHit(chunk, score, bm25, phrase, heading, matched))
+                hits.append(RetrievalHit(chunk, score, bm25, phrase, heading, matched, expanded_query=expanded_query))
         hits.sort(key=lambda hit: (-hit.score, hit.chunk.chunkIndex))
-        return _diversify(hits, top_k) if diversify else hits[:top_k]
+        selected = _diversify(hits, top_k) if diversify else hits[:top_k]
+        return _attach_context(selected, self.chunks, expanded_query) if include_context else selected
+
+    def _candidate_indexes(self, query_tokens: list[str]) -> list[int]:
+        candidates: set[int] = set()
+        for token in set(query_tokens):
+            candidates.update(self.inverted.get(token, set()))
+        if not candidates:
+            return list(range(len(self.chunks)))
+        return sorted(candidates, key=lambda index: self.chunks[index].chunkIndex)
 
     def _bm25(self, query: Counter[str], tokens: list[str], counter: Counter[str]) -> float:
         score = 0.0
@@ -105,9 +142,29 @@ def _diversify(hits: list[RetrievalHit], top_k: int) -> list[RetrievalHit]:
                 hit.phrase,
                 hit.heading,
                 hit.matched_terms,
+                hit.expanded_query,
+                hit.evidence,
             )
         )
         source_ref_counts[hit.chunk.sourceRef] += 1
         if len(selected) >= top_k:
             break
     return selected
+
+
+def _attach_context(hits: list[RetrievalHit], chunks: list[SourceChunk], query: str) -> list[RetrievalHit]:
+    packs = build_evidence_packs(chunks, [hit.chunk.id for hit in hits], query)
+    evidence_by_id = {pack.focus.id: pack.to_dict() for pack in packs}
+    return [
+        RetrievalHit(
+            hit.chunk,
+            hit.score,
+            hit.bm25,
+            hit.phrase,
+            hit.heading,
+            hit.matched_terms,
+            hit.expanded_query,
+            evidence_by_id.get(hit.chunk.id),
+        )
+        for hit in hits
+    ]

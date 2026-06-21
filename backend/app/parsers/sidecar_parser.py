@@ -6,6 +6,7 @@ from html import unescape
 from pathlib import Path
 from xml.etree import ElementTree
 
+from ..doc_conversion import convert_legacy_doc
 from ..rag.grounding import rekey_legacy_chunks
 from ..rag.schemas import SourceChunk
 from ..rag.text_utils import normalize_text, slugify
@@ -65,15 +66,21 @@ def parse_document(path: Path, ocr_text_dir: Path | None = None, office_ocr_dir:
         text = normalize_text(read_text_file(path))
         return chunk_text(text, source_id=source_id, source_type="text", file_name=path.name)
 
-    if suffix == ".docx":
-        text = normalize_text(parse_docx(path))
+    if suffix in {".doc", ".docx"}:
+        parsed_path = convert_legacy_doc(path) if suffix == ".doc" else path
+        text = normalize_text(parse_docx(parsed_path))
         if office_ocr_dir:
             sidecar = office_ocr_dir / path.stem / "document.ocr.txt"
             if sidecar.exists():
                 image_text = normalize_text(read_text_file(sidecar))
                 if image_text:
                     text = normalize_text(text + "\n\n[IMAGE_OCR]\n" + image_text)
-        return chunk_text(text, source_id=source_id, source_type="text", file_name=path.name)
+        return chunk_text(
+            text,
+            source_id=source_id,
+            source_type="doc" if suffix == ".doc" else "docx",
+            file_name=path.name,
+        )
 
     if suffix == ".pptx":
         chunks: list[LegacyChunk] = []

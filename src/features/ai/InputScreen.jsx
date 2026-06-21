@@ -29,6 +29,7 @@ export function InputScreen({ onRun, status, draft = defaultDraft, onDraftChange
     ["text", "文本"],
     ["pdf", "PDF"],
     ["pptx", "PPTX"],
+    ["word", "Word"],
   ];
   const pipelineOptions = [
     ["hybrid", "Hybrid", "真实模型生成 + RAG 引用"],
@@ -138,7 +139,7 @@ export function InputScreen({ onRun, status, draft = defaultDraft, onDraftChange
             />
           </label>
 
-          <div className="mb-4 grid grid-cols-3 gap-2 rounded-2xl bg-slate-100 p-1">
+          <div className="mb-4 grid grid-cols-4 gap-2 rounded-2xl bg-slate-100 p-1">
             {inputTypes.map(([id, label]) => (
               <button
                 key={id}
@@ -240,7 +241,7 @@ export function InputScreen({ onRun, status, draft = defaultDraft, onDraftChange
                 选择文件
                 <input
                   type="file"
-                  accept={inputType === "pdf" ? ".pdf,application/pdf" : ".pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation"}
+                  accept={acceptedFileTypes(inputType)}
                   onChange={handleFileChange}
                   className="hidden"
                 />
@@ -286,8 +287,9 @@ function safeFileStem(value) {
 }
 
 function normalizeInputType(value) {
-  if (value === "pdf" || value === "pptx") return value;
+  if (value === "pdf" || value === "pptx" || value === "word") return value;
   if (value === "ppt") return "pptx";
+  if (value === "doc" || value === "docx") return "word";
   return "text";
 }
 
@@ -295,5 +297,17 @@ function fileMatchesType(file, inputType) {
   const name = file?.name?.toLowerCase() || "";
   if (inputType === "pdf") return name.endsWith(".pdf");
   if (inputType === "pptx") return name.endsWith(".pptx");
+  if (inputType === "word") return name.endsWith(".doc") || name.endsWith(".docx");
   return false;
+}
+
+function acceptedFileTypes(inputType) {
+  if (inputType === "pdf") return ".pdf,application/pdf";
+  if (inputType === "pptx") {
+    return ".pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation";
+  }
+  if (inputType === "word") {
+    return ".doc,.docx,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+  }
+  return "";
 }

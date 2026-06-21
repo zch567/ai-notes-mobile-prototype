@@ -4,6 +4,7 @@ const emptyAgentResult = {
   summary: "",
   keywords: [],
   outline: [],
+  reportPlan: [],
   warnings: [],
   errors: [],
   agentStages: [],
@@ -56,6 +57,7 @@ export function normalizeAgentResult(rawResult) {
     summary: stringOrFallback(result.summary, emptyAgentResult.summary),
     keywords: normalizeArray(result.keywords, emptyAgentResult.keywords).map(String),
     outline: normalizeArray(result.outline, emptyAgentResult.outline).map(normalizeOutlineItem),
+    reportPlan: normalizeArray(source.reportPlan || source.report_plan, emptyAgentResult.reportPlan).map(normalizeOutlineItem),
     warnings: normalizeArray(result.warnings, emptyAgentResult.warnings).map(normalizeDiagnostic).filter(Boolean),
     errors: normalizeArray(result.errors, emptyAgentResult.errors).map(normalizeDiagnostic).filter(Boolean),
     agentStages: normalizeArray(result.agentStages, emptyAgentResult.agentStages).map(normalizeStage),
@@ -107,14 +109,73 @@ function normalizeSource(source, index) {
 
 function normalizeNote(note, index) {
   const noteId = note?.id || note?.node_id || note?.nodeId;
+  const sourceRefs = normalizeArray(note?.sourceRefs || note?.source_refs || note?.refs, []).map(String);
   return {
+    ...(note || {}),
     id: stringOrFallback(noteId, `note-${index + 1}`),
     title: stringOrFallback(note?.title, `第 ${index + 1} 节`),
     content: stringOrFallback(note?.content, ""),
-    citationIds: normalizeArray(note?.citationIds || note?.source_refs || note?.sourceRefs || note?.refs, []).map(String),
+    summary: stringOrFallback(note?.summary, ""),
+    keyPoints: normalizeArray(note?.keyPoints || note?.key_points, []).map(normalizeTextItem).filter(Boolean),
+    examples: normalizeArray(note?.examples, []).map(normalizeStructuredValue).filter(Boolean),
+    relations: normalizeArray(note?.relations, []).map(normalizeStructuredValue).filter(Boolean),
+    blocks: normalizeArray(note?.blocks, []).map(normalizeNoteBlock).filter(Boolean),
+    sourceRefs,
+    citationIds: normalizeArray(note?.citationIds, sourceRefs).map(String),
     level: numberOrFallback(note?.level, inferLevelFromNodeId(noteId), 1),
     parentId: stringOrFallback(note?.parentId || note?.parent_id, inferParentId(noteId)),
   };
+}
+
+function normalizeNoteBlock(block, index) {
+  if (typeof block === "string") {
+    return {
+      type: "text",
+      title: "",
+      text: block,
+      items: [],
+      structuredItems: [],
+    };
+  }
+  if (!block || typeof block !== "object" || Array.isArray(block)) return null;
+  return {
+    ...block,
+    type: stringOrFallback(block.type || block.block_type, "text"),
+    title: stringOrFallback(block.title || block.label, ""),
+    text: stringOrFallback(block.text || block.content || block.summary, ""),
+    items: normalizeArray(block.items, []).map(normalizeStructuredValue).filter(Boolean),
+    structuredItems: normalizeArray(block.structuredItems || block.structured_items, [])
+      .map(normalizeStructuredItem)
+      .filter(Boolean),
+    id: stringOrFallback(block.id, `block-${index + 1}`),
+  };
+}
+
+function normalizeStructuredItem(item) {
+  if (typeof item === "string") {
+    return { text: item, children: [] };
+  }
+  if (!item || typeof item !== "object" || Array.isArray(item)) return null;
+  return {
+    ...item,
+    text: stringOrFallback(item.text || item.title || item.label, ""),
+    children: normalizeArray(item.children, []).map(normalizeStructuredValue).filter(Boolean),
+  };
+}
+
+function normalizeStructuredValue(item) {
+  if (typeof item === "string") return item.trim() || null;
+  if (!item || typeof item !== "object" || Array.isArray(item)) return null;
+  return {
+    ...item,
+    text: stringOrFallback(item.text || item.description || item.content, ""),
+    children: normalizeArray(item.children, []).map(normalizeStructuredValue).filter(Boolean),
+  };
+}
+
+function normalizeTextItem(item) {
+  if (typeof item === "string") return item.trim();
+  return stringOrFallback(item?.text || item?.title || item?.label, "");
 }
 
 function normalizeCitation(citation, index) {
@@ -149,13 +210,20 @@ function normalizeMindMapNode(node, index) {
     line: stringOrFallback(node?.line, "#93c5fd"),
     fill: stringOrFallback(node?.fill, "#ffffff"),
     relatedNoteId: stringOrFallback(node?.relatedNoteId || node?.related_note_id, ""),
+    sourceRefs: normalizeArray(node?.sourceRefs || node?.source_refs, []).map(String),
   };
 }
 
 function normalizeMindMapEdge(edge) {
   return {
+    ...(edge || {}),
     from: stringOrFallback(edge?.from || edge?.source, ""),
     to: stringOrFallback(edge?.to || edge?.target, ""),
+    type: stringOrFallback(edge?.type || edge?.relation_type || edge?.relation, "hierarchy"),
+    label: stringOrFallback(edge?.label || edge?.edge_label || edge?.relation_label, ""),
+    reason: stringOrFallback(edge?.reason || edge?.description || edge?.relation_reason, ""),
+    confidence: clamp(numberOrFallback(edge?.confidence, 0), 0, 1),
+    sourceRefs: normalizeArray(edge?.sourceRefs || edge?.source_refs, []).map(String),
   };
 }
 
