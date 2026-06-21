@@ -99,6 +99,8 @@ curl -X POST http://127.0.0.1:8000/api/agent/run-file `
   -F "sourceTitle=课程资料"
 ```
 
+上传支持 `.txt`、`.md`、`.markdown`、`.doc`、`.docx`、`.pdf` 和 `.pptx`。其中 DOCX 由后端直接解析；旧版 DOC 仅在 Windows 上支持，后端会调用本机 Microsoft Word 在 `runtime/_converted` 中转换为临时 DOCX。若未安装 Word 或转换失败，请将文件另存为 DOCX 后重试。
+
 也可以直接提交文本：
 
 ```json

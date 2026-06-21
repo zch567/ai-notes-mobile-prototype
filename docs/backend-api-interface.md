@@ -191,12 +191,14 @@ Content-Type: application/json
 
 | 字段 | 类型 | 必填 | 说明 |
 |---|---|---:|---|
-| `file` | file | 是 | 支持 `.txt`、`.md`、`.docx`、`.pdf`、`.pptx` |
+| `file` | file | 是 | 支持 `.txt`、`.md`、`.doc`、`.docx`、`.pdf`、`.pptx` |
 | `pipeline` | string | 否 | 默认 `hybrid` |
 | `provider` | string | 否 | 当前仅支持 `lanxin`；为空时使用后端配置 |
 | `strictProvider` | boolean | 否 | 默认 `true` |
 | `topK` | number | 否 | 引用召回数量，默认 `2` |
 | `sourceTitle` | string | 否 | 前端标题，用于上传文件落盘命名和结果标题修正 |
+
+旧版 `.doc` 文件由 Windows 后端调用本机 Microsoft Word 转换为临时 DOCX 后解析。后端需要安装 Microsoft Word 和 `pywin32`；如果转换能力不可用，接口返回 400，并提示用户将文件另存为 DOCX。
 
 成功响应与 `/api/agent/run` 一致，返回完整 `AgentResult`。
 

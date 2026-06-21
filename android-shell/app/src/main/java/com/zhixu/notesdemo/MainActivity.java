@@ -2,6 +2,8 @@ package com.zhixu.notesdemo;
 
 import android.annotation.SuppressLint;
 import android.app.Activity;
+import android.content.ActivityNotFoundException;
+import android.content.Intent;
 import android.content.pm.ActivityInfo;
 import android.graphics.Color;
 import android.net.Uri;
@@ -13,6 +15,7 @@ import android.view.View;
 import android.view.Window;
 import android.view.WindowInsets;
 import android.webkit.JavascriptInterface;
+import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
@@ -21,9 +24,11 @@ import android.webkit.WebViewClient;
 
 public class MainActivity extends Activity {
     private static final String APP_URL = "file:///android_asset/web/index.html";
+    private static final int FILE_CHOOSER_REQUEST_CODE = 1001;
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private WebView webView;
+    private ValueCallback<Uri[]> fileChooserCallback;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -111,7 +116,28 @@ public class MainActivity extends Activity {
 
         view.addJavascriptInterface(new AndroidShellBridge(), "AndroidShell");
 
-        view.setWebChromeClient(new WebChromeClient());
+        view.setWebChromeClient(new WebChromeClient() {
+            @Override
+            public boolean onShowFileChooser(
+                    WebView webView,
+                    ValueCallback<Uri[]> filePathCallback,
+                    FileChooserParams fileChooserParams
+            ) {
+                cancelPendingFileChooser();
+                fileChooserCallback = filePathCallback;
+
+                Intent intent;
+                try {
+                    intent = fileChooserParams.createIntent();
+                    intent.addCategory(Intent.CATEGORY_OPENABLE);
+                    startActivityForResult(intent, FILE_CHOOSER_REQUEST_CODE);
+                    return true;
+                } catch (ActivityNotFoundException exception) {
+                    cancelPendingFileChooser();
+                    return false;
+                }
+            }
+        });
         view.setWebViewClient(new WebViewClient() {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
@@ -123,6 +149,28 @@ public class MainActivity extends Activity {
 
     private boolean isLocalAssetUrl(Uri uri) {
         return uri.toString().startsWith("file:///android_asset/");
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        if (requestCode == FILE_CHOOSER_REQUEST_CODE) {
+            ValueCallback<Uri[]> callback = fileChooserCallback;
+            fileChooserCallback = null;
+            if (callback != null) {
+                callback.onReceiveValue(
+                        WebChromeClient.FileChooserParams.parseResult(resultCode, data)
+                );
+            }
+            return;
+        }
+        super.onActivityResult(requestCode, resultCode, data);
+    }
+
+    private void cancelPendingFileChooser() {
+        if (fileChooserCallback != null) {
+            fileChooserCallback.onReceiveValue(null);
+            fileChooserCallback = null;
+        }
     }
 
     private class AndroidShellBridge {
@@ -148,6 +196,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        cancelPendingFileChooser();
         if (webView != null) {
             webView.destroy();
             webView = null;

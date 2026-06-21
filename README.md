@@ -119,6 +119,7 @@ APK/AAB 是可再生成的构建产物，已经被 git 忽略；不建议提交�
 Android 运行要点：
 
 - WebView 加载本地资源：`file:///android_asset/web/index.html`。
+- AI 生成页通过系统 DocumentsUI 选择 PDF、PPTX、DOC 或 DOCX 文件，不需要存储权限。
 - APK 只保留真实后端链路；在“我的 > 后端连接”测试并启用后会调用真实后端。
 - Android 壳已开启 `INTERNET`、局域网 HTTP 和本地资源跨源请求能力，用于访问 `http://电脑IP:8000`。
 - 顶部内容在 WebView 模式下会保留状态栏安全距离。

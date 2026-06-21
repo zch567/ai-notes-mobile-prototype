@@ -4,15 +4,17 @@ import copy
 import logging
 import re
 import zipfile
+from dataclasses import replace
 from html import unescape
 from pathlib import Path
 from xml.etree import ElementTree
 
+from ..doc_conversion import convert_legacy_doc
 from .schemas import RawBlock
 from .text_utils import looks_like_heading, normalize_text
 
 
-SUPPORTED_SUFFIXES = {".txt", ".md", ".markdown", ".docx", ".pdf", ".pptx"}
+SUPPORTED_SUFFIXES = {".txt", ".md", ".markdown", ".doc", ".docx", ".pdf", ".pptx"}
 _PARSE_CACHE: dict[tuple[str, float, int], list[RawBlock]] = {}
 _PARSE_CACHE_LIMIT = 16
 logging.getLogger("pypdf").setLevel(logging.ERROR)
@@ -40,6 +42,12 @@ def parse_document(path: Path) -> list[RawBlock]:
 
     if suffix in {".txt", ".md", ".markdown"}:
         blocks = _parse_plain_text(path)
+    elif suffix == ".doc":
+        converted = convert_legacy_doc(path)
+        blocks = [
+            replace(block, source_type="doc", file_name=path.name)
+            for block in _parse_docx(converted)
+        ]
     elif suffix == ".docx":
         blocks = _parse_docx(path)
     elif suffix == ".pdf":

@@ -102,7 +102,7 @@ def rag_query(request: RagQueryRequest) -> dict:
 async def save_upload_file(file: UploadFile, *, sourceTitle: str | None = None) -> Path:
     original_name = file.filename or "uploaded.md"
     suffix = Path(original_name).suffix.lower()
-    if suffix not in {".txt", ".md", ".markdown", ".docx", ".pdf", ".pptx"}:
+    if suffix not in {".txt", ".md", ".markdown", ".doc", ".docx", ".pdf", ".pptx"}:
         raise BadRequestError(f"Unsupported file type: {suffix or original_name}")
 
     content = await file.read()

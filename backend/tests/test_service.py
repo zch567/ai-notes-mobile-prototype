@@ -1,14 +1,17 @@
+import asyncio
 import json
+from io import BytesIO
 from pathlib import Path
 
 import pytest
+from fastapi import UploadFile
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from app.config import settings
 from app.contracts import RunAgentRequest
 from app.errors import BadRequestError
-from app.main import app
+from app.main import app, save_upload_file
 from app.service import AgentService
 
 
@@ -69,6 +72,16 @@ def test_file_upload_request_is_supported(tmp_path: Path):
     assert result["topic"]
     assert result["notes"]
     assert result["sources"][0]["fileName"].endswith(".md")
+
+
+def test_legacy_doc_upload_is_accepted(tmp_path: Path):
+    object.__setattr__(settings, "output_dir", (tmp_path / "runtime").resolve())
+    upload = UploadFile(filename="legacy.doc", file=BytesIO(b"legacy-word"))
+
+    saved = asyncio.run(save_upload_file(upload, sourceTitle="旧版 Word"))
+
+    assert saved.suffix == ".doc"
+    assert saved.read_bytes() == b"legacy-word"
 
 
 def test_result_id_rejects_path_traversal():

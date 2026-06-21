@@ -46,6 +46,7 @@ Use an emulator or physical device to verify:
 - Status bar and bottom gesture safe area.
 - WebView hardware back behavior.
 - Text input keyboard resizing.
+- System file chooser for PDF, PPTX, DOC, and DOCX uploads.
 - Local JS/CSS asset loading without network.
 - Mind map detail should request landscape orientation.
 - If the mind map detail is still portrait, it should show the "switch to landscape" prompt instead of the map content.
