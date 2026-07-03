@@ -13,7 +13,9 @@ from .config import settings
 from .contracts import RunAgentRequest
 from .errors import BadRequestError, NotFoundError, ProviderError, ValidationError
 from .normalization import normalize_agent_result, raw_contract_report
+from .rag.fingerprint import corpus_hash
 from .rag.io_utils import load_chunks
+from .rag.llm_polish import polish_result_with_provider
 
 
 class AgentService:
@@ -21,7 +23,7 @@ class AgentService:
         self.rag = RagPipelineAdapter()
         self.legacy = SidecarCapabilityAdapter()
         self.agent = ModuleAgentOrchestrator()
-        self._retriever_cache: dict[str, tuple[float, Any]] = {}
+        self._retriever_cache: dict[str, Any] = {}
 
     def run(self, request: RunAgentRequest) -> dict[str, Any]:
         input_path = self._resolve_input(request)
@@ -55,6 +57,20 @@ class AgentService:
             model_log = agent_meta.get("modelLog")
         elif pipeline == "rag-only":
             result = self.rag.build_deterministic_result(chunks, input_path)
+            if request.provider == "lanxin":
+                try:
+                    result, polish_meta = polish_result_with_provider(
+                        result,
+                        chunks,
+                        provider_name=request.provider,
+                    )
+                    agent_meta["llmPolish"] = polish_meta
+                    model_log = polish_meta.get("modelLog")
+                except Exception as exc:
+                    if request.strictProvider:
+                        raise ProviderError(f"Lanxin note polish failed: {exc}") from exc
+                    result.setdefault("warnings", []).append(f"Lanxin note polish fallback used: {exc}")
+                result = self.rag.ground(result, chunks, request.topK)
         else:
             raise BadRequestError("pipeline must be 'hybrid' or 'rag-only'")
 
@@ -172,17 +188,16 @@ class AgentService:
         return path
 
     def _retriever_for(self, chunks_path: Path):
-        from .rag.io_utils import load_chunks
         from .rag.retrieval import HybridRetriever
 
         resolved = chunks_path.resolve()
-        stamp = resolved.stat().st_mtime
-        key = str(resolved)
+        chunks = load_chunks(resolved)
+        key = corpus_hash(chunks)
         cached = self._retriever_cache.get(key)
-        if cached and cached[0] == stamp:
-            return cached[1]
-        retriever = HybridRetriever(load_chunks(resolved))
-        self._retriever_cache[key] = (stamp, retriever)
+        if cached:
+            return cached
+        retriever = HybridRetriever(chunks)
+        self._retriever_cache[key] = retriever
         if len(self._retriever_cache) > 32:
             oldest = next(iter(self._retriever_cache))
             self._retriever_cache.pop(oldest, None)
