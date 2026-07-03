@@ -123,6 +123,10 @@ class PostprocessContractValidator:
         if not summary_matches_structure(unit.summary, unit.blocks):
             issues.append("summary-structure-topic-mismatch")
             unit.summary = summarize_from_unit(unit.title, "", unit.source_text or unit.explanation, unit.blocks)
+        unit.summary = reduce_summary_outline_duplication(unit.title, unit.summary, unit.outline_items, unit.source_text)
+        unit.explanation = reduce_explanation_duplication(unit.explanation, unit.summary, unit.outline_items)
+        if field_repetition_rate(unit.summary, unit.explanation, [item.text for item in unit.outline_items]) > 0.55:
+            issues.append("field-repetition-high")
         unit.quality_issues = list(dict.fromkeys([*unit.quality_issues, *issues]))
         return unit
 
@@ -140,8 +144,9 @@ class NoteBlockAssembler:
         apply_parent_child_consistency(pairs)
         result: list[dict[str, Any]] = []
         for note, unit in pairs:
+            note["title"] = unit.title
             note["summary"] = unit.summary
-            note["content"] = unit.explanation
+            note["content"] = "" if is_redundant_pair(unit.explanation, unit.summary) else unit.explanation
             note["keyPoints"] = [item.text for item in unit.outline_items]
             note["examples"] = unit.examples
             note["relations"] = unit.relations
@@ -464,7 +469,12 @@ def aggregate_parent_summary(title: str, children: list[LearningUnit]) -> str:
     names = [strip_section_number(child.title) for child in children]
     if "核心组件" in title and names:
         return "Transformer的核心组件包括" + "、".join(names[:8]) + "；这些子模块分别承担输入表示、顺序补充、关系建模、非线性变换和训练稳定化等职责。"
-    return f"{title}由" + "、".join(names[:6]) + "等子模块构成，各子模块共同支撑本部分的核心知识。"
+    label = semantic_relation_label(title)
+    if len(names) == 1:
+        return compact(f"{title}围绕{names[0]}展开，重点说明其在{label}中的位置和理解边界。", 220)
+    if names:
+        return compact(f"{title}围绕{label}组织内容，重点区分" + "、".join(names[:4]) + "之间的作用和边界。", 220)
+    return compact(f"{title}围绕{label}展开，帮助理解本部分知识之间的关系。", 220)
 
 
 def render_blocks(unit: LearningUnit) -> list[dict[str, Any]]:
@@ -514,33 +524,130 @@ def summarize_from_unit(title: str, model_summary: str, source_text: str, blocks
 def summarize_from_outline(title: str, outline: list[OutlineItem], source_text: str) -> str:
     outline = clean_outline_items(title, outline)
     if not outline:
-        return first_meaningful_sentence(source_text)
+        return explanatory_sentence_from_source(title, source_text)
     if len(outline) == 1:
         item = outline[0]
         if item.children:
-            return compact(f"{item.text.rstrip('。')}，主要包括" + "、".join(str(child).rstrip('。') for child in item.children[:4]) + "。", 220)
-        return compact(item.text, 220)
-    names = [item.text for item in outline[:5] if item.text]
-    return compact(f"{strip_section_number(title)}主要包括" + "、".join(names) + "等内容。", 220)
+            return compact(f"{strip_section_number(title)}围绕{strip_section_number(item.text)}展开，重点把握下级要点之间的关系和适用条件。", 220)
+        return compact(f"{strip_section_number(title)}重点说明{strip_section_number(item.text)}，学习时应结合原文理解其条件、作用或结论。", 220)
+    relation = semantic_relation_label(title)
+    return compact(f"{strip_section_number(title)}围绕{relation}展开，学习时应先把握整体关系，再逐项理解关键要点。", 220)
 
 
 def explanation_from_unit(title: str, model_content: str, summary: str, blocks: list[LearningBlock]) -> str:
     parts = [summary]
     for block in blocks:
-        if block.type == "summary":
+        if block.type in {"summary", "outline"}:
             continue
         if block.content:
-            parts.append(f"{block.title}：{block.content}")
+            if not is_redundant_text(block.content, parts):
+                parts.append(f"{block.title}：{block.content}")
         elif block.items:
             rendered = render_items_text(block.items)
-            if rendered:
+            if rendered and not is_redundant_text(rendered, parts):
                 parts.append(f"{block.title}：{rendered}")
     text = normalize_text("\n".join(dedupe_strings(parts)))
-    if len(text) < 80 and model_content:
+    has_typed_blocks = any(block.type not in {"summary", "outline"} for block in blocks)
+    if len(text) < 80 and model_content and has_typed_blocks:
         extra = remove_evidence_tail(model_content)
-        if extra and extra not in text:
-            text = normalize_text(text + "\n" + extra)
+        extra_sentence = first_non_redundant_sentence(extra, text)
+        if extra_sentence:
+            text = normalize_text(text + "\n" + extra_sentence)
     return text
+
+
+def semantic_relation_label(title: str) -> str:
+    probe = strip_section_number(title)
+    if any(token in probe for token in ["方式", "路径", "方法"]):
+        return "不同方法的适用场景和限制"
+    if any(token in probe for token in ["功能", "组成", "结构", "接口"]):
+        return "组成部分及其职责分工"
+    if any(token in probe for token in ["原因", "为什么", "依据"]):
+        return "原因、依据和结果之间的关系"
+    if any(token in probe for token in ["步骤", "流程", "过程"]):
+        return "流程顺序和关键操作"
+    if any(token in probe for token in ["意义", "作用", "影响"]):
+        return "作用、影响和实践价值"
+    if any(token in probe for token in ["概念", "原理", "范畴"]):
+        return "核心概念、判断依据和应用边界"
+    return "核心概念与关键要点"
+
+
+def explanatory_sentence_from_source(title: str, source_text: str) -> str:
+    sentence = first_meaningful_sentence(source_text)
+    if sentence and not same_learning_text(sentence, title):
+        return compact(sentence, 220)
+    return compact(f"{strip_section_number(title)}用于组织本部分的核心概念、关系和应用条件。", 220)
+
+
+def reduce_summary_outline_duplication(title: str, summary: str, outline: list[OutlineItem], source_text: str) -> str:
+    cleaned = normalize_text(summary)
+    if not cleaned:
+        return summarize_from_outline(title, outline, source_text)
+    outline_texts = [item.text for item in outline if item.text]
+    if not outline_texts:
+        return cleaned
+    if cleaned.startswith(strip_section_number(title)) and ("主要包括" in cleaned or "等内容" in cleaned):
+        return summarize_from_outline(title, outline, source_text)
+    if field_repetition_rate(cleaned, "", outline_texts) > 0.62:
+        return summarize_from_outline(title, outline, source_text)
+    return cleaned
+
+
+def reduce_explanation_duplication(explanation: str, summary: str, outline: list[OutlineItem]) -> str:
+    text = normalize_text(explanation)
+    if not text:
+        return summary
+    rendered_outline = render_items_text(outline)
+    for marker in ["结构拆解：", "要点："]:
+        if marker in text and rendered_outline:
+            before, _sep, _after = text.partition(marker)
+            text = normalize_text(before)
+    if text != summary and is_redundant_pair(text, rendered_outline):
+        return summary
+    return text or summary
+
+
+def field_repetition_rate(summary: str, explanation: str, key_points: list[str]) -> float:
+    fields = [summary, explanation, " ".join(key_points)]
+    keys = [normalize_key(value) for value in fields if normalize_key(value)]
+    if len(keys) < 2:
+        return 0.0
+    comparisons = 0
+    repeated = 0
+    for index, left in enumerate(keys):
+        for right in keys[index + 1 :]:
+            comparisons += 1
+            if left in right or right in left or jaccard_char_similarity(left, right) > 0.72:
+                repeated += 1
+    return repeated / max(1, comparisons)
+
+
+def is_redundant_text(value: str, existing: list[str]) -> bool:
+    return any(is_redundant_pair(value, item) for item in existing if item)
+
+
+def is_redundant_pair(a: str, b: str) -> bool:
+    ka = normalize_key(a)
+    kb = normalize_key(b)
+    if not ka or not kb:
+        return False
+    return ka in kb or kb in ka or jaccard_char_similarity(ka, kb) > 0.72
+
+
+def jaccard_char_similarity(a: str, b: str) -> float:
+    left = set(a)
+    right = set(b)
+    if not left or not right:
+        return 0.0
+    return len(left & right) / max(1, len(left | right))
+
+
+def first_non_redundant_sentence(text: str, existing: str) -> str:
+    for sentence in normalized_sentences(text):
+        if keep_outline_text(sentence) and not is_redundant_pair(sentence, existing):
+            return compact(sentence, 260)
+    return ""
 
 
 def summary_matches_structure(summary: str, blocks: list[LearningBlock]) -> bool:
@@ -685,6 +792,11 @@ def normalize_text(value: str) -> str:
     value = value.replace("和、服务", "和服务")
     value = value.replace("或、服务", "或服务")
     value = value.replace("因为等等内容", "")
+    value = value.replace("控制电；路", "控制电路")
+    value = value.replace("控制电、路", "控制电路")
+    value = value.replace("周期；挪用", "周期挪用")
+    value = value.replace("字装配 /；拆卸", "字装配/拆卸")
+    value = value.replace("字装配 /、拆卸", "字装配/拆卸")
     value = re.sub(r"[?？]+", "", value)
     value = re.sub(r"([，。；、])[:：]+", r"\1", value)
     value = re.sub(r"[:：]+([，。；、]|$)", r"\1", value)
@@ -709,7 +821,7 @@ def clean_learning_title(value: str, source_text: str = "") -> str:
 
 def is_good_note_title(candidate: str, source_text: str = "") -> bool:
     value = clean_item(candidate)
-    if not value or is_noisy_learning_text(value):
+    if not value or is_noisy_learning_text(value) or is_broken_outline_fragment(value):
         return False
     if len(value) < 2 or len(value) > 80:
         return False
@@ -719,7 +831,7 @@ def is_good_note_title(candidate: str, source_text: str = "") -> bool:
         return False
     if re.match(r"^[\u7684\u5f97\u5730\u548c\u4e0e\u53ca\u6216\u3001\uff0c\u3002\uff1b\uff1a,.;:\uff09)]", value):
         return False
-    if re.match(r"^(存的|制权|式高|务|能是|期长|送之前)", value):
+    if re.match(r"^(存的|制权|式高|务|能是|期长|送之前|设备交换信息不需要 CPU暂停执行原程序为设备)", value):
         return False
     if value.endswith(("\u6216", "\u548c", "\u4e0e", "\u5bf9", "\u628a", "\u5c06", "\u63a7", "\u4e3b", "\u5c3d")):
         return False
@@ -742,7 +854,45 @@ def clean_outline_items(title: str, items: list[OutlineItem]) -> list[OutlineIte
     if not cleaned and items:
         fallback = [item for item in items if keep_outline_text(item.text)]
         cleaned = fallback[:1]
-    return dedupe_outline_items(cleaned)
+    return dedupe_outline_items(merge_broken_outline_neighbors(cleaned))
+
+
+def merge_broken_outline_neighbors(items: list[OutlineItem]) -> list[OutlineItem]:
+    merged: list[OutlineItem] = []
+    index = 0
+    while index < len(items):
+        current = items[index]
+        if index + 1 < len(items):
+            nxt = items[index + 1]
+            combined = merge_broken_pair(current.text, nxt.text)
+            if combined:
+                merged.append(OutlineItem(combined, dedupe_strings([*current.children, *nxt.children])))
+                index += 2
+                continue
+        merged.append(current)
+        index += 1
+    return merged
+
+
+def merge_broken_pair(left: str, right: str) -> str:
+    lval = clean_item(left)
+    rval = clean_item(right)
+    pairs = {
+        "控制电": "路",
+        "主存和": "服务",
+        "中断方": "式",
+        "总线控": "制权",
+        "周期": "挪用",
+        "字装配 /": "拆卸",
+        "字装配/": "拆卸",
+        "采": "取",
+    }
+    for tail, head in pairs.items():
+        if lval.endswith(tail) and rval.startswith(head):
+            return clean_item(lval[: -len(tail)] + tail + rval)
+    if lval.endswith(("但", "因为", "由于", "和", "或", "与", "由")) and rval:
+        return clean_item(lval + rval)
+    return ""
 
 
 def same_learning_text(a: str, b: str) -> bool:
@@ -774,6 +924,11 @@ def clean_item(value: str) -> str:
     value = strip_bullet(value)
     value = strip_section_number(value)
     value = value.replace("Linear↓ReLU↓Linear", "Linear -> ReLU -> Linear").replace("↓", " -> ")
+    value = value.replace("控制电；路", "控制电路")
+    value = value.replace("控制电、路", "控制电路")
+    value = value.replace("周期；挪用", "周期挪用")
+    value = value.replace("字装配 /；拆卸", "字装配/拆卸")
+    value = value.replace("字装配 /、拆卸", "字装配/拆卸")
     return value.strip("；; ")
 
 
@@ -809,6 +964,9 @@ def split_semicolon_units(value: str) -> list[str]:
 def merge_adjacent_definition(line: str, next_line: str) -> str:
     a = clean_item(line)
     b = clean_item(next_line)
+    merged = merge_broken_pair(a, b)
+    if merged:
+        return merged
     if b and "转换为向量" in a and "Embedding" in b:
         return normalize_text(a.rstrip("。") + "，" + b)
     if b and a.endswith("：") and len(b) < 40:
@@ -842,6 +1000,8 @@ def keep_outline_text(text: str) -> bool:
         return False
     if is_background_filler(value) or is_transformer_solution(value):
         return False
+    if is_broken_outline_fragment(value):
+        return False
     if re.fullmatch(r"\d{1,3}", value):
         return False
     if re.fullmatch(r"[\u2460-\u2469]+", value):
@@ -853,7 +1013,7 @@ def keep_outline_text(text: str) -> bool:
 
 def keep_child_text(text: str) -> bool:
     value = clean_item(text)
-    return bool(value and not is_orphan_label(value) and not is_minor_example_line(value) and not is_noisy_learning_text(value))
+    return bool(value and not is_orphan_label(value) and not is_minor_example_line(value) and not is_noisy_learning_text(value) and not is_broken_outline_fragment(value))
 
 
 def is_orphan_label(value: str) -> bool:
@@ -872,6 +1032,19 @@ def remove_orphan_items(block: LearningBlock) -> LearningBlock:
 def block_has_broken_sentence(block: LearningBlock) -> bool:
     values = [block.content, *[item.text if isinstance(item, OutlineItem) else str(item) for item in block.items]]
     return any(value.strip().endswith(("：", ":", "，", ",")) for value in values if value)
+
+
+def is_broken_outline_fragment(value: str) -> bool:
+    text = clean_item(value)
+    if not text:
+        return True
+    if text.endswith(("但", "因为", "由于", "和", "或", "与", "由", "对", "把", "将", "未")) and len(text) <= 24:
+        return True
+    if re.match(r"^(路、|服务，|制权|式高|存的|能是|期长|送之前|待中断|主程序|充分发挥|取以下)", text):
+        return True
+    if re.search(r"(控制电；路|字装配\s*/、|主存和；服务|原程序为设备|因为等)", text):
+        return True
+    return False
 
 
 def is_heading_line(line: str) -> bool:
