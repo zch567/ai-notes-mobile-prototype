@@ -18,6 +18,24 @@ class RawBlock:
 
 
 @dataclass
+class ParseDiagnosis:
+    file_name: str
+    source_type: str
+    total_pages: int = 0
+    total_slides: int = 0
+    raw_block_count: int = 0
+    chunk_count: int = 0
+    heading_count: int = 0
+    empty_page_ratio: float = 0.0
+    garbled_ratio: float = 0.0
+    average_block_chars: float = 0.0
+    issues: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
 class SourceChunk:
     id: str
     sourceId: str
@@ -81,12 +99,7 @@ def _as_int(value: Any) -> int | None:
         return None
 
 
-def _source_ref(
-    page: int | None,
-    slide: int | None,
-    paragraph_start: int | None,
-    paragraph_end: int | None,
-) -> str:
+def _source_ref(page: int | None, slide: int | None, paragraph_start: int | None, paragraph_end: int | None) -> str:
     if page is not None:
         return f"page_{page}"
     if slide is not None:

@@ -114,3 +114,29 @@ def test_explicit_lanxin_enables_strict_provider(tmp_path: Path, monkeypatch):
 def test_mock_provider_is_rejected():
     with pytest.raises(ValidationError, match="provider must be 'lanxin'"):
         RunAgentRequest(sourceText="# RAG", pipeline="hybrid", provider="mock")
+
+
+def test_retriever_cache_reuses_same_corpus_hash(tmp_path: Path):
+    chunks = [
+        {
+            "id": "c1",
+            "sourceId": "doc",
+            "title": "RAG",
+            "text": "RAG uses retrieval evidence.",
+            "sourceType": "text",
+            "fileName": "same.md",
+            "chunkIndex": 1,
+            "sourceRef": "para_1",
+        }
+    ]
+    first = tmp_path / "chunks-a.json"
+    second = tmp_path / "chunks-b.json"
+    first.write_text(json.dumps(chunks), encoding="utf-8")
+    second.write_text(json.dumps(chunks), encoding="utf-8")
+    service = AgentService()
+
+    one = service._retriever_for(first)
+    two = service._retriever_for(second)
+
+    assert one is two
+    assert len(service._retriever_cache) == 1

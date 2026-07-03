@@ -39,9 +39,13 @@ def evaluate_result(result: dict[str, Any], latency_ms: int) -> dict[str, Any]:
         "noteTitleUniqueness": _number(diagnostics.get("noteTitleUniqueness")),
         "noteContentUniqueness": _number(diagnostics.get("noteContentUniqueness")),
         "averageNoteSourceSupport": round(sum(support_values) / max(1, len(support_values)), 4),
+        "averageNoteSupportScore": _number(diagnostics.get("averageNoteSupportScore")),
+        "lowSupportNoteRate": _number(diagnostics.get("lowSupportNoteRate")),
+        "explicitRefResolutionRate": _number(diagnostics.get("explicitRefResolutionRate", 1)),
         "generatedNoteChars": sum(len(str(note.get("content", ""))) for note in notes),
     }
     metrics["qualityScore"] = _quality_score(metrics)
+    metrics["ragGroundingScore"] = _rag_grounding_score(metrics)
     return metrics
 
 
@@ -61,6 +65,9 @@ def compare_results(
         "quoteInSourceRate",
         "averageConfidence",
         "averageNoteSourceSupport",
+        "averageNoteSupportScore",
+        "lowSupportNoteRate",
+        "explicitRefResolutionRate",
         "generatedNoteChars",
         "latencyMs",
     ]
@@ -134,6 +141,19 @@ def _note_support(note: dict[str, Any], sources: list[dict[str, Any]]) -> float:
     note_tokens = set(tokenize(str(note.get("content", ""))))
     source_tokens = set(tokenize(source_text))
     return len(note_tokens & source_tokens) / max(1, len(note_tokens))
+
+
+def _rag_grounding_score(metrics: dict[str, Any]) -> float:
+    value = (
+        float(metrics["quoteInSourceRate"]) * 0.20
+        + float(metrics["noteCitationCoverage"]) * 0.15
+        + float(metrics["citationSourceValidity"]) * 0.10
+        + float(metrics["citationNoteValidity"]) * 0.10
+        + float(metrics.get("averageNoteSupportScore") or metrics.get("averageNoteSourceSupport") or 0) * 0.20
+        + float(metrics.get("explicitRefResolutionRate", 1)) * 0.10
+        + (1 - min(1.0, float(metrics.get("lowSupportNoteRate", 0)))) * 0.15
+    )
+    return round(value, 4)
 
 
 def _quality_score(metrics: dict[str, Any]) -> float:

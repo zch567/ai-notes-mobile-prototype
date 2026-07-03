@@ -10,8 +10,8 @@ from pathlib import Path
 from xml.etree import ElementTree
 
 from ..doc_conversion import convert_legacy_doc
-from .schemas import RawBlock
-from .text_utils import looks_like_heading, normalize_text
+from .schemas import ParseDiagnosis, RawBlock
+from .text_utils import is_empty_or_meaningless, looks_like_garbled, looks_like_heading, normalize_text
 
 
 SUPPORTED_SUFFIXES = {".txt", ".md", ".markdown", ".doc", ".docx", ".pdf", ".pptx"}
@@ -44,10 +44,7 @@ def parse_document(path: Path) -> list[RawBlock]:
         blocks = _parse_plain_text(path)
     elif suffix == ".doc":
         converted = convert_legacy_doc(path)
-        blocks = [
-            replace(block, source_type="doc", file_name=path.name)
-            for block in _parse_docx(converted)
-        ]
+        blocks = [replace(block, source_type="doc", file_name=path.name) for block in _parse_docx(converted)]
     elif suffix == ".docx":
         blocks = _parse_docx(path)
     elif suffix == ".pdf":
@@ -230,3 +227,92 @@ def _parse_pptx(path: Path) -> list[RawBlock]:
                     )
                 )
     return blocks
+
+
+def diagnose_parsing(
+    blocks: list[RawBlock],
+    *,
+    file_name: str = "",
+    source_type: str = "",
+    total_pages: int = 0,
+    total_slides: int = 0,
+    chunk_count: int = 0,
+) -> ParseDiagnosis:
+    if not blocks:
+        return ParseDiagnosis(
+            file_name=file_name,
+            source_type=source_type,
+            total_pages=total_pages,
+            total_slides=total_slides,
+            issues=["解析结果为空，未提取到任何有效内容"],
+        )
+
+    block_count = len(blocks)
+    heading_count = sum(1 for block in blocks if block.heading and looks_like_heading(block.text))
+    total_chars = sum(len(block.text) for block in blocks)
+    average_block_chars = total_chars / block_count if block_count > 0 else 0
+    empty_blocks = sum(1 for block in blocks if is_empty_or_meaningless(block.text))
+    empty_page_ratio = empty_blocks / block_count if block_count > 0 else 0
+    garbled_blocks = sum(1 for block in blocks if looks_like_garbled(block.text))
+    garbled_ratio = garbled_blocks / block_count if block_count > 0 else 0
+
+    issues: list[str] = []
+    if empty_page_ratio > 0.3:
+        issues.append(f"空文本块比例较高 ({empty_page_ratio:.1%})，可能存在大量空白页或解析失败")
+    if garbled_ratio > 0.05:
+        issues.append(f"疑似乱码比例较高 ({garbled_ratio:.1%})，可能是扫描件或编码问题")
+    if heading_count == 0:
+        issues.append("未识别到任何标题，文档结构可能不清晰")
+    if average_block_chars < 20:
+        issues.append(f"平均每块字符数过小 ({average_block_chars:.0f})，可能解析过于碎片化")
+    if average_block_chars > 2000:
+        issues.append(f"平均每块字符数过大 ({average_block_chars:.0f})，可能解析粒度太粗")
+    if source_type == "pdf":
+        if total_pages > 0 and block_count < total_pages * 0.5:
+            issues.append(f"PDF共{total_pages}页，但只提取到{block_count}个文本块，可能存在大量图片页或解析失败")
+    elif source_type == "pptx":
+        if total_slides > 0 and block_count < total_slides:
+            issues.append(f"PPT共{total_slides}页，但只提取到{block_count}个文本块，可能存在大量纯图片幻灯片")
+
+    return ParseDiagnosis(
+        file_name=file_name or blocks[0].file_name,
+        source_type=source_type or blocks[0].source_type,
+        total_pages=total_pages,
+        total_slides=total_slides,
+        raw_block_count=block_count,
+        chunk_count=chunk_count,
+        heading_count=heading_count,
+        empty_page_ratio=round(empty_page_ratio, 4),
+        garbled_ratio=round(garbled_ratio, 4),
+        average_block_chars=round(average_block_chars, 2),
+        issues=issues,
+    )
+
+
+def get_document_stats(path: Path) -> dict[str, int]:
+    suffix = path.suffix.lower()
+    result = {"total_pages": 0, "total_slides": 0}
+    if suffix == ".pdf":
+        try:
+            from pypdf import PdfReader
+            reader = PdfReader(str(path))
+            result["total_pages"] = len(reader.pages)
+        except Exception:
+            pass
+    elif suffix == ".pptx":
+        try:
+            with zipfile.ZipFile(path) as package:
+                slide_names = [name for name in package.namelist() if re.fullmatch(r"ppt/slides/slide\d+\.xml", name)]
+                result["total_slides"] = len(slide_names)
+        except Exception:
+            pass
+    elif suffix == ".docx":
+        try:
+            with zipfile.ZipFile(path) as package:
+                root = ElementTree.fromstring(package.read("word/document.xml"))
+                w = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+                paragraphs = root.findall(f".//{{{w}}}p")
+                result["total_paragraphs"] = len(paragraphs)
+        except Exception:
+            pass
+    return result

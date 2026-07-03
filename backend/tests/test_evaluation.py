@@ -20,6 +20,9 @@ def result(provider: str, confidence: float, note_content: str) -> dict:
             "averageConfidence": confidence,
             "noteTitleUniqueness": 1,
             "noteContentUniqueness": 1,
+            "averageNoteSupportScore": 0.8,
+            "lowSupportNoteRate": 0,
+            "explicitRefResolutionRate": 1,
         },
         "_meta": {"modelLog": {"provider": provider, "model": f"{provider}-model", "fallbackUsed": False}},
     }
@@ -32,6 +35,8 @@ def test_evaluation_reports_provider_and_grounding_metrics():
     assert metrics["provider"] == "lanxin"
     assert metrics["averageNoteSourceSupport"] > 0
     assert metrics["qualityScore"] > 0
+    assert metrics["ragGroundingScore"] > 0
+    assert metrics["averageNoteSupportScore"] == 0.8
 
 
 def test_comparison_delta_is_lanxin_minus_offline():
@@ -44,3 +49,14 @@ def test_comparison_delta_is_lanxin_minus_offline():
 
     assert comparison["deltaLanxinMinusOffline"]["latencyMs"] == 90
     assert comparison["lanxin"]["provider"] == "lanxin"
+
+
+def test_rag_grounding_score_penalizes_low_support_notes():
+    strong = evaluate_result(result("lanxin", 0.9, "RAG uses retrieval evidence to ground generation."), 100)
+    weak_raw = result("lanxin", 0.9, "unrelated unsupported claim")
+    weak_raw["citationDiagnostics"]["averageNoteSupportScore"] = 0.2
+    weak_raw["citationDiagnostics"]["lowSupportNoteRate"] = 1
+    weak = evaluate_result(weak_raw, 100)
+
+    assert strong["ragGroundingScore"] > weak["ragGroundingScore"]
+    assert weak["lowSupportNoteRate"] == 1

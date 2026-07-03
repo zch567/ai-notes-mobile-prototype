@@ -5,7 +5,7 @@ import re
 from typing import Any
 
 from .schemas import SourceChunk
-from .text_utils import compact, extract_keywords, split_sentences
+from .text_utils import compact, extract_keywords, normalize_learning_text, split_sentences
 
 
 @dataclass
@@ -82,7 +82,7 @@ class SourceResolver:
 class LearningUnitBuilder:
     def build(self, note: dict[str, Any], chunks: list[SourceChunk]) -> LearningUnit:
         title = clean(str(note.get("title") or "知识点"))
-        source_text = merge_source_text(chunks) if chunks else clean(str(note.get("content") or ""))
+        source_text = normalize_learning_text(merge_source_text(chunks) if chunks else clean(str(note.get("content") or "")))
         model_content = clean_model(str(note.get("content") or ""))
         model_summary = clean_model(str(note.get("summary") or ""))
         refs = [chunk.id for chunk in chunks] or string_list(note.get("sourceRefs") or note.get("source_refs"))
@@ -382,12 +382,12 @@ def is_history_stage_note(title: str, text: str) -> bool:
     return has_any(probe, ["人工智能", "图灵", "达特茅斯", "寒冬", "发展高潮", "深度学习", "未来展望"])
 
 def generic_blocks(title: str, text: str) -> list[LearningBlock]:
-    outline = generic_outline(text)
+    outline = clean_outline_items(title, generic_outline(text))
     return typed_note_blocks(summarize_from_outline(title, outline, text), outline, [])
 
 
 def generic_outline(text: str) -> list[OutlineItem]:
-    lines = semantic_lines(text)
+    lines = semantic_lines(normalize_learning_text(text))
     items: list[OutlineItem] = []
     i = 0
     while i < len(lines):
@@ -512,6 +512,7 @@ def summarize_from_unit(title: str, model_summary: str, source_text: str, blocks
 
 
 def summarize_from_outline(title: str, outline: list[OutlineItem], source_text: str) -> str:
+    outline = clean_outline_items(title, outline)
     if not outline:
         return first_meaningful_sentence(source_text)
     if len(outline) == 1:
@@ -681,6 +682,9 @@ def remove_evidence_tail(value: str) -> str:
 def normalize_text(value: str) -> str:
     value = clean(value)
     value = value.replace("；；", "；").replace("：；", "：").replace("；：", "；")
+    value = value.replace("和、服务", "和服务")
+    value = value.replace("或、服务", "或服务")
+    value = value.replace("因为等等内容", "")
     value = re.sub(r"[?？]+", "", value)
     value = re.sub(r"([，。；、])[:：]+", r"\1", value)
     value = re.sub(r"[:：]+([，。；、]|$)", r"\1", value)
@@ -692,8 +696,81 @@ def clean(value: str) -> str:
     return str(value or "").replace("\r\n", "\n").replace("\r", "\n").replace("\u00a0", " ").strip()
 
 
+def clean_learning_title(value: str, source_text: str = "") -> str:
+    title = clean_item(value)
+    if is_good_note_title(title, source_text):
+        return compact(title, 42)
+    for sentence in normalized_sentences(source_text):
+        candidate = clean_item(sentence)
+        if is_good_note_title(candidate, source_text):
+            return compact(candidate, 42)
+    return compact(title or first_meaningful_sentence(source_text) or "note", 42)
+
+
+def is_good_note_title(candidate: str, source_text: str = "") -> bool:
+    value = clean_item(candidate)
+    if not value or is_noisy_learning_text(value):
+        return False
+    if len(value) < 2 or len(value) > 80:
+        return False
+    if re.fullmatch(r"[\d.\u3001\u2460-\u2469\s]+", value):
+        return False
+    if re.fullmatch(r"[A-Za-z]{1,3}", value):
+        return False
+    if re.match(r"^[\u7684\u5f97\u5730\u548c\u4e0e\u53ca\u6216\u3001\uff0c\u3002\uff1b\uff1a,.;:\uff09)]", value):
+        return False
+    if re.match(r"^(存的|制权|式高|务|能是|期长|送之前)", value):
+        return False
+    if value.endswith(("\u6216", "\u548c", "\u4e0e", "\u5bf9", "\u628a", "\u5c06", "\u63a7", "\u4e3b", "\u5c3d")):
+        return False
+    if len(value) <= 8 and source_text and source_text.count(value) <= 1 and not re.search(r"[A-Za-z]{2,}|\d", value):
+        return False
+    return True
+
+def clean_outline_items(title: str, items: list[OutlineItem]) -> list[OutlineItem]:
+    cleaned: list[OutlineItem] = []
+    for item in items:
+        text = clean_item(item.text)
+        children = [clean_item(str(child)) for child in item.children]
+        children = [child for child in children if keep_child_text(child) and not same_learning_text(child, title)]
+        if same_learning_text(text, title) and children:
+            cleaned.extend(OutlineItem(child, []) for child in children[:4])
+            continue
+        if keep_outline_text(text) and not same_learning_text(text, title):
+            dedup_children = dedupe_strings(children)[:8]
+            cleaned.append(OutlineItem(text, dedup_children))
+    if not cleaned and items:
+        fallback = [item for item in items if keep_outline_text(item.text)]
+        cleaned = fallback[:1]
+    return dedupe_outline_items(cleaned)
+
+
+def same_learning_text(a: str, b: str) -> bool:
+    ka = normalize_key(strip_section_number(a))
+    kb = normalize_key(strip_section_number(b))
+    return bool(ka and kb and ka == kb)
+
+
+def is_noisy_learning_text(value: str) -> bool:
+    text = clean_item(value)
+    if not text:
+        return True
+    lowered = text.lower()
+    if any(token in lowered for token in ["1ppt.com", "ppt\u6a21\u677f", "www.", "http://", "https://"]):
+        return True
+    if re.fullmatch(r"(?:br|page[_ -]?\d+)", lowered):
+        return True
+    if text in {"\u76ee\u5f55", "\u7b14\u8bb0\u533a", "\u5c01\u9762", "\u8c22\u8c22", "\u8c22 \u8c22"}:
+        return True
+    return False
+
+
+def is_subsection_marker(value: str) -> bool:
+    text = clean_item(value)
+    return bool(re.fullmatch(r"[\(?]?\d+[\)?]?", text) or re.fullmatch(r"[??????????]", text))
+
 def clean_item(value: str) -> str:
-    value = normalize_text(value)
+    value = normalize_learning_text(normalize_text(value))
     value = strip_bullet(value)
     value = strip_section_number(value)
     value = value.replace("Linear↓ReLU↓Linear", "Linear -> ReLU -> Linear").replace("↓", " -> ")
@@ -761,7 +838,13 @@ def keep_outline_text(text: str) -> bool:
     value = clean_item(text)
     if not value or is_orphan_label(value) or is_minor_example_line(value):
         return False
+    if is_noisy_learning_text(value):
+        return False
     if is_background_filler(value) or is_transformer_solution(value):
+        return False
+    if re.fullmatch(r"\d{1,3}", value):
+        return False
+    if re.fullmatch(r"[\u2460-\u2469]+", value):
         return False
     if re.fullmatch(r"[A-Za-z]+", value) and len(value) < 8:
         return False
@@ -770,7 +853,7 @@ def keep_outline_text(text: str) -> bool:
 
 def keep_child_text(text: str) -> bool:
     value = clean_item(text)
-    return bool(value and not is_orphan_label(value) and not is_minor_example_line(value))
+    return bool(value and not is_orphan_label(value) and not is_minor_example_line(value) and not is_noisy_learning_text(value))
 
 
 def is_orphan_label(value: str) -> bool:

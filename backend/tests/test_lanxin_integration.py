@@ -11,14 +11,7 @@ from app.evaluation import compare_results
 from app.service import AgentService
 
 
-INPUT = (
-    WORKSPACE_ROOT
-    / "ai-notes-mobile-prototype"
-    / "ai-notes-mobile-prototype"
-    / "test_set"
-    / "text"
-    / "Transformer介绍.docx"
-)
+INPUT = WORKSPACE_ROOT / "test_set" / "text" / "Transformer介绍.docx"
 
 
 @pytest.mark.skipif(
@@ -26,6 +19,7 @@ INPUT = (
     reason="Set RUN_LANXIN_INTEGRATION=1 to consume a real Lanxin API call.",
 )
 def test_real_lanxin_rag_compares_with_offline(tmp_path: Path):
+    assert INPUT.exists(), f"Missing sample input: {INPUT}"
     object.__setattr__(settings, "allowed_input_root", WORKSPACE_ROOT.resolve())
     object.__setattr__(settings, "output_dir", (tmp_path / "runtime").resolve())
     service = AgentService()
@@ -50,6 +44,11 @@ def test_real_lanxin_rag_compares_with_offline(tmp_path: Path):
         offline_latency_ms=offline_ms,
         lanxin_latency_ms=lanxin_ms,
     )
+
+    print("OFFLINE", comparison["offline"]["qualityScore"], comparison["offline"]["noteCitationCoverage"], comparison["offline"]["quoteInSourceRate"], comparison["offline"]["latencyMs"])
+    print("LANXIN", comparison["lanxin"]["qualityScore"], comparison["lanxin"]["noteCitationCoverage"], comparison["lanxin"]["quoteInSourceRate"], comparison["lanxin"]["latencyMs"])
+    print("DELTA", comparison["deltaLanxinMinusOffline"])
+    print("WINNER", comparison["qualityWinner"])
 
     assert comparison["offline"]["contractValid"] is True
     assert comparison["lanxin"]["contractValid"] is True
