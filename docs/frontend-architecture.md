@@ -25,6 +25,7 @@ src/services/     API 客户端、运行模式等基础服务
 - 页面组件只消费归一化后的 `AgentResult`。
 - 页面组件不直接写 `fetch`。
 - 后端字段变化先改 `src/features/ai/agentTypes.js`，不要到处改页面。
+- 面向展示的资产摘要、质量摘要和学习闭环状态优先在 `agentTypes.js` 通过 helper 派生，页面不要各自重复统计。
 - 导航 id 和状态值统一从 `src/app/navigation.js` 引用。
 - 输入样例数据只能放在 `src/data/`，不要散落到页面中。
 

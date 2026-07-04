@@ -140,6 +140,16 @@
 2. 再强化 `Mobile Learning Loop`，把已有页面串成一条显性的学习路径。
 3. 最后强化 `Learning Asset Pipeline`，补资产元信息和资料库视图，为长期产品化做铺垫。
 
+### 前端最小落地状态
+
+当前前端已先用 `src/features/ai/agentTypes.js` 中的 `deriveAgentResultInsights(result)` 做最小落地，不要求后端立即新增必填字段：
+
+- `assetSummary`：从 `notes`、`sources`、`citations`、`mindMap` 和 `review` 统计知识资产规模，并在首页、笔记库和结果页显示“知识资产包”。
+- `qualitySummary`：从引用覆盖、结构完整、复习题可用性和 `warnings/errors` 派生质量分与诊断提示，并在结果页展示“生成质量摘要”。
+- `learningLoopState`：按“输入、笔记、引用、导图、复习、问答”六步派生完成态，并在首页和结果页展示移动端闭环进度。
+
+如果后端后续返回 `assetSummary`、`qualitySummary`、`qualityDiagnostics` 或 `learningLoopState`，这些字段仍应保持可选。前端会优先兼容已有字段并继续保留派生兜底，避免旧的 `AgentResult` 文件无法渲染。
+
 ### 移动端展示约束
 
 这三个卖点虽然适合写进方案，但不能把所有信息都堆到同一个手机页面。移动端屏幕有限，功能过密会让界面显得拥挤，反而削弱演示体验。因此后续实现应遵守“主界面只给结论，详情页再给证据”的原则。

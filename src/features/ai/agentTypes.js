@@ -8,11 +8,14 @@ const emptyAgentResult = {
   warnings: [],
   errors: [],
   agentStages: [],
+  assetSummary: {},
+  qualitySummary: {},
+  qualityDiagnostics: {},
+  learningLoopState: {},
   sources: [],
   notes: [],
   citations: [],
   citationDiagnostics: {},
-  qualityDiagnostics: {},
   mindMap: {
     nodes: [],
     edges: [],
@@ -62,11 +65,16 @@ export function normalizeAgentResult(rawResult) {
     warnings: normalizeArray(result.warnings, emptyAgentResult.warnings).map(normalizeDiagnostic).filter(Boolean),
     errors: normalizeArray(result.errors, emptyAgentResult.errors).map(normalizeDiagnostic).filter(Boolean),
     agentStages: normalizeArray(result.agentStages, emptyAgentResult.agentStages).map(normalizeStage),
+    assetSummary: firstNonEmptyObject(result.assetSummary, result.asset_summary),
+    qualitySummary: firstNonEmptyObject(result.qualitySummary, result.quality_summary, result.qualityDiagnostics, result.quality_diagnostics),
+    learningLoopState: firstNonEmptyObject(result.learningLoopState, result.learning_loop_state),
     sources: normalizeArray(result.sources, emptyAgentResult.sources).map(normalizeSource),
     notes: normalizeArray(result.notes, emptyAgentResult.notes).map(normalizeNote),
     citations: normalizeArray(result.citations, emptyAgentResult.citations).map(normalizeCitation),
     citationDiagnostics: normalizeObject(result.citationDiagnostics || result.citation_diagnostics),
-    qualityDiagnostics: normalizeQualityDiagnostics(result.qualityDiagnostics || result.quality_diagnostics),
+    qualityDiagnostics: normalizeQualityDiagnostics(
+      firstNonEmptyObject(result.qualityDiagnostics, result.quality_diagnostics, result.qualitySummary, result.quality_summary)
+    ),
     _meta: normalizeObject(result._meta || result.meta),
     mindMap: {
       nodes: normalizeArray(result.mindMap.nodes, emptyAgentResult.mindMap.nodes).map(normalizeMindMapNode),
@@ -80,6 +88,167 @@ export function normalizeAgentResult(rawResult) {
         .map(normalizeRecommendation)
         .filter(Boolean),
     },
+  };
+}
+
+export function deriveAgentResultInsights(result) {
+  const source = result && typeof result === "object" ? result : emptyAgentResult;
+  const assetSummary = deriveAssetSummary(source);
+  const qualitySummary = deriveQualitySummary(source, assetSummary);
+  const learningLoopState = deriveLearningLoopState(source);
+
+  return {
+    assetSummary,
+    qualitySummary,
+    learningLoopState,
+  };
+}
+
+export function deriveAssetSummary(result) {
+  const explicit = normalizeObject(result?.assetSummary || result?.asset_summary);
+  const meta = normalizeObject(result?._meta || result?.meta);
+  const assetMeta = normalizeObject(meta.assetMeta || meta.asset_meta || result?.assetMeta || result?.asset_meta);
+  const sourceMeta = normalizeObject(meta.sourceMeta || meta.source_meta || result?.sourceMeta || result?.source_meta);
+  const notes = normalizeArray(result?.notes, []);
+  const sources = normalizeArray(result?.sources, []);
+  const citations = normalizeArray(result?.citations, []);
+  const mindMapNodes = normalizeArray(result?.mindMap?.nodes, []);
+  const reviewQuestions = normalizeArray(result?.review?.questions, []);
+  const uniqueCitationIds = new Set();
+
+  notes.forEach((note) => {
+    normalizeArray(note?.citationIds, []).forEach((id) => uniqueCitationIds.add(String(id)));
+  });
+  citations.forEach((citation) => {
+    if (citation?.sourceId) uniqueCitationIds.add(String(citation.sourceId));
+  });
+
+  const noteCount = numberOrFallback(explicit.noteCount, notes.length, 0);
+  const sourceCount = numberOrFallback(explicit.sourceCount, sources.length, 0);
+  const citationCount = numberOrFallback(explicit.citationCount, uniqueCitationIds.size || citations.length, 0);
+  const mindMapNodeCount = numberOrFallback(explicit.mindMapNodeCount, mindMapNodes.length, 0);
+  const reviewQuestionCount = numberOrFallback(explicit.reviewQuestionCount, reviewQuestions.length, 0);
+  const fileName = stringOrFallback(explicit.fileName || assetMeta.fileName || sourceMeta.fileName, "");
+  const materialType = stringOrFallback(explicit.materialType || assetMeta.materialType || sourceMeta.mimeType || meta.inputType, inferMaterialType(fileName));
+  const generatedAt = stringOrFallback(explicit.generatedAt || assetMeta.generatedAt || meta.generatedAt || meta.createdAt || meta.completedAt, "");
+  const readyCount = [noteCount, sourceCount, mindMapNodeCount, reviewQuestionCount].filter((value) => value > 0).length;
+
+  return {
+    ...explicit,
+    topic: stringOrFallback(explicit.topic, result?.topic || "未命名资料"),
+    summary: stringOrFallback(explicit.summary, result?.summary || "等待生成结构化学习资产。"),
+    fileName,
+    materialType,
+    generatedAt,
+    noteCount,
+    sourceCount,
+    citationCount,
+    mindMapNodeCount,
+    mindMapEdgeCount: numberOrFallback(explicit.mindMapEdgeCount, normalizeArray(result?.mindMap?.edges, []).length, 0),
+    reviewQuestionCount,
+    status: stringOrFallback(explicit.status, readyCount >= 3 ? "ready" : noteCount ? "partial" : "empty"),
+    statusText: stringOrFallback(explicit.statusText, readyCount >= 3 ? "知识资产包已就绪" : noteCount ? "资产仍在补全" : "等待生成资产"),
+    summaryText: stringOrFallback(
+      explicit.summaryText,
+      noteCount
+        ? `已沉淀 ${noteCount} 条笔记、${sourceCount} 个来源、${reviewQuestionCount} 道复习题。`
+        : "生成后会汇总笔记、引用、导图和复习任务。"
+    ),
+    nextAction: stringOrFallback(explicit.nextAction, reviewQuestionCount ? "开始复习" : mindMapNodeCount ? "查看导图" : noteCount ? "查看笔记" : "开始生成"),
+  };
+}
+
+export function deriveQualitySummary(result, assetSummary = deriveAssetSummary(result)) {
+  const explicit = normalizeObject(
+    result?.qualitySummary || result?.quality_summary || result?.qualityDiagnostics || result?.quality_diagnostics
+  );
+  const citationDiagnostics = normalizeObject(result?.citationDiagnostics || result?.citation_diagnostics);
+  const warnings = normalizeArray(result?.warnings, []);
+  const errors = normalizeArray(result?.errors, []);
+  const citationCoverage = normalizedPercent(
+    explicit.citationCoverage ??
+    explicit.citationScore ??
+    citationDiagnostics.noteCitationCoverage ??
+    citationDiagnostics.citationCoverage,
+    fallbackRatio(assetSummary.citationCount, assetSummary.noteCount || 1)
+  );
+  const quoteHitRate = normalizedPercent(
+    explicit.quoteHitRate ?? citationDiagnostics.quoteInSourceRate ?? citationDiagnostics.quoteHitRate,
+    citationCoverage
+  );
+  const structureCompleteness = normalizedPercent(
+    explicit.structureCompleteness ?? explicit.assetCompleteness,
+    deriveStructureCompleteness(result, assetSummary)
+  );
+  const reviewReadiness = normalizedPercent(
+    explicit.reviewReadiness ?? explicit.reviewScore,
+    assetSummary.reviewQuestionCount ? 1 : 0
+  );
+  const assetCoverage = normalizedPercent(
+    explicit.assetCoverage ?? explicit.coverageScore,
+    deriveAssetCoverage(assetSummary)
+  );
+  const warningList = normalizeArray(explicit.warnings, [])
+    .map(normalizeDiagnostic)
+    .filter(Boolean)
+    .concat(errors.map(normalizeDiagnostic).filter(Boolean))
+    .concat(warnings.map(normalizeDiagnostic).filter(Boolean))
+    .slice(0, 4);
+  const score = clamp(
+    numberOrFallback(
+      explicit.overallScore,
+      Math.round((citationCoverage * 0.3 + structureCompleteness * 0.3 + reviewReadiness * 0.2 + assetCoverage * 0.2) * 100)
+    ),
+    0,
+    100
+  );
+  const level = stringOrFallback(explicit.level || explicit.grade, qualityLevel(score, warningList.length));
+
+  return {
+    ...explicit,
+    overallScore: score,
+    level,
+    citationCoverage,
+    quoteHitRate,
+    structureCompleteness,
+    reviewReadiness,
+    assetCoverage,
+    warnings: warningList,
+    summaryText: stringOrFallback(explicit.summaryText, qualitySummaryText(score, citationCoverage, reviewReadiness, warningList.length)),
+    diagnostics: [
+      { id: "asset", label: "资料覆盖", value: assetCoverage, detail: `${assetSummary.sourceCount} 个来源片段` },
+      { id: "citation", label: "引用可信", value: citationCoverage, detail: `${assetSummary.citationCount} 个引用绑定` },
+      { id: "structure", label: "结构完整", value: structureCompleteness, detail: `${assetSummary.noteCount} 条笔记 / ${assetSummary.mindMapNodeCount} 个导图节点` },
+      { id: "review", label: "复习可用", value: reviewReadiness, detail: `${assetSummary.reviewQuestionCount} 道复习题` },
+    ],
+  };
+}
+
+export function deriveLearningLoopState(result) {
+  const explicit = normalizeObject(result?.learningLoopState || result?.learning_loop_state);
+  const stepsSource = normalizeArray(explicit.steps, []);
+  const steps = [
+    createLoopStep("input", "输入", hasInput(result)),
+    createLoopStep("notes", "笔记", normalizeArray(result?.notes, []).length > 0),
+    createLoopStep("citations", "引用", hasCitations(result)),
+    createLoopStep("mindMap", "导图", normalizeArray(result?.mindMap?.nodes, []).length > 0),
+    createLoopStep("review", "复习", normalizeArray(result?.review?.questions, []).length > 0),
+    createLoopStep("qa", "问答", canAsk(result)),
+  ].map((step) => {
+    const override = stepsSource.find((item) => item?.id === step.id || item?.key === step.id);
+    return override ? { ...step, ...override, done: Boolean(override.done ?? override.completed ?? step.done) } : step;
+  });
+  const completedCount = steps.filter((step) => step.done).length;
+  const nextStep = steps.find((step) => !step.done) || steps[steps.length - 1];
+
+  return {
+    ...explicit,
+    steps,
+    completedCount,
+    totalCount: steps.length,
+    progress: steps.length ? completedCount / steps.length : 0,
+    nextStep,
+    summaryText: stringOrFallback(explicit.summaryText, `${completedCount}/${steps.length} 个学习环节已就绪`),
   };
 }
 
@@ -277,12 +446,93 @@ function normalizeQualityDiagnostics(value) {
   };
 }
 
+function inferMaterialType(fileName) {
+  const name = typeof fileName === "string" ? fileName.toLowerCase() : "";
+  if (name.endsWith(".pdf")) return "PDF";
+  if (name.endsWith(".ppt") || name.endsWith(".pptx")) return "PPT";
+  if (name.endsWith(".doc") || name.endsWith(".docx")) return "DOC";
+  return "Text";
+}
+
+function normalizedPercent(value, fallback = 0) {
+  const number = Number.isFinite(Number(value)) ? Number(value) : fallback;
+  const ratio = number > 1 ? number / 100 : number;
+  return clamp(ratio, 0, 1);
+}
+
+function fallbackRatio(count, total) {
+  const denominator = Math.max(numberOrFallback(total, 0), 1);
+  return clamp(numberOrFallback(count, 0) / denominator, 0, 1);
+}
+
+function deriveStructureCompleteness(result, assetSummary) {
+  const sections = [
+    assetSummary.noteCount > 0,
+    normalizeArray(result?.outline, []).length > 0 || normalizeArray(result?.reportPlan, []).length > 0,
+    assetSummary.mindMapNodeCount > 0,
+    assetSummary.reviewQuestionCount > 0,
+  ];
+  return sections.filter(Boolean).length / sections.length;
+}
+
+function deriveAssetCoverage(assetSummary) {
+  const checks = [
+    assetSummary.noteCount >= 1,
+    assetSummary.sourceCount >= 1,
+    assetSummary.citationCount >= 1,
+    assetSummary.mindMapNodeCount >= 1,
+    assetSummary.reviewQuestionCount >= 1,
+  ];
+  return checks.filter(Boolean).length / checks.length;
+}
+
+function qualityLevel(score, warningCount) {
+  if (score >= 86 && warningCount === 0) return "优秀";
+  if (score >= 72) return "稳定";
+  if (score >= 55) return "可用";
+  return "待补全";
+}
+
+function qualitySummaryText(score, citationCoverage, reviewReadiness, warningCount) {
+  if (warningCount) return `质量分 ${score}，存在 ${warningCount} 条诊断提示，建议展开查看。`;
+  if (score >= 86) return `质量分 ${score}，引用和复习链路完整，可直接进入学习。`;
+  if (citationCoverage < 0.7) return `质量分 ${score}，引用覆盖偏低，建议先核验证据。`;
+  if (reviewReadiness < 0.5) return `质量分 ${score}，笔记已生成，复习题仍需补充。`;
+  return `质量分 ${score}，本次生成已形成可复习的知识资产。`;
+}
+
+function hasInput(result) {
+  return Boolean(result?.id || result?.topic || result?._meta?.sourceMeta || result?._meta?.inputType);
+}
+
+function hasCitations(result) {
+  return normalizeArray(result?.citations, []).length > 0 ||
+    normalizeArray(result?.notes, []).some((note) => normalizeArray(note?.citationIds, []).length > 0);
+}
+
+function canAsk(result) {
+  return Boolean(result?.id && (normalizeArray(result?.sources, []).length || normalizeArray(result?.notes, []).length));
+}
+
+function createLoopStep(id, label, done) {
+  return {
+    id,
+    label,
+    done: Boolean(done),
+  };
+}
+
 function normalizeArray(value, fallback) {
   return Array.isArray(value) ? value : fallback;
 }
 
 function normalizeObject(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+
+function firstNonEmptyObject(...values) {
+  const objects = values.map(normalizeObject);
+  return objects.find((object) => Object.keys(object).length > 0) || {};
 }
 
 function stringOrFallback(value, fallback) {

@@ -114,6 +114,9 @@ POST /api/agent/edit
 | `sources` | array | 来源片段与引用浮层 |
 | `notes` | array | 结构化笔记正文 |
 | `citations` | array | 笔记段落与来源片段绑定 |
+| `assetSummary` | object | 可选。学习资产摘要；缺失时前端会从现有字段派生 |
+| `qualitySummary` / `qualityDiagnostics` | object | 可选。生成质量摘要或诊断；缺失时前端会从引用、结构和复习数据派生 |
+| `learningLoopState` | object | 可选。移动端学习闭环状态；缺失时前端会从输入、笔记、引用、导图、复习和问答可用性派生 |
 | `mindMap.nodes` | array | 导图节点 |
 | `mindMap.edges` | array | 导图连线 |
 | `review.questions` | array | 复习题 |
@@ -154,6 +157,60 @@ POST /api/agent/edit
 `type` 当前常用值包括 `summary`、`outline`、`definition`、`mechanism`、`procedure`、`formula`、`effect`、`evidence`、`example` 和 `text`。前端会保留未知类型，并使用通用知识块样式展示。
 
 `sourceRefs` 用于保留生成证据关系；`citationIds` 用于页面引用点击。后端可以同时返回两者，且两者均应引用 `sources[].id`。
+
+## 前端派生摘要与可选扩展
+
+为支撑复赛三个非多 Agent 卖点，前端在 `src/features/ai/agentTypes.js` 中提供 `deriveAgentResultInsights(result)`，从归一化后的 `AgentResult` 派生：
+
+```text
+assetSummary        学习资产摘要
+qualitySummary      生成质量摘要
+learningLoopState   移动端学习闭环状态
+```
+
+这三个对象优先由前端基于已有字段计算，不要求后端必须返回。后端若要显式返回，应保持可选，并使用 camelCase；前端当前也兼容 snake_case 别名。
+
+推荐可选结构：
+
+```json
+{
+  "assetSummary": {
+    "fileName": "course.pdf",
+    "materialType": "PDF",
+    "generatedAt": "2026-07-04T10:00:00+08:00",
+    "noteCount": 8,
+    "sourceCount": 12,
+    "citationCount": 10,
+    "mindMapNodeCount": 9,
+    "reviewQuestionCount": 6
+  },
+  "qualitySummary": {
+    "overallScore": 86,
+    "level": "稳定",
+    "citationCoverage": 0.92,
+    "structureCompleteness": 0.85,
+    "reviewReadiness": 1,
+    "warnings": []
+  },
+  "learningLoopState": {
+    "steps": [
+      { "id": "input", "label": "输入", "done": true },
+      { "id": "notes", "label": "笔记", "done": true },
+      { "id": "citations", "label": "引用", "done": true },
+      { "id": "mindMap", "label": "导图", "done": true },
+      { "id": "review", "label": "复习", "done": true },
+      { "id": "qa", "label": "问答", "done": true }
+    ]
+  }
+}
+```
+
+派生规则：
+
+- `assetSummary` 默认统计 `notes`、`sources`、`citations`、`mindMap.nodes` 和 `review.questions`。
+- `qualitySummary` 默认结合引用覆盖、结构完整、复习可用和解析告警生成 0 到 100 的总分。
+- `learningLoopState` 默认按“输入、笔记、引用、导图、复习、问答”六步判断完成状态。
+- 页面展示只消费派生后的摘要对象，避免在首页和结果页直接铺开模型日志或完整诊断数据。
 
 ## 思维导图关系字段
 

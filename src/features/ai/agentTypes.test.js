@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { normalizeAgentResult } from "./agentTypes.js";
+import { deriveAgentResultInsights, normalizeAgentResult } from "./agentTypes.js";
 
 test("normalizes semantic learning-unit note fields", () => {
   const result = normalizeAgentResult({
@@ -80,4 +80,49 @@ test("preserves typed mind-map relation fields and legacy edges", () => {
   });
   assert.equal(result.mindMap.edges[1].type, "hierarchy");
   assert.equal(result.mindMap.edges[1].label, "");
+});
+
+test("derives asset, quality and learning-loop summaries from legacy AgentResult", () => {
+  const result = normalizeAgentResult({
+    id: "result-2",
+    topic: "线性回归",
+    summary: "学习摘要",
+    notes: [
+      { id: "n1", title: "定义", content: "正文", citationIds: ["s1"] },
+      { id: "n2", title: "训练", content: "正文", citationIds: ["s2"] },
+    ],
+    sources: [{ id: "s1", text: "来源 1" }, { id: "s2", text: "来源 2" }],
+    citations: [{ id: "c1", sourceId: "s1" }, { id: "c2", sourceId: "s2" }],
+    citationDiagnostics: { noteCitationCoverage: 1, quoteInSourceRate: 0.5 },
+    mindMap: { nodes: [{ id: "center", label: "线性回归" }], edges: [] },
+    review: { questions: [{ id: "q1", question: "问题" }], masteryScore: 80 },
+  });
+
+  const { assetSummary, qualitySummary, learningLoopState } = deriveAgentResultInsights(result);
+
+  assert.equal(assetSummary.noteCount, 2);
+  assert.equal(assetSummary.citationCount, 2);
+  assert.equal(assetSummary.reviewQuestionCount, 1);
+  assert.equal(qualitySummary.citationCoverage, 1);
+  assert.equal(qualitySummary.quoteHitRate, 0.5);
+  assert.equal(qualitySummary.diagnostics.length, 4);
+  assert.deepEqual(learningLoopState.steps.map((step) => step.label), ["输入", "笔记", "引用", "导图", "复习", "问答"]);
+  assert.equal(learningLoopState.completedCount, 6);
+});
+
+test("keeps optional summary extension fields compatible", () => {
+  const result = normalizeAgentResult({
+    topic: "概率论",
+    asset_summary: { fileName: "course.pdf", noteCount: 9 },
+    quality_diagnostics: { overallScore: 88, warnings: ["引用需要抽查"] },
+    learning_loop_state: { steps: [{ id: "review", done: true }] },
+  });
+  const { assetSummary, qualitySummary, learningLoopState } = deriveAgentResultInsights(result);
+
+  assert.equal(result.assetSummary.fileName, "course.pdf");
+  assert.equal(assetSummary.fileName, "course.pdf");
+  assert.equal(assetSummary.noteCount, 9);
+  assert.equal(qualitySummary.overallScore, 88);
+  assert.deepEqual(qualitySummary.warnings, ["引用需要抽查"]);
+  assert.equal(learningLoopState.steps.find((step) => step.id === "review").done, true);
 });

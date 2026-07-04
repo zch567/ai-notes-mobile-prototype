@@ -8,6 +8,11 @@ export function ReviewScreen({ result, onBack }) {
   const hasQuestions = review.questions.length > 0;
   const hasWeakPoints = review.weakPoints.length > 0;
   const hasRecommendations = review.recommendations.length > 0;
+  const completedCount = progress.answeredQuestionIds?.length || 0;
+  const isReviewComplete = hasQuestions && completedCount >= review.questions.length;
+  const feedbackText = isReviewComplete
+    ? `已完成本次复习，掌握度 ${review.masteryScore}%。${hasWeakPoints ? `建议回看：${review.weakPoints.slice(0, 2).join("、")}。` : "可以继续追问难点或进入下一份资料。"}`
+    : "完成后会保存本机复习进度，并生成下一步回看建议。";
 
   function completeReview() {
     const nextProgress = {
@@ -44,6 +49,11 @@ export function ReviewScreen({ result, onBack }) {
             >
               完成本次复习并保存
             </button>
+            <div className={`mt-3 rounded-2xl px-3 py-3 text-[12px] leading-5 ${
+              isReviewComplete ? "bg-emerald-50 text-emerald-800" : "bg-slate-50 text-slate-500"
+            }`}>
+              {feedbackText}
+            </div>
             {progress.lastReviewedAt ? (
               <p className="mt-3 text-[12px] leading-5 text-slate-500">
                 最近复习：{new Date(progress.lastReviewedAt).toLocaleString()}

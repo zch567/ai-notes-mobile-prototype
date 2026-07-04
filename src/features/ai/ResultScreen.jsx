@@ -2,8 +2,9 @@ import { useState } from "react";
 import { Card } from "../../components/Card";
 import { TopBar } from "../../components/TopBar";
 import { chatAgent, getAgentResult, queryRag, validateAgentResult } from "./agentApi";
+import { deriveAgentResultInsights } from "./agentTypes";
 
-export function ResultScreen({ result, onOpenNote, onOpenMindMap, onRetry, onResultChange }) {
+export function ResultScreen({ result, onOpenNote, onOpenMindMap, onOpenReview, onRetry, onResultChange }) {
   const [validation, setValidation] = useState(null);
   const [validationStatus, setValidationStatus] = useState("idle");
   const [refreshStatus, setRefreshStatus] = useState("idle");
@@ -14,7 +15,7 @@ export function ResultScreen({ result, onOpenNote, onOpenMindMap, onRetry, onRes
   const [chatInput, setChatInput] = useState("");
   const [chatMessages, setChatMessages] = useState([]);
   const [chatStatus, setChatStatus] = useState("idle");
-  const citationLinkCount = result.notes.reduce((count, note) => count + note.citationIds.length, 0);
+  const { assetSummary, qualitySummary, learningLoopState } = deriveAgentResultInsights(result);
   const recommendationText = result.review.recommendations.length
     ? result.review.recommendations.join("；")
     : "当前结果还没有复习建议，后端可在 review.recommendations 中返回下一步复习动作。";
@@ -112,16 +113,42 @@ export function ResultScreen({ result, onOpenNote, onOpenMindMap, onRetry, onRes
       <TopBar title="生成结果" subtitle="由统一 AgentResult 渲染" />
 
       <div className="space-y-5 px-5">
-        <Card title={result.topic} subtitle="Summary">
-          <p className="text-[14px] leading-6 text-slate-700">{result.summary}</p>
+        <Card title={assetSummary.topic} subtitle="Learning Asset">
+          <div className="flex items-start justify-between gap-3">
+            <p className="min-w-0 text-[14px] leading-6 text-slate-700">{assetSummary.summary}</p>
+            <span className="shrink-0 rounded-full bg-emerald-50 px-3 py-1 text-[12px] font-semibold text-emerald-700">
+              {assetSummary.statusText}
+            </span>
+          </div>
           <div className="mt-4 grid grid-cols-3 gap-2">
-            <Metric label="来源" value={result.sources.length} />
-            <Metric label="笔记" value={result.notes.length} />
-            <Metric label="题目" value={result.review.questions.length} />
+            <Metric label="笔记" value={assetSummary.noteCount} />
+            <Metric label="引用" value={assetSummary.citationCount} />
+            <Metric label="题目" value={assetSummary.reviewQuestionCount} />
           </div>
           <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-[12px] leading-5 text-slate-500">
-            已检测到 {citationLinkCount} 个笔记引用绑定
-            {result.citations.length ? `，另有 ${result.citations.length} 条 citation 审计记录。` : "。"}
+            {assetSummary.summaryText}
+            {assetSummary.fileName ? ` 来源文件：${assetSummary.fileName}` : ""}
+          </div>
+        </Card>
+
+        <LearningLoopStrip state={learningLoopState} />
+
+        <QualitySummaryCard summary={qualitySummary} />
+
+        <Card title="下一步动作" subtitle="Actions">
+          <div className="grid grid-cols-2 gap-2">
+            <button onClick={onOpenNote} className="rounded-2xl bg-blue-600 px-4 py-3 text-[13px] font-semibold text-white">
+              看笔记
+            </button>
+            <button onClick={onOpenNote} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-[13px] font-semibold text-slate-700">
+              查引用
+            </button>
+            <button onClick={onOpenMindMap} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-[13px] font-semibold text-slate-700">
+              看导图
+            </button>
+            <button onClick={onOpenReview} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-[13px] font-semibold text-slate-700">
+              做复习
+            </button>
           </div>
         </Card>
 
@@ -172,55 +199,66 @@ export function ResultScreen({ result, onOpenNote, onOpenMindMap, onRetry, onRes
         ) : null}
 
         {hasBackendMeta ? (
-          <Card title="后端诊断" subtitle="Backend">
-            <div className="grid grid-cols-2 gap-2">
-              <DiagnosticPill label="Pipeline" value={meta.pipeline || "unknown"} />
-              <DiagnosticPill label="Provider" value={modelLog.provider || meta.requestedProvider || "unknown"} />
-              <DiagnosticPill label="Model" value={modelLog.model || "未记录"} />
-              <DiagnosticPill label="Status" value={modelLog.status || "unknown"} />
+          <details className="rounded-[28px] border border-slate-200 bg-white p-4 shadow-sm">
+            <summary className="cursor-pointer list-none text-[15px] font-semibold text-slate-900">
+              后端诊断与契约校验
+              <span className="ml-2 text-[12px] font-medium text-slate-400">展开</span>
+            </summary>
+            <div className="mt-4">
+              <div className="grid grid-cols-2 gap-2">
+                <DiagnosticPill label="Pipeline" value={meta.pipeline || "unknown"} />
+                <DiagnosticPill label="Provider" value={modelLog.provider || meta.requestedProvider || "unknown"} />
+                <DiagnosticPill label="Model" value={modelLog.model || "未记录"} />
+                <DiagnosticPill label="Status" value={modelLog.status || "unknown"} />
+              </div>
+
+              {Object.keys(citationDiagnostics).length ? (
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  <Metric label="引用覆盖" value={percentText(citationDiagnostics.noteCitationCoverage)} />
+                  <Metric label="Quote 命中" value={percentText(citationDiagnostics.quoteInSourceRate)} />
+                </div>
+              ) : null}
+
+              <button
+                onClick={runValidation}
+                disabled={validationStatus === "loading"}
+                className="mt-3 w-full rounded-2xl bg-slate-900 px-4 py-3 text-[13px] font-semibold text-white disabled:bg-slate-300"
+              >
+                {validationStatus === "loading" ? "正在校验契约..." : "校验当前 AgentResult"}
+              </button>
+
+              {validation ? (
+                <div className={`mt-3 rounded-2xl px-3 py-2 text-[12px] leading-5 ${
+                  validation.valid ? "bg-emerald-50 text-emerald-800" : "bg-amber-50 text-amber-900"
+                }`}>
+                  {validation.valid
+                    ? `契约有效：sources ${validation.sourceCount} · notes ${validation.noteCount} · questions ${validation.questionCount}`
+                    : validation.message || "契约校验未通过"}
+                </div>
+              ) : null}
+
+              <button
+                onClick={refreshBackendResult}
+                disabled={refreshStatus === "loading" || !result.id}
+                className="mt-3 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-[13px] font-semibold text-slate-700 disabled:bg-slate-100 disabled:text-slate-300"
+              >
+                {refreshStatus === "loading" ? "正在刷新..." : "从后端刷新当前结果"}
+              </button>
+              {refreshMessage ? (
+                <p className={`mt-2 text-[12px] leading-5 ${refreshStatus === "error" ? "text-rose-600" : "text-slate-500"}`}>
+                  {refreshMessage}
+                </p>
+              ) : null}
             </div>
-
-            {Object.keys(citationDiagnostics).length ? (
-              <div className="mt-3 grid grid-cols-2 gap-2">
-                <Metric label="引用覆盖" value={percentText(citationDiagnostics.noteCitationCoverage)} />
-                <Metric label="Quote 命中" value={percentText(citationDiagnostics.quoteInSourceRate)} />
-              </div>
-            ) : null}
-
-            <button
-              onClick={runValidation}
-              disabled={validationStatus === "loading"}
-              className="mt-3 w-full rounded-2xl bg-slate-900 px-4 py-3 text-[13px] font-semibold text-white disabled:bg-slate-300"
-            >
-              {validationStatus === "loading" ? "正在校验契约..." : "校验当前 AgentResult"}
-            </button>
-
-            {validation ? (
-              <div className={`mt-3 rounded-2xl px-3 py-2 text-[12px] leading-5 ${
-                validation.valid ? "bg-emerald-50 text-emerald-800" : "bg-amber-50 text-amber-900"
-              }`}>
-                {validation.valid
-                  ? `契约有效：sources ${validation.sourceCount} · notes ${validation.noteCount} · questions ${validation.questionCount}`
-                  : validation.message || "契约校验未通过"}
-              </div>
-            ) : null}
-
-            <button
-              onClick={refreshBackendResult}
-              disabled={refreshStatus === "loading" || !result.id}
-              className="mt-3 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-[13px] font-semibold text-slate-700 disabled:bg-slate-100 disabled:text-slate-300"
-            >
-              {refreshStatus === "loading" ? "正在刷新..." : "从后端刷新当前结果"}
-            </button>
-            {refreshMessage ? (
-              <p className={`mt-2 text-[12px] leading-5 ${refreshStatus === "error" ? "text-rose-600" : "text-slate-500"}`}>
-                {refreshMessage}
-              </p>
-            ) : null}
-          </Card>
+          </details>
         ) : null}
 
-        <Card title="来源检索" subtitle="RAG Query">
+        <details className="rounded-[28px] border border-slate-200 bg-white p-4 shadow-sm">
+          <summary className="cursor-pointer list-none text-[15px] font-semibold text-slate-900">
+            来源检索
+            <span className="ml-2 text-[12px] font-medium text-slate-400">展开</span>
+          </summary>
+          <div className="mt-4">
           <div className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 shadow-sm">
             <input
               value={ragQuery}
@@ -266,7 +304,8 @@ export function ResultScreen({ result, onOpenNote, onOpenMindMap, onRetry, onRes
           ) : (
             <p className="mt-3 text-[12px] leading-5 text-slate-500">输入问题后可直接调用后端 `/api/rag/query`，检查来源片段召回效果。</p>
           )}
-        </Card>
+          </div>
+        </details>
 
         {result.keywords.length || result.outline.length ? (
           <Card title="资料理解" subtitle="Understanding">
@@ -354,19 +393,72 @@ export function ResultScreen({ result, onOpenNote, onOpenMindMap, onRetry, onRes
           </div>
         </Card>
 
-        <div className="grid grid-cols-2 gap-2">
-          <button onClick={onOpenNote} className="col-span-2 rounded-2xl bg-blue-600 px-4 py-3 text-[14px] font-semibold text-white">
-            查看结构化笔记
-          </button>
-          <button onClick={onOpenMindMap} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-[14px] font-semibold text-slate-700">
-            查看导图
-          </button>
-          <button onClick={onRetry} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-[14px] font-semibold text-slate-700">
-            重新输入
-          </button>
-        </div>
+        <button onClick={onRetry} className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-[14px] font-semibold text-slate-700">
+          重新输入
+        </button>
       </div>
     </div>
+  );
+}
+
+function LearningLoopStrip({ state }) {
+  return (
+    <Card title="移动端学习闭环" subtitle="Learning Loop">
+      <div className="grid grid-cols-6 gap-1.5">
+        {state.steps.map((step, index) => (
+          <div key={step.id} className="text-center">
+            <div className={`mx-auto grid h-8 w-8 place-items-center rounded-full text-[12px] font-semibold ${
+              step.done ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-400"
+            }`}>
+              {index + 1}
+            </div>
+            <p className={`mt-1 text-[11px] font-semibold ${step.done ? "text-slate-900" : "text-slate-400"}`}>{step.label}</p>
+          </div>
+        ))}
+      </div>
+      <div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-100">
+        <div className="h-full rounded-full bg-blue-600" style={{ width: `${Math.round(state.progress * 100)}%` }} />
+      </div>
+      <p className="mt-3 text-[12px] leading-5 text-slate-500">{state.summaryText}，下一步：{state.nextStep?.label || "继续学习"}。</p>
+    </Card>
+  );
+}
+
+function QualitySummaryCard({ summary }) {
+  return (
+    <Card title="生成质量摘要" subtitle="Observability">
+      <div className="flex items-end justify-between gap-3">
+        <div>
+          <p className="text-[42px] font-semibold leading-none tracking-tight text-slate-950">{summary.overallScore}</p>
+          <p className="mt-1 text-[12px] font-semibold text-slate-400">Quality score</p>
+        </div>
+        <span className="mb-1 rounded-full bg-blue-50 px-3 py-1 text-[12px] font-semibold text-blue-700">{summary.level}</span>
+      </div>
+      <p className="mt-3 text-[13px] leading-5 text-slate-600">{summary.summaryText}</p>
+      <div className="mt-4 grid grid-cols-2 gap-2">
+        {summary.diagnostics.map((item) => (
+          <div key={item.id} className="rounded-2xl bg-slate-50 p-3">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-[12px] font-semibold text-slate-700">{item.label}</p>
+              <p className="text-[12px] font-semibold text-blue-600">{percentText(item.value)}</p>
+            </div>
+            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white">
+              <div className="h-full rounded-full bg-blue-600" style={{ width: percentText(item.value) }} />
+            </div>
+          </div>
+        ))}
+      </div>
+      {summary.warnings.length ? (
+        <details className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2">
+          <summary className="cursor-pointer list-none text-[12px] font-semibold text-amber-900">查看质量诊断提示</summary>
+          <div className="mt-2 space-y-1">
+            {summary.warnings.map((warning) => (
+              <p key={warning} className="text-[12px] leading-5 text-amber-900">{warning}</p>
+            ))}
+          </div>
+        </details>
+      ) : null}
+    </Card>
   );
 }
 

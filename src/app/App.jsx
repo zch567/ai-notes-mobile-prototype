@@ -330,7 +330,9 @@ function getScreen({
           result={agentResult}
           onOpenNote={openNote}
           onOpenMindMap={() => setNav("mindmap")}
+          onOpenReview={openReview}
           onRetry={() => setAgentStatus(AGENT_STATUS.IDLE)}
+          onResultChange={updateAgentResult}
         />
       </div>
     );

@@ -22,6 +22,13 @@
 - Android WebView APK 已能通过 `http://10.0.2.2:8000` 连接电脑后端，适合现场或校园网环境演示。
 - `docs/backend-quality-selling-points.md` 已记录三个卖点的现状、短板和移动端展示约束。
 
+本轮前端最小落地已补充：
+
+- `agentTypes.js` 导出 `deriveAgentResultInsights(result)`，统一派生 `assetSummary`、`qualitySummary` 和 `learningLoopState`。
+- 首页、笔记库和结果页已增加知识资产摘要、生成质量摘要和“输入 -> 笔记 -> 引用 -> 导图 -> 复习 -> 问答”闭环步骤。
+- 结果页把后端诊断和 RAG 检索放入可展开区域，主屏保留结论、关键指标和下一步动作。
+- 复习页完成后会显示本次复习反馈和薄弱点回看建议。
+
 主要短板：
 
 - 知识资产目前散落在各页面中，缺少统一的资产卡片、资产元信息和资产库叙事。

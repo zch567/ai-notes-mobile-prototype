@@ -77,11 +77,22 @@ export function MindMapScreen({ result, onResultChange = () => {}, onBack }) {
   const displayCenterNode = displayNodeById.get(centerNode?.id) || displayNodes[0];
   const displaySelectedNode = selectedNodeId ? displayNodeById.get(selectedNodeId) : null;
   const detailNode = displaySelectedNode || displayCenterNode;
+  const selectedRelations = useMemo(
+    () =>
+      displayEdges.filter(
+        (edge) =>
+          selectedNodeId &&
+          hasRelationMetadata(edge) &&
+          (edge.from === selectedNodeId || edge.to === selectedNodeId),
+      ),
+    [displayEdges, selectedNodeId],
+  );
   const focusX = displaySelectedNode ? 50 - displaySelectedNode.x : 0;
   const focusY = displaySelectedNode ? 50 - displaySelectedNode.y : 0;
   const toolboxSide = displaySelectedNode?.x > 58 ? "left" : "right";
-  const toolboxVertical =
-    displaySelectedNode?.y > 68 ? "bottom" : displaySelectedNode?.y < 32 ? "top" : "middle";
+  const toolboxVertical = displaySelectedNode?.y > 56 ? "top" : "bottom";
+  const zoomDockSide = displaySelectedNode && toolboxSide === "left" ? "right" : "left";
+  const zoomDockVertical = displaySelectedNode && toolboxVertical === "bottom" ? "top" : "bottom";
   const hasMap = nodes.length > 0;
   const selectedHasChildren = selectedNode ? edges.some((edge) => edge.from === selectedNode.id) : false;
   const selectedCollapsed = selectedNode ? collapsedNodeIds.has(selectedNode.id) : false;
@@ -226,32 +237,32 @@ export function MindMapScreen({ result, onResultChange = () => {}, onBack }) {
       <div className="mindmap-landscape-only flex h-full flex-col overflow-hidden">
         <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(37,99,235,0.12),transparent_34%),radial-gradient(circle_at_78%_18%,rgba(14,165,233,0.18),transparent_28%),linear-gradient(rgba(15,23,42,0.05)_1px,transparent_1px),linear-gradient(90deg,rgba(15,23,42,0.05)_1px,transparent_1px)] bg-[length:auto,auto,28px_28px,28px_28px]" />
 
-        <header className="relative z-10 flex h-14 flex-none items-center justify-between border-b border-white/70 bg-white/72 px-5 backdrop-blur-xl">
-        <div className="flex items-center gap-3">
-          <button onClick={onBack} className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[12px] font-semibold text-slate-600 shadow-sm">
+        <header className="relative z-10 flex h-12 flex-none items-center justify-between border-b border-white/70 bg-white/72 px-4 backdrop-blur-xl">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <button onClick={onBack} className="shrink-0 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-600 shadow-sm">
             返回
           </button>
-          <div>
-            <h1 className="text-[18px] font-semibold tracking-tight text-slate-950">知识导图横屏模式</h1>
-            <p className="text-[11px] text-slate-500">Landscape canvas · {nodes.length} nodes · {edges.length} links</p>
+          <div className="min-w-0">
+            <h1 className="truncate text-[16px] font-semibold tracking-tight text-slate-950">知识导图横屏模式</h1>
+            <p className="truncate text-[10px] text-slate-500">Landscape canvas · {nodes.length} nodes · {edges.length} links</p>
           </div>
         </div>
-        <div className="flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[12px] font-semibold text-slate-500 shadow-sm">
-          <span className="h-2 w-2 rounded-full bg-emerald-500" />
+        <div className="flex shrink-0 items-center gap-1.5 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-500 shadow-sm">
+          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
           横屏演示
         </div>
         </header>
 
-        <div className="relative z-10 min-h-0 flex-1 p-4">
-        <section className="relative h-full min-w-0 overflow-hidden rounded-[28px] border border-white/80 bg-white/64 shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_20px_50px_rgba(15,23,42,0.12)] backdrop-blur-xl">
-          <div className="absolute left-4 top-4 z-20 flex items-center gap-2 rounded-full border border-slate-200 bg-white/90 px-3 py-1.5 shadow-sm">
-            <span className="text-[11px] font-semibold text-slate-500">点击节点查看详情</span>
+        <div className="relative z-10 min-h-0 flex-1 p-3">
+        <section className="relative h-full min-w-0 overflow-hidden rounded-[24px] border border-white/80 bg-white/64 shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_20px_50px_rgba(15,23,42,0.12)] backdrop-blur-xl">
+          <div className={`absolute left-3 top-3 z-20 flex items-center gap-2 rounded-full border border-slate-200 bg-white/86 px-2.5 py-1 shadow-sm transition-opacity ${displaySelectedNode ? "pointer-events-none opacity-0" : "opacity-100"}`}>
+            <span className="text-[10px] font-semibold text-slate-500">点击节点查看详情</span>
           </div>
 
           <div
             className="absolute inset-0 origin-center transition-transform duration-500 ease-out"
             style={{
-              transform: `translate3d(${displaySelectedNode ? focusX * 0.25 : 0}%, ${displaySelectedNode ? focusY * 0.25 : 0}%, 0) scale(${zoom})`,
+              transform: `translate3d(${displaySelectedNode ? focusX * 0.06 : 0}%, ${displaySelectedNode ? focusY * 0.08 : 0}%, 0) scale(${zoom})`,
             }}
           >
             <svg className="absolute inset-0 h-full w-full" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
@@ -351,11 +362,15 @@ export function MindMapScreen({ result, onResultChange = () => {}, onBack }) {
             ) : null}
           </div>
 
-          <div className="absolute bottom-5 left-5 z-30 flex items-center gap-2 rounded-full border border-white/80 bg-white/86 px-2 py-2 shadow-[0_14px_36px_rgba(15,23,42,0.12)] backdrop-blur-xl">
+          <div
+            className={`absolute z-30 flex items-center gap-1.5 rounded-full border border-white/80 bg-white/86 px-1.5 py-1.5 shadow-[0_14px_36px_rgba(15,23,42,0.12)] backdrop-blur-xl ${
+              zoomDockSide === "right" ? "right-3" : "left-3"
+            } ${zoomDockVertical === "top" ? "top-3" : "bottom-3"}`}
+          >
             <button
               type="button"
               onClick={() => setZoom((current) => Math.max(0.72, Math.round((current - 0.12) * 100) / 100))}
-              className="grid h-9 w-9 place-items-center rounded-full border border-slate-200 bg-white text-[18px] font-semibold text-slate-700 shadow-sm"
+              className="grid h-7 w-7 place-items-center rounded-full border border-slate-200 bg-white text-[15px] font-semibold text-slate-700 shadow-sm"
               aria-label="缩小导图"
             >
               -
@@ -363,7 +378,7 @@ export function MindMapScreen({ result, onResultChange = () => {}, onBack }) {
             <button
               type="button"
               onClick={() => setZoom(1)}
-              className="rounded-full px-2 text-[12px] font-semibold text-slate-500"
+              className="min-w-[42px] rounded-full px-1 text-[11px] font-semibold text-slate-500"
               aria-label="重置导图缩放"
             >
               {Math.round(zoom * 100)}%
@@ -371,7 +386,7 @@ export function MindMapScreen({ result, onResultChange = () => {}, onBack }) {
             <button
               type="button"
               onClick={() => setZoom((current) => Math.min(1.42, Math.round((current + 0.12) * 100) / 100))}
-              className="grid h-9 w-9 place-items-center rounded-full border border-slate-200 bg-white text-[18px] font-semibold text-slate-700 shadow-sm"
+              className="grid h-7 w-7 place-items-center rounded-full border border-slate-200 bg-white text-[15px] font-semibold text-slate-700 shadow-sm"
               aria-label="放大导图"
             >
               +
@@ -380,37 +395,35 @@ export function MindMapScreen({ result, onResultChange = () => {}, onBack }) {
 
           {displaySelectedNode ? (
             <aside
-              className={`absolute z-40 flex max-h-[calc(100%-2.5rem)] w-[360px] max-w-[42%] flex-col rounded-[28px] border border-white/80 bg-white/88 p-4 shadow-[0_20px_50px_rgba(15,23,42,0.18)] backdrop-blur-xl ${
-                toolboxSide === "left" ? "left-5" : "right-5"
+              className={`absolute z-40 flex max-h-[calc(100%-1.5rem)] w-[300px] max-w-[34%] flex-col rounded-[22px] border border-white/80 bg-white/88 p-3 shadow-[0_18px_44px_rgba(15,23,42,0.16)] backdrop-blur-xl ${
+                toolboxSide === "left" ? "left-3" : "right-3"
               } ${
                 toolboxVertical === "top"
-                  ? "top-5"
-                  : toolboxVertical === "bottom"
-                    ? "bottom-5"
-                    : "top-1/2 -translate-y-1/2"
+                  ? "top-3"
+                  : "bottom-3"
               }`}
             >
-              <div className="flex items-start justify-between gap-3">
+              <div className="flex items-start justify-between gap-2.5">
                 <div className="min-w-0">
                   <p className="text-[10px] font-semibold uppercase text-slate-400">当前节点</p>
-                  <h2 className="mt-1 line-clamp-2 text-[22px] font-semibold tracking-tight text-slate-950">{detailNode?.label || result.topic}</h2>
-                  <p className="mt-2 line-clamp-2 text-[12px] leading-5 text-slate-500">
+                  <h2 className="mt-0.5 line-clamp-2 text-[18px] font-semibold tracking-tight text-slate-950">{detailNode?.label || result.topic}</h2>
+                  <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-slate-500">
                     {detailNode?.desc || "查看来源说明、编辑操作和复习线索。"}
                   </p>
                 </div>
-                <button onClick={() => setSelectedNodeId(null)} className="shrink-0 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-[12px] font-semibold text-slate-500">
+                <button onClick={() => setSelectedNodeId(null)} className="shrink-0 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-semibold text-slate-500">
                   收起
                 </button>
               </div>
 
-              <div className="mt-4 grid grid-cols-2 gap-2">
+              <div className="mt-3 grid grid-cols-2 gap-1.5">
                 {mapActions.map((item) => (
                   <button
                     key={item.key}
                     type="button"
                     onClick={item.onClick}
                     disabled={item.disabled}
-                    className={`rounded-2xl border px-3 py-2 text-[12px] font-semibold shadow-sm transition ${
+                    className={`rounded-xl border px-2 py-1.5 text-[11px] font-semibold shadow-sm transition ${
                       item.disabled
                         ? "cursor-not-allowed border-slate-100 bg-slate-50 text-slate-300"
                         : "border-slate-200 bg-white text-slate-700 hover:border-blue-200 hover:bg-blue-50"
@@ -421,17 +434,17 @@ export function MindMapScreen({ result, onResultChange = () => {}, onBack }) {
                 ))}
               </div>
 
-              <div className="mt-4 grid grid-cols-2 gap-2">
+              <div className="mt-3 grid grid-cols-2 gap-1.5">
                 <Metric label="节点" value={displayNodes.length} />
                 <Metric label="连线" value={displayEdges.length} />
               </div>
 
-              <div className="mt-4 min-h-0 rounded-[22px] border border-slate-200 bg-slate-50 p-3">
+              <div className="mt-3 min-h-0 rounded-[18px] border border-slate-200 bg-slate-50 p-2.5">
                 <div className="flex items-center justify-between">
-                  <p className="text-[11px] font-semibold uppercase text-slate-400">具体内容</p>
-                  <p className="text-[11px] font-medium text-slate-400">滑动查看</p>
+                  <p className="text-[10px] font-semibold uppercase text-slate-400">具体内容</p>
+                  <p className="text-[10px] font-medium text-slate-400">滑动查看</p>
                 </div>
-                <div className="mt-3 max-h-32 overflow-y-auto rounded-[18px] bg-white px-4 py-4 text-[13px] leading-6 text-slate-600 shadow-inner">
+                <div className="mt-2 max-h-24 overflow-y-auto rounded-[14px] bg-white px-3 py-3 text-[12px] leading-5 text-slate-600 shadow-inner">
                   {(detailNode?.detail || result.summary || "后端可在节点中返回 detail 字段，前端会在这里展示。")
                     .split("\n\n")
                     .map((paragraph) => (
@@ -441,6 +454,25 @@ export function MindMapScreen({ result, onResultChange = () => {}, onBack }) {
                     ))}
                 </div>
               </div>
+              {selectedRelations.length ? (
+                <div className="mt-2.5 rounded-[18px] border border-blue-100 bg-blue-50/80 p-2.5">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-blue-500">关联关系</p>
+                  <div className="mt-2 max-h-20 space-y-1.5 overflow-y-auto">
+                    {selectedRelations.map((edge, index) => {
+                      const isOutgoing = edge.from === selectedNodeId;
+                      const peer = displayNodeById.get(isOutgoing ? edge.to : edge.from);
+                      return (
+                        <div key={`${edge.from}-${edge.to}-${index}`} className="rounded-xl bg-white px-2.5 py-1.5 text-[10px] leading-4 text-slate-600">
+                          <p className="font-semibold text-slate-800">
+                            {isOutgoing ? "指向" : "来自"} {peer?.label || "关联节点"} · {edge.label || edgeTypeLabel(edge.type)}
+                          </p>
+                          {edge.reason ? <p className="mt-1 text-slate-500">{edge.reason}</p> : null}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : null}
             </aside>
           ) : (
             <div className="absolute right-5 top-5 z-30 rounded-[24px] border border-white/80 bg-white/80 px-4 py-3 shadow-[0_14px_36px_rgba(15,23,42,0.12)] backdrop-blur-xl">
@@ -684,6 +716,16 @@ function detailSummary(detail) {
   return String(detail).split(/\n+/).find((paragraph) => paragraph.trim())?.trim() || "";
 }
 
+function hasRelationMetadata(edge) {
+  return Boolean(
+    (edge?.type && edge.type !== "hierarchy") ||
+      edge?.label ||
+      edge?.reason ||
+      edge?.sourceRefs?.length ||
+      edge?.confidence,
+  );
+}
+
 function edgeTypeColor(type, fallback) {
   return {
     hierarchy: fallback || "#94a3b8",
@@ -716,9 +758,9 @@ function edgeTypeLabel(type) {
 
 function Metric({ label, value }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white px-3 py-2 shadow-sm">
-      <p className="text-[18px] font-semibold text-slate-950">{value}</p>
-      <p className="text-[11px] text-slate-400">{label}</p>
+    <div className="rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 shadow-sm">
+      <p className="text-[15px] font-semibold leading-none text-slate-950">{value}</p>
+      <p className="mt-1 text-[10px] leading-none text-slate-400">{label}</p>
     </div>
   );
 }
