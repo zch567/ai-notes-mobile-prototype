@@ -64,18 +64,24 @@ curl http://127.0.0.1:8000/health
 
 ## 蓝心配置
 
-推荐复制 `backend/.env.example` 为 `backend/.env` 后填写蓝心 Key。也可以在 `backend/api` 文件中配置，文件格式同 `.env`。
+推荐把真实蓝心 Key 放在项目目录外，例如 `D:\AIGC\api`，然后在 `backend/.env` 中只保存密钥文件路径。这样软件打包时不会把 Key 复制进源码目录、前端 bundle 或交付包。
 
 ```text
 MODEL_PROVIDER=lanxin
-LANXIN_API_KEY=your-key
+BACKEND_SECRETS_FILE=D:\AIGC\api
 LANXIN_BASE_URL=https://api-ai.vivo.com.cn/v1
 LANXIN_MODEL=Doubao-Seed-2.0-mini
 MODEL_TIMEOUT_MS=90
 LANXIN_RETRIES=1
 ```
 
-交付时不要提交 `.env`、`api` 或任何真实密钥；让队友在自己的电脑上配置 Key。
+`D:\AIGC\api` 的内容使用 `.env` 格式：
+
+```text
+LANXIN_API_KEY=your-key
+```
+
+交付时不要提交 `.env`、`api` 或任何真实密钥；让队友在自己的电脑上配置 Key。前端构建命令已接入 `scripts/check_no_secret_leak.mjs`，会扫描 `dist` / `dist-webview` 并在发现 Key 内容、`.env` 或 `api` 文件进入产物时失败。
 
 ## API
 
@@ -182,3 +188,4 @@ backend/evaluation_outputs/lanxin_vs_offline/
 - Provider、Prompt、Retriever、Grounding 分层独立，后续可分别替换。
 - `runtime/` 与 `evaluation_outputs/` 是运行产物，不建议作为代码交付内容。
 - 不要把根目录 `api` 或任何真实密钥放入交付包。
+- 真实蓝心 Key 应放在项目外部路径，并通过 `BACKEND_SECRETS_FILE` 指向。

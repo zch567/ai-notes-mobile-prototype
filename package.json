@@ -6,8 +6,9 @@
   "scripts": {
     "dev": "vite",
     "test": "node --test src/features/ai/agentTypes.test.js",
-    "build": "vite build",
-    "build:webview": "vite build --mode webview",
+    "build": "vite build && node scripts/check_no_secret_leak.mjs dist",
+    "build:webview": "vite build --mode webview && node scripts/check_no_secret_leak.mjs dist-webview",
+    "check:secrets": "node scripts/check_no_secret_leak.mjs dist dist-webview",
     "preview": "vite preview"
   },
   "dependencies": {

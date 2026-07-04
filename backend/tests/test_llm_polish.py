@@ -89,3 +89,39 @@ def test_llm_polish_rejects_new_source_refs_from_model():
 
     assert polished["notes"][0]["title"] == "旧标题"
     assert "_meta" not in polished
+
+
+def test_llm_polish_rejects_raw_concat_summary_and_weak_points():
+    result = {
+        "notes": [
+            {
+                "id": "note-1",
+                "title": "DMA 数据传送过程",
+                "summary": "流程类内容应按触发条件、执行阶段和结束处理来理解。",
+                "content": "流程类内容要按预处理、数据传送、后处理三步记忆。",
+                "keyPoints": ["预处理设置地址和传送长度", "数据传送阶段完成数据块交换", "结束后执行校验和后处理"],
+                "sourceRefs": ["c1"],
+                "source_refs": ["c1"],
+                "citationIds": [],
+            }
+        ]
+    }
+    patch = {
+        "notes": [
+            {
+                "id": "note-1",
+                "title": "DMA 数据传送过程",
+                "summary": "DMA 数据传送过程包含✓ 预处理之后：当 I/O设备准备好发送的数据、CPU继续执行主程序、校验送入主存的数据是否正确等内容。",
+                "content": "流程类内容要按预处理、数据传送、后处理三步记忆。",
+                "keyPoints": ["✓ 预处理之后：当 I/O设备准备好发送的数据", "（对应输入情况 ），或者上次接收的数据已", "经处理完毕（对应输出情况），便通过DMA"],
+                "sourceRefs": ["c1"],
+            }
+        ]
+    }
+
+    polished = apply_polish_result(result, patch, [source_chunk("c1")])
+    note = polished["notes"][0]
+
+    assert note["summary"] == "流程类内容应按触发条件、执行阶段和结束处理来理解。"
+    assert "✓ 预处理之后" not in " ".join([note["summary"], note["content"], *note["keyPoints"]])
+    assert "_meta" not in polished

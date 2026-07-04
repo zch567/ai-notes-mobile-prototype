@@ -6,16 +6,35 @@ from typing import Any
 
 
 TEMPLATE_SUMMARY_PATTERNS = [
+    "并列内容项目",
     "围绕核心概念与关键要点展开",
     "学习时应先把握整体关系",
+    "学习时先说明",
+    "备考时不要只背长句",
+    "压缩关键词，并练习展开成完整答案",
     "重点说明其在",
     "中的位置和理解边界",
     "所表达的概念或结论",
     "核心是理解核心概念与关键要点",
     "这部分可按",
+    "这部分围绕",
+    "这部分用于说明",
+    "核心线索",
+    "关键线索是",
+    "需要说明",
+    "重点说明这些要点",
+    "含义、条件、作用和区别",
+    "条件、作用和边界",
+    "含义、条件、作用或例子",
+    "概念含义、使用条件和应用场景",
+    "这类技术点要放回",
+    "这类技术点需要结合",
+    "这一技术点需要放在",
     "主要学习",
     "之间的关系",
     "需要结合原文",
+    "应结合原文确认",
+    "主要涉及",
 ]
 
 LOW_INFO_SUMMARY_PATTERNS = [
@@ -24,6 +43,9 @@ LOW_INFO_SUMMARY_PATTERNS = [
     "几个要点理解",
     "说明本部分的核心概念",
     "本资料中的核心学习点",
+    "需要结合定义、作用和适用场景来理解",
+    "应结合上下文判断其定义、作用和适用场景",
+    "建立基本认识",
 ]
 
 INTERNAL_PROCESS_PATTERNS = [
@@ -31,10 +53,20 @@ INTERNAL_PROCESS_PATTERNS = [
     "结构总览",
     "交给各子模块",
     "该组并列项目中的一个子项",
+    "并列项目中的一个子项",
     "总起模块",
+    "直接记住原文依据",
+    "原理类内容由",
+    "先点明原理",
+    "材料如何体现该原理",
+    "用原文短语支撑每个表现",
+    "考前自检",
 ]
 
 ACTIVITY_PATTERNS = [
+    "同学们",
+    "请同学们",
+    "通过本节课学习",
     "采访身边的人",
     "想一想",
     "思考",
@@ -43,6 +75,10 @@ ACTIVITY_PATTERNS = [
     "基础型作业",
     "发展型作业",
     "完成课时练习",
+    "请以",
+    "请说出",
+    "你还爱读",
+    "哪些精彩的故事",
 ]
 
 VISUAL_LABEL_PATTERNS = [
@@ -60,6 +96,8 @@ VISUAL_LABEL_PATTERNS = [
     "DMA请求",
     "数据线",
     "ACC",
+    "NANKAI UNIVERSITY",
+    "©LXD",
 ]
 
 BROKEN_FRAGMENT_PATTERNS = [
@@ -105,6 +143,8 @@ LOW_QUALITY_CONTENT_PATTERNS = [
     r"要点介绍[:：].*结构拆解[:：]",
     r"^(C1、C2控制下的多路转换器|在逻辑上只允许连接一个设备|2\.\s*DMA接口与系统的连接方式|3\.\s*DMA方式与程序中断方式的比较)",
     r"设备地址寄存器$",
+    r"备考时不要只背长句",
+    r"学习时先说明.+再围绕",
 ]
 
 QUESTION_TITLE_PREFIXES = ("如何", "怎样", "为什么", "什么是")
@@ -301,6 +341,10 @@ def is_weak_key_point(point: str) -> bool:
         return True
     if any(pattern in text for pattern in TEMPLATE_SUMMARY_PATTERNS + INTERNAL_PROCESS_PATTERNS):
         return True
+    if any(pattern in text for pattern in LOW_INFO_SUMMARY_PATTERNS):
+        return True
+    if "再回到原文确认它的条件、作用和边界" in text:
+        return True
     if any(re.search(pattern, text) for pattern in BROKEN_FRAGMENT_PATTERNS):
         return True
     if re.search(r"(和|或|但|因为|由于|以及|、|，|；|：|/)$", text):
@@ -343,9 +387,13 @@ def has_raw_concat_summary(note: dict[str, Any]) -> bool:
     title = str(note.get("title") or "")
     if len(summary) > 150:
         return True
+    if summary.startswith("根本原因包括") and "重要原因" in summary and len(summary) <= 120:
+        return False
     if summary.count("、") >= 4 or summary.count("，") >= 5:
         return True
     if title and summary.startswith(title) and ("主要包括" in summary or "重点说明" in summary or "包括" in summary[: len(title) + 16] or "包含" in summary[: len(title) + 16] or "说明" in summary[: len(title) + 12]):
+        return True
+    if title and summary.startswith(title) and "主要涉及" in summary[: len(title) + 16]:
         return True
     if "说明" in summary and summary.count("说明") >= 2:
         return True
@@ -464,9 +512,68 @@ def is_fragment_title(title: str) -> bool:
         return True
     if any(re.search(pattern, text) for pattern in BROKEN_FRAGMENT_PATTERNS):
         return True
+    if looks_like_raw_sentence_title(text):
+        return True
+    if has_template_phrase(text):
+        return True
     if compacted in {"控制逻", "数据线", "溢出信号", "+1"}:
         return True
     return False
+
+
+def looks_like_raw_sentence_title(title: str) -> bool:
+    text = str(title or "").strip()
+    compacted = re.sub(r"\s+", "", text)
+    if looks_like_meaningful_english_title(text):
+        return False
+    if len(compacted) > 36:
+        return True
+    if "..." in text or "…" in text:
+        return True
+    if len(re.findall(r"[，,；;。]", text)) >= 1 and len(compacted) > 18:
+        return True
+    return any(token in text for token in ["其中描述了", "它是一部", "讲述的是", "请以", "你还爱读", "请说出"])
+
+
+def looks_like_meaningful_english_title(title: str) -> bool:
+    text = str(title or "").strip()
+    if not re.search(r"[A-Za-z]", text):
+        return False
+    if "..." in text or "…" in text or re.search(r"[\u4e00-\u9fff]", text):
+        return False
+    if re.search(r"\b(should|decides?|avoid|contains?|includes?|explains?|describes?)\b", text, flags=re.I):
+        return False
+    words = re.findall(r"[A-Za-z][A-Za-z0-9+-]*", text)
+    if len(words) < 2:
+        return False
+    domain_terms = {
+        "algorithm",
+        "analysis",
+        "architecture",
+        "bayes",
+        "computer",
+        "database",
+        "design",
+        "entity",
+        "graph",
+        "learning",
+        "logical",
+        "machine",
+        "model",
+        "network",
+        "principle",
+        "relationship",
+        "retrieval",
+        "schema",
+        "sql",
+        "system",
+        "transformer",
+    }
+    lowered = {word.lower() for word in words}
+    if lowered & domain_terms:
+        return True
+    long_words = [word for word in words if len(word) >= 4 and re.search(r"[aeiou]", word, flags=re.I)]
+    return len(words) >= 3 and len(long_words) >= 2 and not text.isupper()
 
 
 def has_numbering_break(note: dict[str, Any]) -> bool:
@@ -510,24 +617,51 @@ def has_learning_explanation(note: dict[str, Any]) -> bool:
         _u("\u4f9d\u636e"), _u("\u6846\u67b6"), _u("\u4e3b\u4f53"), _u("\u9009\u62e9\u9898"), _u("\u5206\u6790\u9898"),
         _u("\u6613\u6df7"), _u("\u65b9\u6cd5\u8bba"), _u("\u804c\u8d23"), _u("\u63a7\u5236"), _u("\u52a8\u4f5c"),
         _u("\u7406\u6027"), _u("\u5b9e\u5e72"), _u("\u8ba4\u540c"), _u("\u5e95\u6c14"), _u("\u4fe1\u5fc3"),
+        "复习", "备考", "关键词", "逐项回忆", "判断", "场景", "真题", "检查清单",
+        "构成", "对应", "分成", "分层", "两层", "链条", "逻辑链", "边界", "条件", "路径",
+        "能力建设", "行为约束", "限定词", "材料对应", "共同本质", "相互依存",
     ]
     return any(token in content for token in tokens)
 
 
 def has_template_content(note: dict[str, Any]) -> bool:
     text = " ".join([str(note.get("summary") or ""), str(note.get("content") or "")])
+    if has_template_phrase(text):
+        return True
+    if re.search(r"本部分包含\s*\d+\s*个并列内容项目", text):
+        return True
+    if re.search(r"学习[“\"']?.{0,30}[”\"']?时[，,]?\s*先", text):
+        return True
+    if re.search(r"(?:[\u4e00-\u9fffA-Za-z]+类\s*)?NOTE\s*(?:应|要|不应|用于|可以)", text):
+        return True
     templates = [
         _u("\u5b66\u4e60\u65f6\u5148\u7406\u89e3"),
+        _u("\u5b66\u4e60\u65f6\u5148\u8bf4\u660e"),
+        _u("\u5907\u8003\u65f6\u4e0d\u8981\u53ea\u80cc\u957f\u53e5"),
+        _u("\u538b\u7f29\u5173\u952e\u8bcd\uff0c\u5e76\u7ec3\u4e60\u5c55\u5f00\u6210\u5b8c\u6574\u7b54\u6848"),
         _u("\u518d\u56f4\u7ed5"),
         _u("\u68b3\u7406\u4f5c\u7528\u3001\u6761\u4ef6\u548c\u6613\u6df7\u70b9"),
         _u("\u6838\u5fc3\u662f\u7406\u89e3\u672c\u4e3b\u9898\u7684\u80cc\u666f\u3001\u7ed3\u8bba\u548c\u5e94\u7528\u8fb9\u754c"),
         _u("\u6838\u5fc3\u662f\u7406\u89e3\u6838\u5fc3\u6982\u5ff5\u3001\u5224\u65ad\u4f9d\u636e\u548c\u5e94\u7528\u8fb9\u754c"),
         _u("\u9700\u8981\u7ed3\u5408\u539f\u6587\u7406\u89e3\u5176\u542b\u4e49\u3001\u4f5c\u7528\u548c\u4f7f\u7528\u6761\u4ef6"),
         _u("\u5b66\u4e60\u8fd9\u4e2a\u4e3b\u9898\u65f6"),
+        "并列内容项目",
+        "应结合原文确认",
         _u("\u4e3b\u8981\u5b66\u4e60"),
         _u("\u4e4b\u95f4\u7684\u5173\u7cfb"),
+        "直接记住原文依据",
+        "原理类内容由",
+        "先点明原理",
+        "材料如何体现该原理",
+        "用原文短语支撑每个表现",
+        "考前自检",
     ]
     return any(item in text for item in templates) or has_internal_process_language(note)
+
+
+def has_template_phrase(text: str) -> bool:
+    value = str(text or "")
+    return any(pattern in value for pattern in TEMPLATE_SUMMARY_PATTERNS)
 
 
 def semantic_field_repetition_score(note: dict[str, Any]) -> float:
@@ -561,16 +695,47 @@ def has_weak_teaching_value(note: dict[str, Any]) -> bool:
     probe = " ".join([title, content, *points])
     if any(token in probe for token in ["DMA", "CPU", _u("\u4e3b\u5b58"), _u("\u603b\u7ebf"), _u("\u63a5\u53e3")]):
         return not any(token in content for token in [_u("\u6761\u4ef6"), _u("\u52a8\u4f5c"), _u("\u7ed3\u679c"), _u("\u6bd4\u8f83"), _u("\u533a\u5206"), _u("\u804c\u8d23"), _u("\u63a7\u5236"), _u("\u6570\u636e\u6d41"), _u("\u63a7\u5236\u6d41"), "流程", "阶段", "并行关系", "优先级", "独占", "共享", "收尾", "场景", "适合"])
-    if any(token in probe for token in [_u("\u4e2d\u56fd\u68a6"), _u("\u81ea\u4fe1\u4e2d\u56fd\u4eba"), _u("\u4e2d\u56fd\u7279\u8272\u793e\u4f1a\u4e3b\u4e49"), _u("\u9752\u5c11\u5e74")]):
-        return not any(token in content for token in [_u("\u7b54\u9898"), _u("\u4e3b\u4f53"), _u("\u56fd\u5bb6\u5c42\u9762"), _u("\u4e2a\u4eba\u5c42\u9762"), _u("\u884c\u52a8"), _u("\u4f9d\u636e"), _u("\u6846\u67b6")])
+    if any(
+        token in probe
+        for token in [
+            _u("\u4e2d\u56fd\u68a6"), _u("\u81ea\u4fe1\u4e2d\u56fd\u4eba"), _u("\u4e2d\u56fd\u7279\u8272\u793e\u4f1a\u4e3b\u4e49"), _u("\u9752\u5c11\u5e74"),
+            "行动要求", "理想信念", "学习实践", "责任担当", "法治意识", "科学文化知识", "自身素质",
+        ]
+    ):
+        return not any(
+            token in content
+            for token in [
+                _u("\u7b54\u9898"), _u("\u4e3b\u4f53"), _u("\u56fd\u5bb6\u5c42\u9762"), _u("\u4e2a\u4eba\u5c42\u9762"),
+                _u("\u884c\u52a8"), _u("\u4f9d\u636e"), _u("\u6846\u67b6"), "原因链条", "根本原因",
+                "重要原因", "对应", "构成", "能力建设", "行为约束", "落实场景", "价值指向",
+            ]
+        )
     if any(token in probe for token in [_u("\u552f\u7269\u8bba"), _u("\u7269\u8d28"), _u("\u610f\u8bc6"), _u("\u539f\u7406"), _u("\u8003\u70b9")]):
-        return not any(token in content for token in [_u("\u9009\u62e9\u9898"), _u("\u5206\u6790\u9898"), _u("\u6a21\u677f"), _u("\u6613\u6df7"), _u("\u5173\u952e\u8bcd"), _u("\u65b9\u6cd5\u8bba"), _u("\u771f\u9898")])
+        return not any(
+            token in content
+            for token in [
+                _u("\u9009\u62e9\u9898"), _u("\u5206\u6790\u9898"), _u("\u6a21\u677f"), _u("\u6613\u6df7"),
+                _u("\u5173\u952e\u8bcd"), _u("\u65b9\u6cd5\u8bba"), _u("\u771f\u9898"), "逻辑链",
+                "原理内容", "易错边界", "题目判断", "限定词", "概念表述", "材料对应",
+            ]
+        )
     return False
 
 
 def has_learning_actionability(note: dict[str, Any]) -> bool:
+    if has_template_content(note):
+        return False
     probe = " ".join([str(note.get("title") or ""), str(note.get("content") or ""), str(note.get("summary") or "")])
-    return any(token in probe for token in ["学习时", "答题时", "重点", "区分", "比较", "记忆", "先", "再", "避免", "适合", "高频"])
+    return any(
+        token in probe
+        for token in [
+            "学习时", "答题时", "复习时", "备考时", "重点", "区分", "比较", "记忆", "先", "再",
+            "避免", "适合", "高频", "关键词", "逐项", "判断", "场景", "关注", "练习", "检查清单",
+            "构成", "对应", "分成", "分层", "两层", "链条", "逻辑链", "边界", "条件", "路径",
+            "主体", "目标", "落实", "能力建设", "行为约束", "限定词", "材料对应", "共同本质",
+            "相互依存", "概念定义", "原理", "方法论", "易错",
+        ]
+    )
 
 
 def has_relevant_evidence(note: dict[str, Any]) -> bool:
@@ -606,9 +771,17 @@ def has_learning_role_gap(notes: list[dict[str, Any]]) -> bool:
     if any(token in text for token in ["DMA", "总线", "主存", "接口"]):
         return not all(token in text for token in ["区分", "适合", "总线控制权"])
     if any(token in text for token in ["中国梦", "自信中国人", "中国特色社会主义"]):
-        return not all(token in text for token in ["答题", "国家层面", "行动"])
+        has_state_path = any(token in text for token in ["国家层面", "领导核心", "道路方向", "精神支撑", "人民力量"])
+        has_action_path = any(token in text for token in ["行动", "能力建设", "行为约束", "落实场景", "主体"])
+        has_reason_path = any(token in text for token in ["原因链条", "根本原因", "重要原因", "依据"])
+        return not (has_state_path and has_action_path and has_reason_path)
     if any(token in text for token in ["唯物论", "物质", "意识", "考点"]):
-        return not all(token in text for token in ["高频", "选择题", "答题"])
+        has_concept_path = any(token in text for token in ["概念表述", "概念定义", "客观实在", "主观映象"])
+        has_principle_path = any(token in text for token in ["原理", "逻辑链", "方法论", "意识对物质"])
+        has_judgement_path = any(token in text for token in ["题目判断", "限定词", "易错", "选择题", "分析题"])
+        return not (has_concept_path and has_principle_path and has_judgement_path)
+    if any(token in text for token in ["水浒传", "宋江", "林冲", "梁山", "人物形象", "性格特点"]):
+        return not all(token in text for token in ["人物", "情节", "主题"])
     return False
 
 
@@ -628,6 +801,13 @@ def title_or_point_mentions_quote(note: dict[str, Any], quote: str) -> bool:
         ("主存地址寄存器", "主存中的地址"),
         ("控制逻辑", "管理"),
         ("传送长度", "字计数器"),
+        ("交替访问", "独立的地址"),
+        ("交替访问", "硬件复杂"),
+        ("DMA 与 CPU 交替访问", "硬件复杂"),
+        ("传送期间并行工作", "DMA 传送过程"),
+        ("传送期间并行工作", "向 CPU 申请 DMA"),
+        ("并行工作", "CPU继续执行主程序"),
+        ("并行工作", "DMA 传送过程"),
         ("后处理", "决定是否继续"),
         ("后处理", "错误诊断"),
         ("国家有认同", "国家有认同"),

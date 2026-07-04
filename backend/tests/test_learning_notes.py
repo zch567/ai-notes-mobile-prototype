@@ -1,4 +1,4 @@
-﻿from app.rag.learning_notes import enrich_learning_notes
+from app.rag.learning_notes import enrich_learning_notes
 from app.rag.schemas import SourceChunk
 
 
@@ -530,6 +530,8 @@ def test_learning_notes_merge_pdf_hard_line_breaks_and_filter_duplicate_title():
     assert "总线控制权" in joined
     assert "尽管" in joined
     assert not note["summary"].startswith("周期挪用（或周期窃取）主要包括周期挪用（或周期窃取）")
+    assert "..." not in note["summary"]
+    assert "使用广泛说明" not in note["summary"]
     assert "存的利用率，使用广泛" not in outline
 
 
@@ -631,6 +633,45 @@ def test_result_builder_filters_ppt_activities_and_keeps_core_notes():
     assert result["_meta"]["contentQuality"]["metrics"]["activityNoteRate"] == 0
     assert result["_meta"]["contentQuality"]["metrics"]["emptyContentRate"] == 0
     assert all(note.get("sourceExcerpts") for note in result["notes"])
+
+
+def test_question_summary_keeps_complete_answer_without_ellipsis():
+    from app.rag.result_builder import build_agent_result
+
+    chunks = [
+        SourceChunk(
+            id="ppt-why-china-dream",
+            sourceId="ppt",
+            title="共圆中国梦",
+            heading="为什么中国梦能够实现？",
+            text=(
+                "为什么中国梦能够实现\n"
+                "现在，我们比历史上任何时期都更接近中华民族伟大复兴的目标，"
+                "比历史上任何时期都更有信心、有能力实现这个目标。"
+            ),
+            sourceType="pptx",
+            fileName="共圆中国梦.pptx",
+            chunkIndex=5,
+            sourceRef="slide_5",
+            slide=5,
+        )
+    ]
+
+    result = build_agent_result(chunks)
+    note = result["notes"][0]
+    joined = " ".join(
+        [
+            note.get("summary", ""),
+            note.get("content", ""),
+            " ".join(note.get("keyPoints", [])),
+            " ".join(card.get("answer", "") for card in result.get("cards", [])),
+        ]
+    )
+
+    assert "..." not in joined
+    assert "更..." not in joined
+    assert "中华民族伟大复兴" in note["summary"]
+    assert "更有信心" in note["summary"] or "有信心和能力" in note["summary"]
 
 
 def test_content_quality_blocks_visible_broken_fragments_and_weak_excerpts():
@@ -827,6 +868,28 @@ def test_content_quality_flags_learning_value_gaps():
     assert "weak-explanation-high" in quality["failedChecks"]
 
 
+def test_content_quality_accepts_politics_action_requirement():
+    from app.rag.content_quality import assess_content_quality
+
+    quality = assess_content_quality(
+        {
+            "notes": [
+                {
+                    "id": "note-action",
+                    "title": "行动要求：树立崇高远大理想，努力学习科学文化知识，不断提高自身素质",
+                    "summary": "行动类内容应先明确主体，再按目标、做法和落实场景组织答案。",
+                    "content": "答题时按主体组织：国家或集体层面写方向和条件，个人层面写理想信念、学习实践、责任担当和法治意识。",
+                    "keyPoints": ["树立崇高远大理想", "努力学习科学文化知识", "不断提高自身素质"],
+                    "sourceExcerpts": [{"quote": "树立崇高远大理想，努力学习科学文化知识，不断提高自身素质。"}],
+                }
+            ]
+        }
+    )
+
+    assert quality["metrics"]["weakTeachingValueRate"] == 0
+    assert quality["metrics"]["weakLearningActionabilityRate"] == 0
+
+
 def test_content_quality_blocks_template_learning_text_and_semantic_repetition():
     from app.rag.content_quality import assess_content_quality
 
@@ -933,7 +996,9 @@ def test_result_builder_splits_first_numbered_item_from_enumeration_parent():
     assert children[0]["title"].startswith("(1)")
     assert "(1)" in parent["keyPoints"][0]
     assert "\u7b2c\u4e00\u79cd\u65b9\u5f0f\u7684\u9002\u7528\u6761\u4ef6" not in parent["keyPoints"]
-    assert "\u5e76\u5217\u5185\u5bb9" in parent["summary"]
+    assert "\u5e76\u5217\u5185\u5bb9" not in parent["summary"]
+    assert "\u7b2c\u4e00\u79cd\u65b9\u5f0f" in parent["summary"]
+    assert "\u7b2c\u4e8c\u79cd\u65b9\u5f0f" in parent["summary"]
     assert "\u603b\u8d77\u6a21\u5757" not in parent["summary"]
     assert "\u4e0d\u5e94\u627f\u8f7d" not in parent["content"]
     assert "\u7ed3\u6784\u603b\u89c8" not in parent["content"]
@@ -965,6 +1030,28 @@ def test_result_builder_keeps_six_numbered_action_points():
 
     assert len(points) == 6
     assert any("增强法治观念" in point for point in points)
+
+
+def test_result_builder_recovers_action_keypoints_from_title_when_outline_empty():
+    from app.rag.result_builder import _semantic_note_contract
+
+    notes = [
+        {
+            "id": "note-action",
+            "title": "行动要求：树立崇高远大理想，努力学习科学文化知识，不断提高自身素质",
+            "summary": "行动类内容应先明确主体，再按目标、做法和落实场景组织答案。",
+            "content": "答题时按主体组织：个人层面写理想信念、学习实践和责任担当。",
+            "keyPoints": [],
+            "sourceRefs": ["ppt-action"],
+        }
+    ]
+
+    result = _semantic_note_contract(notes)
+    points = result[0]["keyPoints"]
+
+    assert "树立崇高远大理想" in points
+    assert "努力学习科学文化知识" in points
+    assert "不断提高自身素质" in points
 
 
 def test_result_builder_orders_parent_before_colon_child_and_drops_repeated_numbered_heading():
@@ -1155,6 +1242,203 @@ def test_text_cleaning_keeps_normal_enumeration_punctuation():
     assert "访问、周期挪用" in normalize_learning_text(text)
 
 
+def test_result_builder_rewrites_instruction_titles_and_template_study_text():
+    from app.rag.result_builder import build_agent_result
+
+    source = SourceChunk(
+        id="agri-1",
+        sourceId="agri",
+        title="农业",
+        heading='同学们，读图“主要农业部门",请说各部门的特点。',
+        text=(
+            '同学们，读图“主要农业部门",请说各部门的特点。\n'
+            "种植业是在耕地上种植水稻、小麦、大豆、棉花等农作物的生产部门。\n"
+            "种植、养育、保护、采伐林木及对树胶、松脂等林产品进行采集和加工的生产部门是林业。\n"
+            "靠放牧或饲养牲畜及家禽等而获得产品的生产部门称为畜牧业。\n"
+            "在水域中进行天然捕捞，或者人工养殖有价值的水生生物的生产部门称为渔业。\n"
+        ),
+        sourceType="pptx",
+        fileName="农业.pptx",
+        chunkIndex=1,
+        sourceRef="slide_1",
+    )
+
+    result = build_agent_result([source])
+    joined = " ".join(
+        [
+            *(note["title"] for note in result["notes"]),
+            *(note["summary"] for note in result["notes"]),
+            *(note["content"] for note in result["notes"]),
+            *(point for note in result["notes"] for point in note.get("keyPoints", [])),
+            *(question["answer"] for question in result["review"]["questions"]),
+        ]
+    )
+
+    assert "同学们" not in joined
+    assert "请说各部门的特点" not in joined
+    assert "备考时不要只背长句" not in joined
+    assert "压缩关键词，并练习展开成完整答案" not in joined
+    assert any("种植业" in point for note in result["notes"] for point in note.get("keyPoints", []))
+    assert any("林业" in point for note in result["notes"] for point in note.get("keyPoints", []))
+
+
+def test_result_builder_does_not_expose_internal_note_strategy_text():
+    from app.rag.result_builder import build_agent_result
+
+    politics_source = SourceChunk(
+        id="china-reason",
+        sourceId="china",
+        title="中国梦",
+        heading="中国人自信的原因",
+        text=(
+            "中国人自信的原因\n"
+            "（1）根本原因：①中国共产党带领中国人民开辟了中国特色社会主义道路。\n"
+            "②形成了中国特色社会主义理论体系。\n"
+            "③确立了中国特色社会主义制度。\n"
+            "④发展了中国特色社会主义文化。\n"
+            "（2）重要原因：国家富强、民族振兴让中国人更加自信。\n"
+        ),
+        sourceType="pptx",
+        fileName="中国梦.pptx",
+        chunkIndex=1,
+        sourceRef="slide_8",
+    )
+    exam_source = SourceChunk(
+        id="wulun-principle",
+        sourceId="wulun",
+        title="唯物论",
+        heading="物质与意识的辩证关系原理",
+        text=(
+            "物质与意识的辩证关系原理\n"
+            "（一）原理内容\n"
+            "物质决定意识：物质第一性，意识第二性，意识是物质世界的主观映象。\n"
+            "意识对物质具有能动的反作用：意识具有目的性、计划性、主动创造性。\n"
+            "正确的意识能够促进事物发展，错误的意识会阻碍事物发展。\n"
+            "（二）方法论意义\n"
+            "坚持一切从实际出发，实事求是，使主观符合客观。\n"
+            "重视意识的能动作用，树立正确的思想意识，克服错误的思想意识。\n"
+        ),
+        sourceType="docx",
+        fileName="唯物论.docx",
+        chunkIndex=1,
+        sourceRef="para_1",
+    )
+
+    politics_result = build_agent_result([politics_source])
+    exam_result = build_agent_result([exam_source])
+    joined = " ".join(
+        [
+            *(note["summary"] for result in [politics_result, exam_result] for note in result["notes"]),
+            *(note["content"] for result in [politics_result, exam_result] for note in result["notes"]),
+            *(question["answer"] for result in [politics_result, exam_result] for question in result["review"]["questions"]),
+        ]
+    )
+
+    assert "NOTE 应" not in joined
+    assert "类 NOTE" not in joined
+    assert "直接记住原文依据" not in joined
+    assert "先点明原理" not in joined
+    assert "道路" in joined
+    assert "物质决定意识" in joined
+
+
+def test_result_builder_relabels_repeated_definition_extensions():
+    from app.rag.result_builder import _relabel_repeated_definition_points
+
+    points = _relabel_repeated_definition_points(
+        [
+            "定义：物质是标志客观实在的哲学范畴，这种客观实在是人通过感觉感知的，不依赖于我们的感觉而存在",
+            "定义：物质的唯一特性是客观实在性",
+            "定义：物质存在于人的意识之外，可以为人的意识所反映",
+            "定义：哲学上的物质范畴是对一切具体物质形态共同本质的抽象概括，不等于具体的物质形态",
+            "定义：意识是人脑的机能和属性，是客观世界的主观映象，是客观内容与主观形式的统一",
+        ]
+    )
+
+    assert sum(1 for point in points if point.startswith("定义：")) == 1
+    assert any(point.startswith("核心特性：") for point in points)
+    assert any(point.startswith("存在与反映关系：") for point in points)
+    assert any(point.startswith("概念边界：") for point in points)
+    assert any(point.startswith("意识定义：") for point in points)
+
+
+def test_content_quality_blocks_internal_note_strategy_text():
+    from app.rag.content_quality import assess_content_quality
+
+    quality = assess_content_quality(
+        {
+            "notes": [
+                {
+                    "id": "note-strategy",
+                    "title": "中国人自信的原因",
+                    "summary": "根本原因包括道路、理论、制度、文化。",
+                    "content": "原因类 NOTE 应直接记住原文依据：先写根本原因，再补充重要原因。",
+                    "keyPoints": ["根本原因：开辟了中国特色社会主义道路"],
+                    "sourceExcerpts": [{"quote": "根本原因：开辟了中国特色社会主义道路。"}],
+                }
+            ]
+        }
+    )
+
+    assert not quality["passed"]
+    assert "template-content-present" in quality["failedChecks"]
+
+
+def test_result_builder_drops_slide_header_noise_from_title_and_points():
+    from app.rag.result_builder import build_agent_result
+
+    source = SourceChunk(
+        id="db-1",
+        sourceId="db",
+        title="Database",
+        heading="NANKAI UNIVERSITY",
+        text=(
+            "NANKAI UNIVERSITY\n"
+            "©LXD\n"
+            "Database System Principle - Entity-Relationship Model\n"
+            "Logical Design decides the database schema.\n"
+            "Database design should avoid redundancy and incomplete representation.\n"
+        ),
+        sourceType="pdf",
+        fileName="db.pdf",
+        chunkIndex=1,
+        sourceRef="page_1",
+    )
+
+    result = build_agent_result([source])
+    joined = " ".join(
+        [
+            *(note["title"] for note in result["notes"]),
+            *(point for note in result["notes"] for point in note.get("keyPoints", [])),
+        ]
+    )
+
+    assert "NANKAI UNIVERSITY" not in joined
+    assert "©LXD" not in joined
+    assert "Logical Design" in joined or "Database System Principle" in joined
+
+
+def test_review_answer_uses_summary_and_keypoints_not_template_content():
+    from app.rag.result_builder import _build_questions
+
+    notes = [
+        {
+            "id": "note-1",
+            "title": "农业部门及其特点",
+            "summary": "农业部门包括种植业、林业、畜牧业和渔业。",
+            "content": "备考时不要只背长句，应把概念、原理和易混点压缩成关键词，并练习把关键词展开成完整答案。",
+            "keyPoints": ["种植业是在耕地上种植农作物", "林业负责林木培育、保护和采伐"],
+            "citationIds": ["source-1"],
+        }
+    ]
+
+    question = _build_questions(notes)[0]
+
+    assert "备考时不要只背长句" not in question["answer"]
+    assert "压缩关键词" not in question["answer"]
+    assert "种植业是在耕地上种植农作物" in question["answer"]
+
+
 def test_result_builder_rewrites_generic_ppt_action_question_without_sample_title():
     from app.rag.result_builder import build_agent_result
 
@@ -1201,3 +1485,194 @@ def test_result_builder_uses_completion_notifier_profile_without_dma_title():
     assert "字计数器溢出" not in note["summary"]
     assert "一批数据传送结束后发出中断请求" in note["keyPoints"]
     assert "地址类部件负责定位" not in note["content"]
+
+
+def test_result_builder_enumeration_parent_uses_concrete_labels_not_meta_template():
+    from app.rag.result_builder import _semantic_note_contract
+
+    notes = [
+        {
+            "id": "note-1",
+            "title": "DMA 与主存交换数据的三种方式",
+            "summary": "本部分包含 3 个并列内容项目，重点是分别说明各项的含义、条件和适用边界。",
+            "content": "学习DMA 与主存交换数据的三种方式时，先建立整体分类。",
+            "keyPoints": ["(1) 停止 CPU 访问主存", "(2) 周期挪用", "(3) DMA 与 CPU 交替访问"],
+            "sourceRefs": ["c1"],
+        }
+    ]
+
+    note = _semantic_note_contract(notes)[0]
+    joined = " ".join([note["summary"], note["content"], *note["keyPoints"]])
+
+    assert "本部分包含" not in joined
+    assert "并列内容项目" not in joined
+    assert "学习DMA" not in joined
+    assert "停止 CPU 访问主存" in note["summary"]
+    assert "周期挪用" in note["summary"]
+
+
+def test_result_builder_single_numbered_label_does_not_become_meta_count_summary():
+    from app.rag.result_builder import _semantic_note_contract
+
+    notes = [
+        {
+            "id": "note-1",
+            "title": "DMA 接口与系统的连接方式",
+            "summary": "本部分包含 1 个并列内容项目，重点是分别说明各项的含义、条件和适用边界。",
+            "content": "学习该主题时，先建立整体分类。",
+            "keyPoints": ["(1) 具有公共请求线的 DMA 请求"],
+            "sourceRefs": ["c1"],
+        }
+    ]
+
+    note = _semantic_note_contract(notes)[0]
+    joined = " ".join([note["summary"], note["content"], *note["keyPoints"]])
+
+    assert "本部分包含 1 个并列内容项目" not in joined
+    assert "具有公共请求线的 DMA 请求" in note["summary"]
+    assert "学习该主题时" not in joined
+
+
+def test_result_builder_preserves_good_source_content_instead_of_profile_overwriting():
+    from app.rag.result_builder import _semantic_note_contract
+
+    notes = [
+        {
+            "id": "note-1",
+            "title": "周期挪用（或周期窃取）",
+            "summary": "周期挪用既实现了 I/O 传送，又提高了 CPU 对主存的利用率。",
+            "content": "I/O设备每挪用一个主存周期都要申请总线控制权、建立总线控制权、归还总线控制权，因此适合 I/O设备读写周期大于主存周期的情况。",
+            "keyPoints": ["每次传送要申请和归还总线控制权", "适合外设读写周期大于主存周期的场景"],
+            "sourceRefs": ["c1"],
+        }
+    ]
+
+    note = _semantic_note_contract(notes)[0]
+
+    assert "申请总线控制权" in note["content"]
+    assert "适合 I/O设备读写周期大于主存周期" in note["content"]
+
+
+def test_result_builder_abstracts_long_literature_title_without_hard_truncation():
+    from app.rag.result_builder import _semantic_note_contract
+
+    notes = [
+        {
+            "id": "note-1",
+            "title": "《水浒传》的故事源起于北宋宣和年间的话本《大宋宣和遗事》，其中描述了宋江、吴用、晁盖等36人起义造反的故事",
+            "summary": "《水浒传》的故事源起于北宋宣和年间的话本《大宋宣和遗事》。",
+            "content": "从宋代史籍以后，水浒故事成为民间文学题材，元杂剧中出现了相关剧本，到明朝经许多作者不断增添情节乃至定型。",
+            "keyPoints": ["故事源起于北宋宣和年间的话本", "元杂剧中出现水浒故事剧本", "明朝逐步增添情节并定型"],
+            "sourceRefs": ["shuihu-1"],
+        }
+    ]
+
+    note = _semantic_note_contract(notes)[0]
+    joined = " ".join([note["title"], note["summary"], note["content"]])
+
+    assert note["title"] == "成书源流"
+    assert "其中描述了" not in note["title"]
+    assert "..." not in note["title"]
+    assert "核心线索" not in joined
+    assert "需要说明" not in joined
+
+
+def test_result_builder_rewrites_literature_character_note_to_role_title():
+    from app.rag.result_builder import _semantic_note_contract
+
+    notes = [
+        {
+            "id": "note-1",
+            "title": "性格特点：为人仗义、善于用人，但总希望被朝廷招安",
+            "summary": "性格特点：为人仗义、善于用人，但总希望被朝廷招安。",
+            "content": "宋江原为山东郓城县一刀笔小吏，字公明，绰号呼保义，以及时雨闻名天下。",
+            "keyPoints": ["宋江字公明，绰号呼保义", "为人仗义，善于用人", "后来率众接受朝廷招安"],
+            "sourceRefs": ["shuihu-2"],
+        }
+    ]
+
+    note = _semantic_note_contract(notes)[0]
+
+    assert note["title"] == "人物：宋江"
+    assert "人物类笔记" in note["content"]
+
+
+def test_result_builder_recovers_politics_root_causes_from_source_chunk():
+    from app.rag.result_builder import build_agent_result
+
+    source = SourceChunk(
+        id="china-root-cause",
+        sourceId="ppt",
+        title="共圆中国梦",
+        heading="（1）根本原因：",
+        text=(
+            "（1）根本原因：\n"
+            "①中国共产党带领中国人民开辟了中国特色社会主义道路；\n"
+            "②形成了中国特色社会主义理论体系；\n"
+            "③确立了中国特色社会主义制度；\n"
+            "④发展了中国特色社会主义文化。\n"
+            "（2）重要原因：在党的领导下，中国特色社会主义伟大事业不断取得新的成就，国家富强、民族振兴让中国人更加自信\n"
+            "4.中国人自信的原因？中国自信、民族自信的底气源自哪里？/根本所在？"
+        ),
+        sourceType="pptx",
+        fileName="共圆中国梦.pptx",
+        chunkIndex=11,
+        sourceRef="slide_11",
+        slide=11,
+    )
+
+    result = build_agent_result([source])
+    joined = " ".join(
+        [
+            *(note["summary"] for note in result["notes"]),
+            *(note["content"] for note in result["notes"]),
+            *(point for note in result["notes"] for point in note.get("keyPoints", [])),
+        ]
+    )
+
+    assert "开辟了中国特色社会主义道路" in joined
+    assert "形成了中国特色社会主义理论体系" in joined
+    assert "确立了中国特色社会主义制度" in joined
+    assert "发展了中国特色社会主义文化" in joined
+    assert "重要原因" in joined
+    assert "原因说明需要把结论和依据对应起来" not in joined
+
+
+def test_result_builder_recovers_exam_principle_points_from_source_chunk():
+    from app.rag.result_builder import build_agent_result
+
+    source = SourceChunk(
+        id="wulun-principle",
+        sourceId="doc",
+        title="唯物论",
+        heading="二、物质与意识的辩证关系原理",
+        text=(
+            "二、物质与意识的辩证关系原理\n"
+            "（一）原理内容\n"
+            "物质决定意识：物质第一性，意识第二性，意识是物质世界的主观映象，意识的起源、本质、内容都依赖于物质。\n"
+            "意识对物质具有能动的反作用：意识具有目的性、计划性、主动创造性，能够指导实践改造客观世界，还能够调控人的行为和生理活动。\n"
+            "正确的意识能够促进事物发展，错误的意识会阻碍事物发展。\n"
+            "（二）方法论意义\n"
+            "坚持一切从实际出发，实事求是，使主观符合客观；\n"
+            "重视意识的能动作用，树立正确的思想意识，克服错误的思想意识；\n"
+            "既要反对夸大意识能动作用的唯心主义，也要反对否认意识能动作用的形而上学唯物主义。"
+        ),
+        sourceType="docx",
+        fileName="考研政治_唯物论.docx",
+        chunkIndex=4,
+        sourceRef="para_26_34",
+        paragraphStart=26,
+        paragraphEnd=34,
+    )
+
+    result = build_agent_result([source])
+    note = result["notes"][0]
+    joined = " ".join([note["summary"], note["content"], *note.get("keyPoints", [])])
+
+    assert "物质决定意识" in joined
+    assert "意识对物质具有能动的反作用" in joined
+    assert "正确的意识能够促进事物发展" in joined
+    assert "坚持一切从实际出发" in joined
+    assert "反对夸大意识能动作用" in joined
+    assert "原理内容由原理表述" not in joined
+

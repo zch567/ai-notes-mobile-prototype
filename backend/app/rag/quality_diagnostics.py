@@ -74,7 +74,7 @@ def build_quality_diagnostics(result: dict[str, Any]) -> dict[str, Any]:
     structure_score = _structure_score(content_quality, content_metrics, notes)
     review_score = _review_score(review, notes)
     multi_agent_score = _multi_agent_score(result, meta)
-    overall = round(
+    raw_overall = round(
         asset_score * 0.22
         + citation_score * 0.24
         + structure_score * 0.30
@@ -82,6 +82,7 @@ def build_quality_diagnostics(result: dict[str, Any]) -> dict[str, Any]:
         + multi_agent_score * 0.12,
         1,
     )
+    overall = _cap_overall_score(raw_overall, content_quality, content_metrics, citation_metrics)
     warnings = _quality_warnings(result, content_quality, content_metrics, citation_metrics)
     diagnostics = {
         "overallScore": overall,
@@ -176,6 +177,30 @@ def _structure_score(content_quality: dict[str, Any], metrics: dict[str, Any], n
     if content_quality and not content_quality.get("passed", True):
         penalty += 6
     return max(0.0, min(100.0, 100 - penalty))
+
+
+def _cap_overall_score(
+    overall: float,
+    content_quality: dict[str, Any],
+    content_metrics: dict[str, Any],
+    citation_metrics: dict[str, Any],
+) -> float:
+    if not content_quality.get("passed", True):
+        overall = min(overall, 79.0)
+    hard_content_metrics = [
+        "rawConcatSummaryRate",
+        "templateContentRate",
+        "fragmentTitleRate",
+        "activityNoteRate",
+        "weakKeyPointRate",
+    ]
+    if any(_number(content_metrics.get(name)) > 0 for name in hard_content_metrics):
+        overall = min(overall, 74.0)
+    if _number(content_metrics.get("weakLearningActionabilityRate")) > 0.35 or _number(content_metrics.get("learningRoleCoverage"), 1.0) < 1.0:
+        overall = min(overall, 79.0)
+    if _number(citation_metrics.get("noteCitationCoverage"), 1.0) < 0.8 or _number(citation_metrics.get("quoteInSourceRate"), 1.0) < 0.8:
+        overall = min(overall, 74.0)
+    return round(overall, 1)
 
 
 def _review_score(review: dict[str, Any], notes: list[Any]) -> float:

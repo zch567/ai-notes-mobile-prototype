@@ -52,6 +52,26 @@ EXAM_TERMS = [
     "易混",
 ]
 
+LITERATURE_TERMS = [
+    "水浒传",
+    "小说",
+    "作者",
+    "施耐庵",
+    "宋江",
+    "林冲",
+    "李逵",
+    "鲁智深",
+    "武松",
+    "梁山",
+    "人物形象",
+    "性格特点",
+    "故事情节",
+    "阅读",
+    "名著",
+    "绰号",
+    "招安",
+]
+
 ENUMERATION_TERMS = ["种", "类", "阶段", "步骤", "方面", "表现", "原因", "方式", "功能", "组成", "类型", "包括"]
 PROCESS_TERMS = ["过程", "流程", "步骤", "阶段", "预处理", "后处理", "申请", "请求", "结束", "并行工作"]
 COMPONENT_TERMS = ["接口", "部件", "组成", "结构", "寄存器", "机构", "控制逻辑", "控制电路"]
@@ -59,6 +79,8 @@ COMPARISON_TERMS = ["比较", "区别", "差异", "vs", "VS", "对比", "辨析"
 ACTION_TERMS = ["如何", "怎样", "怎么做", "助力", "行动", "做法", "要求", "落实", "应该"]
 REASON_TERMS = ["原因", "为什么", "依据", "底气"]
 PRINCIPLE_TERMS = ["原理", "方法论", "关系"]
+CHARACTER_TERMS = ["人物", "性格", "形象", "绰号", "宋江", "林冲", "李逵", "鲁智深", "武松", "吴用", "杨志"]
+PLOT_TERMS = ["情节", "故事", "回", "起义", "招安", "智取", "生辰纲", "梁山"]
 
 
 def infer_learning_profile(
@@ -97,10 +119,19 @@ def infer_learning_profile(
         roles.add("manifestation")
     if has_any(title_text, PRINCIPLE_TERMS):
         roles.add("principle")
-    if has_any(title_text, ["高频", "考点", "清单", "总结"]):
+    if has_any(title_text, ["高频", "考点", "清单", "总结", "准确记忆", "熟练掌握", "核心概念", "核心原理", "易混淆概念"]):
         roles.add("checklist")
     if has_any(title_text, ["易混", "辨析", " vs ", " VS "]):
         roles.add("contrast")
+    if material == "literature":
+        if has_any(probe, CHARACTER_TERMS):
+            roles.add("character")
+        if has_any(probe, PLOT_TERMS):
+            roles.add("plot")
+        if has_any(title_text, ["作者", "施耐庵", "生卒年"]):
+            roles.add("author")
+        if has_any(title_text, ["阅读", "怎么读", "名著", "课堂", "活动", "问题"]):
+            roles.add("reading")
 
     if "component" in roles:
         subtype = component_subtype(probe)
@@ -118,6 +149,10 @@ def infer_learning_profile(
             process_kind = "three_phase_process"
         if process_kind and (subtype in {"", "component", "control_logic"} or has_any(title_text, ["申请", "请求", "响应", "条件", "后处理", "并行工作"])):
             subtype = process_kind
+    if material == "literature":
+        literature_kind = literature_subtype(probe)
+        if literature_kind:
+            subtype = literature_kind
 
     return {
         "material": material,
@@ -131,10 +166,12 @@ def infer_learning_profile(
 def infer_material(probe: str) -> str:
     if has_any(probe, TECHNICAL_TERMS):
         return "technical"
-    if has_any(probe, POLITICS_TERMS):
-        return "politics"
     if has_any(probe, EXAM_TERMS):
         return "exam"
+    if has_any(probe, POLITICS_TERMS):
+        return "politics"
+    if has_any(probe, LITERATURE_TERMS):
+        return "literature"
     return "general"
 
 
@@ -225,3 +262,19 @@ def process_subtype(probe: str) -> str:
     if "后处理" in probe:
         return "post_process"
     return ""
+
+
+def literature_subtype(probe: str) -> str:
+    if has_any(probe, ["故事源起", "成书", "话本", "元杂剧", "定型"]):
+        return "origin"
+    if has_any(probe, ["主题", "价值", "农民起义", "造反者", "英雄形象"]):
+        return "theme"
+    if has_any(probe, ["第一至", "第四十回", "第八十回", "故事结构", "全书可分"]):
+        return "plot_structure"
+    if has_any(probe, ["请以", "你还爱读", "请说出", "回答", "阅读任务"]):
+        return "reading_task"
+    if has_any(probe, ["作者", "施耐庵", "生卒年"]):
+        return "author"
+    if has_any(probe, ["性格特点", "人物形象", "绰号", "宋江", "林冲", "李逵", "鲁智深", "武松", "吴用", "杨志"]):
+        return "character"
+    return "literature"

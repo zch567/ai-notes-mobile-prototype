@@ -11,6 +11,8 @@ dist-webview
 .env
 .env.*
 !.env.example
+api
+backend/api
 coverage
 Thumbs.db
 导图参考/

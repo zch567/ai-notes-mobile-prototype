@@ -35,6 +35,9 @@ def test_rag_only_run_returns_frontend_contract(tmp_path: Path):
     assert set(["id", "topic", "summary", "agentStages", "sources", "notes", "citations", "mindMap", "review"]) <= set(result)
     assert result["notes"][0]["citationIds"]
     assert result["mindMap"]["nodes"][0]["line"]
+    assert result["assetMeta"]["assetVersion"] == "learning-asset-v1"
+    assert result["qualityDiagnostics"]["overallScore"] >= 0
+    assert result["qualityDiagnostics"]["summaryText"]
 
 
 def test_validate_endpoint_accepts_persisted_result(tmp_path: Path):

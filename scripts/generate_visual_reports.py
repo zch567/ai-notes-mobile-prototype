@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import html
 import json
+import os
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -12,9 +13,10 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 from app.adapters import RagPipelineAdapter  # noqa: E402
+from app.rag.quality_diagnostics import attach_quality_diagnostics  # noqa: E402
 
 
-OUT_DIR = REPO_ROOT.parent / "lanxin-polish-visual-reports"
+OUT_DIR = Path(os.environ.get("VISUAL_REPORT_OUT_DIR") or REPO_ROOT.parent / "lanxin-polish-visual-reports")
 
 METRIC_LABELS = {
     "noteCount": "生成 NOTE 数",
@@ -92,13 +94,15 @@ def main() -> None:
     for sample in samples:
         chunks = adapter.parse(sample["path"])
         result = adapter.build_deterministic_result(chunks, sample["path"])
+        attach_quality_diagnostics(result)
         result_path = OUT_DIR / f"lanxin-{sample['slug']}-result.json"
         report_path = OUT_DIR / f"lanxin-{sample['slug']}-report.html"
         result_path.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
         report_path.write_text(render_report(sample, chunks, result), encoding="utf-8")
         quality = result.get("_meta", {}).get("contentQuality", {})
-        links.append((sample["label"], report_path.name, len(chunks), len(result.get("notes", [])), quality))
-        print(sample["label"], report_path, quality.get("passed"), quality.get("metrics"))
+        diagnostics = result.get("qualityDiagnostics", {})
+        links.append((sample["label"], report_path.name, len(chunks), len(result.get("notes", [])), quality, diagnostics))
+        print(sample["label"], report_path, quality.get("passed"), diagnostics.get("overallScore"), quality.get("metrics"))
     (OUT_DIR / "index.html").write_text(render_index(links), encoding="utf-8")
 
 
@@ -112,6 +116,8 @@ def pick_sample(suffix: str, token: str) -> Path:
 def render_report(sample: dict, chunks: list, result: dict) -> str:
     notes = result.get("notes", [])
     quality = result.get("_meta", {}).get("contentQuality", {})
+    diagnostics = result.get("qualityDiagnostics", {})
+    asset = result.get("assetMeta", {})
     metrics = quality.get("metrics", {})
     failed = quality.get("failedChecks", [])
     samples = quality.get("samples", {})
@@ -122,6 +128,7 @@ def render_report(sample: dict, chunks: list, result: dict) -> str:
     )
     failed_html = "".join(f"<li>{esc(FAILED_LABELS.get(item, item))}</li>" for item in failed) or "<li>无阻断项</li>"
     sample_html = render_quality_samples(samples)
+    diagnostic_html = render_quality_diagnostics(diagnostics, asset)
     return f"""<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -140,8 +147,10 @@ def render_report(sample: dict, chunks: list, result: dict) -> str:
     <div class="metric"><strong>{len(chunks)}</strong><span>解析 chunk 数</span></div>
     <div class="metric"><strong>{len(notes)}</strong><span>生成 NOTE 数</span></div>
     <div class="metric"><strong>{'通过' if quality.get('passed') else '未通过'}</strong><span>内容质量结论</span></div>
+    <div class="metric"><strong>{esc(diagnostics.get('overallScore', '-'))}</strong><span>综合质量分</span></div>
     {metric_html}
   </section>
+  {diagnostic_html}
   <section class="panel">
     <h2>质量检查</h2>
     <ul>{failed_html}</ul>
@@ -152,6 +161,34 @@ def render_report(sample: dict, chunks: list, result: dict) -> str:
 </main>
 </body>
 </html>"""
+
+
+def render_quality_diagnostics(diagnostics: dict, asset: dict) -> str:
+    if not diagnostics:
+        return ""
+    dimensions = diagnostics.get("dimensions") or []
+    dimension_html = "".join(
+        f"<div class='score-card'><strong>{esc(item.get('score'))}</strong><span>{esc(item.get('label'))}</span></div>"
+        for item in dimensions
+        if isinstance(item, dict)
+    )
+    warnings = diagnostics.get("warnings") or []
+    warning_html = "".join(f"<li>{esc(item)}</li>" for item in warnings) or "<li>无质量告警</li>"
+    asset_html = "".join(
+        [
+            f"<span>资产版本：{esc(asset.get('assetVersion', '-'))}</span>",
+            f"<span>引用数：{esc(asset.get('citationCount', 0))}</span>",
+            f"<span>导图节点：{esc(asset.get('mindMapNodeCount', 0))}</span>",
+            f"<span>复习题：{esc(asset.get('reviewQuestionCount', 0))}</span>",
+        ]
+    )
+    return f"""<section class="panel quality">
+    <h2>统一质量诊断</h2>
+    <p class="quality-summary">{esc(diagnostics.get('summaryText', ''))}</p>
+    <div class="asset-row">{asset_html}</div>
+    <div class="score-grid">{dimension_html}</div>
+    <details><summary>质量告警</summary><ul>{warning_html}</ul></details>
+  </section>"""
 
 
 def render_quality_samples(samples: dict) -> str:
@@ -198,11 +235,12 @@ def render_excerpt(item: dict) -> str:
     return f"<div class='quote'><div class='quote-loc'>{esc(loc)}</div><p>{esc(item.get('quote'))}</p></div>"
 
 
-def render_index(links: list[tuple[str, str, int, int, dict]]) -> str:
+def render_index(links: list[tuple[str, str, int, int, dict, dict]]) -> str:
     items = []
-    for label, name, chunks, notes, quality in links:
+    for label, name, chunks, notes, quality, diagnostics in links:
         status = "通过" if quality.get("passed") else "未通过"
-        items.append(f"<li><a href='{esc(name)}'>{esc(label)}</a><span>chunks={chunks}, notes={notes}, quality={status}</span></li>")
+        score = diagnostics.get("overallScore", "-")
+        items.append(f"<li><a href='{esc(name)}'>{esc(label)}</a><span>chunks={chunks}, notes={notes}, quality={status}, score={esc(score)}</span></li>")
     return f"<!doctype html><html lang='zh-CN'><head><meta charset='utf-8'><title>后端输出可视化报告索引</title>{style_block()}</head><body><main class='index'><h1>后端输出可视化报告索引</h1><p>生成时间：{esc(now())}</p><ul>{''.join(items)}</ul></main></body></html>"
 
 
@@ -213,9 +251,10 @@ def style_block() -> str:
 header{padding:28px 34px 18px;background:#fff;border-bottom:1px solid var(--line)}h1{margin:0 0 8px;font-size:26px;letter-spacing:0}h2{margin:0;font-size:19px}h3{margin:0 0 8px;font-size:15px}
 .meta{display:flex;flex-wrap:wrap;gap:10px;color:var(--muted);font-size:14px}main{max-width:1180px;margin:0 auto;padding:22px}.index{margin-top:32px;background:#fff;border:1px solid var(--line);border-radius:8px}
 .panel,.note{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:18px;margin-bottom:16px}.metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}.metric{border:1px solid var(--line);border-radius:8px;padding:14px;background:#fbfcfe;min-height:88px}.metric strong{display:block;font-size:22px;color:var(--accent)}.metric span,.muted{color:var(--muted);font-size:13px}
+.quality-summary{margin:8px 0 12px;color:var(--ink)}.asset-row{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}.asset-row span{border:1px solid var(--line);border-radius:999px;padding:3px 9px;color:var(--muted);font-size:12px}.score-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px}.score-card{border:1px solid var(--line);border-radius:8px;padding:12px;background:#fbfcfe}.score-card strong{display:block;color:var(--accent);font-size:21px}.score-card span{color:var(--muted);font-size:12px}
 .note-head{display:flex;gap:12px;align-items:flex-start}.note-index{flex:0 0 auto;border:1px solid var(--line);border-radius:999px;padding:3px 10px;color:var(--accent);font-size:12px;font-weight:700}.summary,.content{margin:12px 0;padding:12px 14px;border-radius:6px}.summary{background:#f4faf8;border-left:4px solid var(--accent)}.content{background:#fff8ed;border-left:4px solid var(--warn)}
 .grid.two{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(280px,.9fr);gap:16px}.tag{display:inline-block;margin:8px 6px 0 0;padding:2px 8px;border-radius:999px;border:1px solid var(--line);font-size:12px}.tag.ok{color:var(--accent)}.tag.warn{color:var(--bad);background:#fff4f2}.quote{border:1px solid var(--line);border-radius:6px;padding:10px;margin-bottom:8px;background:#fbfcfe}.quote-loc{font-size:12px;color:var(--muted);overflow-wrap:anywhere}ul{margin:0;padding-left:20px}li{margin:5px 0}a{color:var(--accent);font-weight:700}li span{color:var(--muted);margin-left:8px}details{margin-top:10px}
-@media(max-width:760px){header{padding:20px}main{padding:14px}.metrics,.grid.two{grid-template-columns:1fr}h1{font-size:22px}}
+@media(max-width:760px){header{padding:20px}main{padding:14px}.metrics,.grid.two,.score-grid{grid-template-columns:1fr}h1{font-size:22px}}
 </style>"""
 
 

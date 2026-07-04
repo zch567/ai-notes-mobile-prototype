@@ -165,15 +165,16 @@ def learning_key_points(unit: LearningUnit) -> list[str]:
     points = [item.text for item in unit.outline_items if keep_outline_text(item.text)]
     points = [point for point in points if not has_truncated_learning_point(point)]
     profile = infer_learning_profile(title, unit.summary, points, outline_text)
-    return learning_key_points_for_profile(profile, points)
+    return learning_key_points_for_profile(profile, points, title=title)
 
 
-def learning_key_points_for_profile(profile: dict[str, Any], points: list[str]) -> list[str]:
+def learning_key_points_for_profile(profile: dict[str, Any], points: list[str], *, title: str = "") -> list[str]:
     labels = profile.get("numberedLabels") or []
     if "enumeration" in profile["roles"] and labels:
         return dedupe_learning_values(labels, max_items=6 if len(labels) >= 6 else 5)
     if profile["material"] != "technical":
-        return dedupe_learning_values(points, max_items=6 if numbered_series_count(points) >= 6 else 5)
+        fallback = points or fallback_learning_points_from_title(title, profile)
+        return dedupe_learning_values(fallback, max_items=6 if numbered_series_count(fallback) >= 6 else 5)
     subtype = profile["subtype"]
     if "transfer_method" in profile["roles"]:
         if subtype == "cycle_stealing":
@@ -208,6 +209,19 @@ def learning_key_points_for_profile(profile: dict[str, Any], points: list[str]) 
         if subtype == "post_process":
             return ["校验传送数据是否正确", "判断是否继续传送其他数据块", "必要时重新初始化接口或停止外设"]
     return dedupe_learning_values(points, max_items=5)
+
+
+def fallback_learning_points_from_title(title: str, profile: dict[str, Any]) -> list[str]:
+    cleaned = strip_section_number(clean_item(title))
+    cleaned = re.sub(r"^(?:行动要求|具体做法|做法|要求|路径|措施|要点)[:：]\s*", "", cleaned).strip()
+    if not cleaned:
+        return []
+    if profile["material"] == "politics" and "action" in profile["roles"]:
+        parts = [part.strip(" 。；;，,") for part in re.split(r"[，、；;]", cleaned) if part.strip(" 。；;，,")]
+        return parts[:4] or [cleaned]
+    if profile["material"] in {"politics", "exam"}:
+        return [cleaned]
+    return []
 
 
 def dedupe_learning_values(values: list[str], *, max_items: int) -> list[str]:
@@ -669,7 +683,9 @@ def learning_explanation(title: str, summary: str, outline: list[OutlineItem]) -
     if explanation:
         return explanation
     if points:
-        return compact(f"学习时先理解{title_clean}的核心含义，再围绕" + "、".join(points[:3]) + "梳理作用、条件和易混点。", 420)
+        if len(points) == 1:
+            return compact(f"{title_clean}的关键线索是{points[0]}，需要说明其含义、条件、作用或例子。", 420)
+        return compact(f"{title_clean}围绕" + "、".join(points[:3]) + "展开，重点说明这些要点的含义、条件、作用和区别。", 420)
     return ""
 
 
@@ -679,19 +695,19 @@ def explanation_for_profile(profile: dict[str, Any], points: list[str]) -> str:
     subtype = profile["subtype"]
     if material == "technical":
         if subtype == "cycle_stealing":
-            return "学习时抓住“临时占用主存周期”这一点：它提高主存利用率，但每次传送都涉及总线控制权申请、建立和归还。"
+            return "周期挪用以“临时占用主存周期”为核心：它提高主存利用率，但每次传送都涉及总线控制权申请、建立和归还。"
         if subtype == "interleaved_access":
-            return "这一方式把工作周期分成不同访存分周期，重点比较它与临时占用周期方式的区别：处理器不必长时间等待，但硬件控制逻辑更复杂。"
+            return "交替访问属于主存交换方式之一：处理器和传送方按分周期交替访问主存，适合按固定节奏分时访存的场景，但硬件控制逻辑更复杂。"
         if subtype == "exclusive_access":
-            return "学习时围绕主存使用权比较：控制简单的一方通常以处理器等待为代价，适合成组快速传送但不利于处理器利用率。"
+            return "停止 CPU 访问主存以处理器等待为代价换取控制简单，适合成组快速传送，但不利于处理器利用率。"
         if subtype == "data_buffer":
             return "缓冲部件用于暂存本次传送的数据。要区分主存侧和设备侧的数据宽度，理解为什么需要装配或拆卸。"
         if subtype == "completion_notifier":
-            return "完成通知部件用于在一批数据传送结束后通知处理器执行后处理，学习时要把它和数据暂存、地址更新等职责区分开。"
+            return "完成通知部件用于在一批数据传送结束后通知处理器执行后处理，它与数据暂存、地址更新等职责不同。"
         if subtype in {"component_group", "interface_function", "counter", "address_register", "control_logic"}:
-            return "学习时按部件职责记忆：地址类负责定位，计数类负责长度，缓冲类负责暂存，控制逻辑负责协调请求、响应和结束通知。"
+            return "接口部件可按职责区分：地址类负责定位，计数类负责长度，缓冲类负责暂存，控制逻辑负责协调请求、响应和结束通知。"
         if subtype == "connection_type":
-            return "复习时区分连接方式：有的结构强调单个高速设备独占服务，有的结构强调多个低速设备按请求线、优先级或交叉方式共享服务。"
+            return "连接方式的差异在服务对象和请求机制：有的结构强调单个高速设备独占服务，有的结构强调多个低速设备按请求线、优先级或交叉方式共享服务。"
         if "process" in roles:
             if subtype == "parallel_execution":
                 return "理解重点是并行关系：传送控制器独立完成数据块交换，处理器不必一直等待；传送结束后再通过完成通知执行收尾处理。"
@@ -701,18 +717,18 @@ def explanation_for_profile(profile: dict[str, Any], points: list[str]) -> str:
         return "这类技术点要放回数据流和控制流中理解，重点分清触发条件、执行动作和最终结果。"
     if material == "politics":
         if "action" in roles:
-            return "这部分是行动路径题，答题时可从主体、目标、具体做法和落实场景组织。"
+            return "行动路径由主体、目标、具体做法和落实场景构成，需要把国家层面的方向与个人层面的责任区分开。"
         if "reason" in roles:
-            return "原因类题要先给结论，再补充制度、道路、文化和现实成就等依据，避免只罗列口号。"
+            return "原因说明需要把结论和依据对应起来，常见依据包括制度、道路、文化和现实成就。"
         if "manifestation" in roles:
-            return "表现类题要把态度和行动分开：先说明认同和底气，再说明如何落实到理性心态、实践和责任中。"
+            return "表现内容需要把态度和行动分开：国家认同、文化底气、发展信心分别对应不同的行为要求。"
     if material == "exam":
         if "contrast" in roles:
-            return "这类内容适合做对照记忆：先找区别，再记联系，避免把抽象范畴和具体对象混为一谈。"
+            return "对照内容需要同时说明区别和联系，避免把抽象范畴和具体对象混为一谈。"
         if "principle" in roles:
-            return "原理类题按“原理内容、方法论、结合材料”三步展开，选择题重点识别是否偷换或夸大概念。"
+            return "原理内容由原理表述、方法论要求和材料解释入口构成，常见误区是偷换或夸大概念。"
         if "checklist" in roles:
-            return "这部分应作为考前清单使用，重点标记选择题触发词和分析题常用原理，复习时逐项回忆对应表述。"
+            return "高频考点需要覆盖触发词、常用原理和易错表述，重点是能把关键词展开成完整判断。"
     return ""
 
 
@@ -748,14 +764,67 @@ def synthesized_explanation(title: str, outline: list[OutlineItem]) -> str:
 
 def normalize_summary_sentence(title: str, item_text: str, source_text: str) -> str:
     title_clean = strip_section_number(title)
-    item = summary_outline_label(item_text)
+    item = answer_outline_text(item_text) if is_question_title(title_clean) else summary_outline_label(item_text)
     if item and not same_learning_text(item, title_clean):
-        if title_clean.endswith("？") or title_clean.startswith(("为什么", "怎样", "如何", "什么是")):
+        if is_question_title(title_clean):
             return f"{title_clean}的关键答案是：{item}。"
+        if is_declarative_sentence_title(title_clean):
+            return f"{title_clean}，并且{item}。"
         return f"{title_clean}说明{item}。"
     source_sentence = explanatory_sentence_from_source(title, source_text)
     return source_sentence or title_clean
 
+
+def is_question_title(title: str) -> bool:
+    title_clean = strip_section_number(title)
+    return title_clean.endswith("？") or title_clean.startswith(("为什么", "怎样", "如何", "什么是"))
+
+
+def answer_outline_text(value: str, limit: int = 140) -> str:
+    text = strip_section_number(clean_item(value)).rstrip("。；")
+    if not text or is_transition_fragment(text) or is_broken_outline_fragment(text):
+        return ""
+    text = re.sub(r"^(说明|包括|主要包括)\s*", "", text).strip()
+    if len(text) <= limit:
+        return text
+    compressed = compress_parallel_answer(text)
+    if compressed and len(compressed) <= limit:
+        return compressed
+    clauses = [part.strip(" ，,；;。") for part in re.split(r"[；;。]", text) if part.strip(" ，,；;。")]
+    if clauses:
+        first = clauses[0]
+        if len(first) <= limit:
+            return first
+    parts = [part.strip(" ，,；;。") for part in re.split(r"[，,；;]", text) if part.strip(" ，,；;。")]
+    selected: list[str] = []
+    total = 0
+    for part in parts:
+        projected = total + len(part) + (1 if selected else 0)
+        if selected and projected > limit:
+            break
+        if projected <= limit:
+            selected.append(part)
+            total = projected
+    if selected:
+        return "，".join(selected)
+    return text[:limit].rstrip("，,；;。")
+
+
+def compress_parallel_answer(text: str) -> str:
+    match = re.search(r"比历史上任何时期都更接近(?P<goal>[^，,。；;]+)，比历史上任何时期都更有信心[、,，]?有能力实现(?P=goal)", text)
+    if match:
+        goal = match.group("goal")
+        return f"比历史上任何时期都更接近{goal}，也更有信心和能力实现这一目标"
+    return ""
+
+
+def is_declarative_sentence_title(title: str) -> bool:
+    title_clean = strip_section_number(title).rstrip("。；")
+    if len(title_clean) < 24:
+        return False
+    if title_clean.endswith("？") or title_clean.startswith(("为什么", "怎样", "如何", "什么是")):
+        return False
+    return any(token in title_clean for token in ["，", "、", "既", "又", "是", "用于", "适合", "包括"])
 
 def semantic_relation_label(title: str) -> str:
     probe = strip_section_number(title)
@@ -783,8 +852,29 @@ def summary_outline_label(value: str) -> str:
         if 4 <= len(head) <= 38 and not is_transition_fragment(head) and not is_broken_outline_fragment(head):
             text = head
     text = re.sub(r"^(说明|包括|主要包括)\s*", "", text).strip()
-    return compact(text, 42)
+    return compact_outline_label(text, 42)
 
+
+def compact_outline_label(text: str, limit: int) -> str:
+    value = normalize_text(text).strip()
+    if len(value) <= limit:
+        return value
+    parts = [part.strip(" ，,；;。") for part in re.split(r"[，,；;。]", value) if part.strip(" ，,；;。")]
+    for part in parts:
+        if 4 <= len(part) <= limit:
+            return part
+    selected: list[str] = []
+    total = 0
+    for part in parts:
+        projected = total + len(part) + (1 if selected else 0)
+        if selected and projected > limit:
+            break
+        if projected <= limit:
+            selected.append(part)
+            total = projected
+    if selected:
+        return "，".join(selected)
+    return value[:limit].rstrip("，,；;。")
 
 def explanatory_sentence_from_source(title: str, source_text: str) -> str:
     sentence = first_meaningful_sentence(source_text)
@@ -1538,3 +1628,5 @@ def is_document_heading(heading: str) -> bool:
 
 
 TYPED_BLOCKS = {"definition", "mechanism", "procedure", "effect", "formula", "example", "explanation"}
+
+

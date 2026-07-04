@@ -18,8 +18,6 @@ from app.service import AgentService
 
 DEFAULT_INPUT = (
     BACKEND_ROOT.parent
-    / "ai-notes-mobile-prototype"
-    / "ai-notes-mobile-prototype"
     / "test_set"
     / "text"
     / "Transformer介绍.docx"

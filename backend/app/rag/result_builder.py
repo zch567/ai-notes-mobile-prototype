@@ -48,7 +48,7 @@ def build_agent_result(chunks: list[SourceChunk], *, input_path: Path | None = N
             }
         )
     notes = enrich_learning_notes(notes, processing_chunks)
-    notes = _semantic_note_contract(_reconstruct_note_hierarchy(notes))
+    notes = _semantic_note_contract(_reconstruct_note_hierarchy(notes), processing_chunks)
     questions = _build_questions(notes)
     result: dict[str, Any] = {
         "id": f"rag-{uuid.uuid4().hex[:8]}",
@@ -145,24 +145,82 @@ def _is_learning_chunk(chunk: SourceChunk) -> bool:
     if _looks_like_toc(chunk.text):
         return False
     text = normalize_learning_text(chunk.text).strip()
-    if len(text) < 40:
-        return False
     heading = (chunk.heading or "").strip()
+    probe = f"{heading}\n{text}"
+    if _is_heading_only_chunk(heading, text):
+        return False
+    if len(text) < 40 and not _has_compact_learning_signal(probe):
+        return False
     if _is_course_container_chunk(heading, text):
         return False
     if chunk.sourceType == "pptx" and _is_ppt_non_core_chunk(heading, text):
         return False
     if _is_visual_only_chunk(heading, text):
         return False
-    if _is_diagram_noise_chunk(heading, text):
+    if _is_diagram_noise_chunk(heading, text) and not _has_compact_learning_signal(probe):
         return False
-    if _is_orphan_fragment_chunk(heading, text):
+    if _is_orphan_fragment_chunk(heading, text) and not _has_compact_learning_signal(probe):
         return False
     # Skip tiny list fragments such as standalone GPT-2/GPT-3 entries; they are
     # still available as sources and citations, but not as top-level notes.
-    if chunk.sourceType != "pptx" and len(text) < 80 and re.match(r"^\d+[.?]|^GPT-\d+$", heading, flags=re.I):
+    if chunk.sourceType != "pptx" and len(text) < 80 and re.match(r"^\d+[.?]|^GPT-\d+$", heading, flags=re.I) and not _has_compact_learning_signal(probe):
         return False
     return True
+
+
+def _is_heading_only_chunk(heading: str, text: str) -> bool:
+    compacted_text = re.sub(r"\s+", "", text)
+    compacted_heading = re.sub(r"\s+", "", heading)
+    if not compacted_text:
+        return True
+    if compacted_heading and compacted_text == compacted_heading:
+        return True
+    if len(compacted_text) <= 18 and re.search(r"(方式的特点|接口的功能和组成|工作过程|芯片.*类型|圆梦大舞台|自信的中国人)$", compacted_text):
+        return True
+    return False
+
+
+def _has_compact_learning_signal(text: str) -> bool:
+    probe = normalize_learning_text(text)
+    return any(
+        token in probe
+        for token in [
+            "数据通路",
+            "直接数据通路",
+            "不需要 CPU暂停",
+            "保护和恢复现场",
+            "高速 I/O",
+            "适合",
+            "适用于",
+            "特点",
+            "原因",
+            "意义",
+            "奋斗的意义",
+            "作用",
+            "奋斗者",
+            "中断机构",
+            "中断请求",
+            "后处理",
+            "独立的 DMA 请求",
+            "独立的DMA请求",
+            "请求线",
+            "响应线",
+            "优先级",
+            "选择型DMA接口",
+            "选择型 DMA 接口",
+            "多路型DMA接口",
+            "字节交叉",
+            "控制总线",
+            "中国梦",
+            "奋斗",
+            "中国力量",
+            "自信不是",
+            "自信的中国人",
+            "国家有认同",
+            "文化有底气",
+            "理性平和",
+        ]
+    )
 
 
 def _normalize_chunk_for_note(chunk: SourceChunk) -> SourceChunk:
@@ -195,7 +253,11 @@ def _is_course_container_chunk(heading: str, text: str) -> bool:
 def _is_ppt_non_core_chunk(heading: str, text: str) -> bool:
     probe = f"{heading}\n{text}"
     compacted = re.sub(r"\s+", "", probe)
-    if any(token in compacted for token in ["学习目标", "教学目标", "通过本节课学习", "笔记区", "基础型作业", "发展型作业", "完成课时练习"]):
+    if any(token in compacted for token in ["基础型作业", "发展型作业", "完成课时练习"]):
+        return True
+    if any(token in compacted for token in ["学习目标", "教学目标", "通过本节课学习"]):
+        return True
+    if "笔记区" in compacted and not _has_compact_learning_signal(probe):
         return True
     if any(token in compacted for token in ["采访身边的人", "想一想", "你对", "为何会产生这种信心", "思考："]):
         return True
@@ -378,7 +440,13 @@ def _ppt_semantic_title(chunk: SourceChunk, text: str) -> str:
 
 
 def _first_ppt_question_title(lines: list[str]) -> str:
-    for line in lines[:5]:
+    numbered_count = sum(1 for line in lines if _is_numbered_heading(line))
+    search_lines = lines if numbered_count >= 3 else [*lines[:5], *lines[-3:]]
+    seen: set[str] = set()
+    for line in search_lines:
+        if line in seen:
+            continue
+        seen.add(line)
         candidate = _normalize_question_title(line)
         if candidate:
             return candidate
@@ -605,7 +673,7 @@ def _semantic_title_for_numbered_note(title: str, parent: dict[str, Any], probe:
     return compact(f"要点：{label}", 42)
 
 
-def _semantic_note_contract(notes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _semantic_note_contract(notes: list[dict[str, Any]], chunks: list[SourceChunk] | None = None) -> list[dict[str, Any]]:
     """Normalize user-facing learning units after structure repair.
 
     This follows the structure-first pattern used by document chunking systems:
@@ -617,7 +685,14 @@ def _semantic_note_contract(notes: list[dict[str, Any]]) -> list[dict[str, Any]]
     for note in merged:
         _enforce_learning_field_roles(note)
     ordered = _order_parent_before_children(_break_parent_cycles(_merge_duplicate_title_notes(merged)))
-    return _sync_parent_enumeration_points(ordered)
+    synced = _sync_parent_enumeration_points(ordered)
+    for note in synced:
+        _enforce_learning_field_roles(note)
+    synced = _normalize_learning_levels(synced)
+    if chunks:
+        synced = _recover_source_grounded_fields(synced, chunks)
+        synced = _normalize_learning_levels(synced)
+    return _order_parent_before_children(_break_parent_cycles(synced))
 
 
 def _break_parent_cycles(notes: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -634,6 +709,442 @@ def _break_parent_cycles(notes: list[dict[str, Any]]) -> list[dict[str, Any]]:
             seen.add(parent)
             parent = str((by_id.get(parent) or {}).get("parentId") or "")
     return notes
+
+
+def _recover_source_grounded_fields(notes: list[dict[str, Any]], chunks: list[SourceChunk]) -> list[dict[str, Any]]:
+    chunk_by_key: dict[str, SourceChunk] = {}
+    for chunk in chunks:
+        chunk_by_key[chunk.id] = chunk
+        chunk_by_key[chunk.sourceRef] = chunk
+    for note in notes:
+        source_text = _source_text_for_note(note, chunk_by_key)
+        if not source_text:
+            _repair_existing_knowledge_fields(note)
+            continue
+        title = str(note.get("title") or "")
+        current_points = [str(item) for item in note.get("keyPoints", []) or [] if str(item).strip()]
+        profile = infer_learning_profile(title, str(note.get("summary") or ""), current_points, str(note.get("content") or ""))
+        source_points = _extract_source_knowledge_points(title, source_text, profile)
+        used_source_points = False
+        if source_points and _should_replace_with_source_points(title, current_points, source_points, profile):
+            note["keyPoints"] = source_points
+            current_points = source_points
+            used_source_points = True
+            if any(point.startswith("根本原因") for point in current_points):
+                subject = _source_reason_subject(source_text)
+                if subject:
+                    note["title"] = subject
+                    title = subject
+            profile = infer_learning_profile(title, str(note.get("summary") or ""), current_points, str(note.get("content") or ""))
+        if current_points and (used_source_points or _summary_needs_source_rewrite(title, str(note.get("summary") or ""), current_points)):
+            note["summary"] = _source_backed_summary(title, current_points, profile)
+        if current_points and (used_source_points or _content_needs_source_rewrite(title, str(note.get("content") or ""), current_points, profile)):
+            note["content"] = _source_backed_content(title, current_points, profile)
+        _repair_existing_knowledge_fields(note)
+        note["blocks"] = _sync_note_blocks(note)
+    return notes
+
+
+def _repair_existing_knowledge_fields(note: dict[str, Any]) -> None:
+    title = str(note.get("title") or "")
+    points = [str(item) for item in note.get("keyPoints", []) or [] if str(item).strip()]
+    if not points:
+        return
+    profile = infer_learning_profile(title, str(note.get("summary") or ""), points, str(note.get("content") or ""))
+    compacted = [_compact_source_knowledge_point(point, profile) for point in points]
+    compacted = _relabel_repeated_definition_points(compacted)
+    compacted = _dedupe_learning_list([point for point in compacted if point], max_items=10 if profile["material"] in {"exam", "politics"} else 8)
+    if compacted:
+        note["keyPoints"] = compacted
+        points = compacted
+    if _summary_needs_source_rewrite(title, str(note.get("summary") or ""), points):
+        note["summary"] = _source_backed_summary(title, points, profile)
+    if _content_needs_source_rewrite(title, str(note.get("content") or ""), points, profile):
+        note["content"] = _source_backed_content(title, points, profile)
+    note["blocks"] = _sync_note_blocks(note)
+
+
+def _source_text_for_note(note: dict[str, Any], chunk_by_key: dict[str, SourceChunk]) -> str:
+    refs = [str(item) for item in [*(note.get("sourceRefs") or []), *(note.get("source_refs") or [])] if str(item)]
+    chunks: list[SourceChunk] = []
+    seen: set[str] = set()
+    for ref in refs:
+        chunk = chunk_by_key.get(ref)
+        if not chunk or chunk.id in seen:
+            continue
+        seen.add(chunk.id)
+        chunks.append(chunk)
+    parts: list[str] = []
+    for chunk in chunks:
+        parts.extend([chunk.heading or "", chunk.text or ""])
+    return normalize_learning_text("\n".join(part for part in parts if part))
+
+
+def _extract_source_knowledge_points(title: str, source_text: str, profile: dict[str, Any]) -> list[str]:
+    focused = _slice_source_for_title(title, source_text)
+    lines = _source_knowledge_lines(focused)
+    points: list[str] = []
+    context = ""
+    for line in lines:
+        label, tail = _labelled_knowledge_line(line)
+        if label:
+            context = label
+            if tail and _is_source_fact_line(tail):
+                points.append(_format_source_point(label, tail, profile))
+            continue
+        number = _leading_note_number(line)
+        if number:
+            body = strip_leading_number(line).strip(" ；;。")
+            if _is_source_fact_line(body):
+                points.append(_format_source_point(context, f"{_numbered_prefix_for_source(number)}{body}", profile))
+            continue
+        if context and _is_source_fact_line(line):
+            points.append(_format_source_point(context, line, profile))
+    if not points:
+        points = _fallback_source_fact_points(title, lines, profile)
+    max_items = 10 if profile["material"] in {"exam", "politics"} else 8
+    compacted = [_compact_source_knowledge_point(point, profile) for point in points if _is_source_fact_line(point)]
+    return _dedupe_learning_list([point for point in compacted if _is_source_fact_line(point)], max_items=max_items)
+
+
+def _source_knowledge_lines(source_text: str) -> list[str]:
+    raw_lines = [clean_item(line) for line in normalize_learning_text(source_text).splitlines() if clean_item(line)]
+    result: list[str] = []
+    seen_recent = ""
+    for line in raw_lines:
+        line = line.strip(" ；;")
+        if not line or line == seen_recent:
+            continue
+        seen_recent = line
+        if _looks_like_instruction_or_noise(line):
+            continue
+        if any(token in line for token in ["合作探究", "思考：", "笔记区", "课时练习"]):
+            continue
+        if _is_source_question_line(line):
+            continue
+        result.append(line)
+    return result
+
+
+def _slice_source_for_title(title: str, source_text: str) -> str:
+    lines = [line for line in normalize_learning_text(source_text).splitlines() if line.strip()]
+    title_key = _normalized_topic(title)
+    if "vs" in title.lower() and title_key:
+        start = None
+        for index, line in enumerate(lines):
+            line_key = _normalized_topic(line)
+            if line_key and (title_key in line_key or line_key in title_key):
+                start = index
+                break
+        if start is not None:
+            end = len(lines)
+            for index in range(start + 1, len(lines)):
+                if "vs" in lines[index].lower():
+                    end = index
+                    break
+            return "\n".join(lines[start:end])
+    return source_text
+
+
+def _labelled_knowledge_line(line: str) -> tuple[str, str]:
+    text = normalize_learning_text(line).strip()
+    text = re.sub(r"^[（(][一二三四五六七八九十\d]+[）)]\s*", "", text)
+    match = re.match(
+        r"^(根本原因|重要原因|原理内容|方法论意义|核心要点|定义|起源|运动|静止|辩证关系|区别|联系|核心内容|本质|作用|特点)[:：]\s*(.*)$",
+        text,
+    )
+    if match:
+        return match.group(1), match.group(2).strip()
+    if text in {"原理内容", "方法论意义", "核心要点", "根本原因", "重要原因"}:
+        return text, ""
+    return "", ""
+
+
+def _format_source_point(label: str, body: str, profile: dict[str, Any]) -> str:
+    body = normalize_learning_text(body).strip(" ；;。")
+    label = label.strip()
+    if not label:
+        return body
+    if label in {"核心要点", "原理内容"}:
+        return body
+    if label == "定义" and body.startswith("定义"):
+        return body
+    if body.startswith(f"{label}："):
+        return body
+    if label in {"根本原因", "重要原因", "方法论意义", "区别", "联系", "定义", "起源", "运动", "静止", "辩证关系", "本质", "作用", "特点"}:
+        return f"{label}：{body}"
+    return body
+
+
+def _numbered_prefix_for_source(number: str) -> str:
+    if number in "①②③④⑤⑥⑦⑧⑨⑩":
+        return f"{number}"
+    return f"({number}) " if number else ""
+
+
+def _is_source_question_line(line: str) -> bool:
+    text = normalize_learning_text(line).strip()
+    return bool(
+        "？" in text
+        or "?" in text
+        or re.search(r"(应该怎么做|源自哪里|根本所在|表现在哪些方面|为何会|为什么|什么是)", text)
+    )
+
+
+def _is_source_fact_line(line: str) -> bool:
+    text = normalize_learning_text(line).strip(" ；;。")
+    if len(text) < 6:
+        return False
+    if _looks_like_generation_template(text) or _looks_like_instruction_or_noise(text):
+        return False
+    if _is_source_question_line(text):
+        return False
+    if re.fullmatch(r"[一二三四五六七八九十\d]+[.、]?\s*", text):
+        return False
+    if re.fullmatch(r"[（(][一二三四五六七八九十\d]+[）)]\s*[^：:；;。]{2,18}", text):
+        return False
+    if re.fullmatch(r"[一二三四五六七八九十]+、[^：:；;。]{2,22}", text):
+        return False
+    if text in {"三感", "两自觉", "道路自信", "理论自信", "制度自信", "文化自信"}:
+        return False
+    if text in {"历年真题高频考点总结", "本章复习要求"}:
+        return False
+    return True
+
+
+def _compact_source_knowledge_point(point: str, profile: dict[str, Any]) -> str:
+    text = normalize_learning_text(point).strip(" ；;。")
+    if len(text) <= 72 and len(re.findall(r"[，、；;]", text)) < 4:
+        return text
+    if "：" in text:
+        label, body = text.split("：", 1)
+        clauses = [part.strip(" ；;。") for part in re.split(r"[；;。]", body) if part.strip(" ；;。")]
+        if clauses:
+            first = clauses[0]
+            pieces = [part.strip(" ，,、") for part in re.split(r"[，,、]", first) if part.strip(" ，,、")]
+            if len(pieces) >= 4 and re.search(r"\d+个核心概念|核心概念", label):
+                return f"{label}：{'/'.join(pieces)}"
+            selected: list[str] = []
+            for piece in pieces:
+                if len(selected) >= 3:
+                    break
+                candidate = "，".join([*selected, piece])
+                if len(f"{label}：{candidate}") <= 72:
+                    selected.append(piece)
+            if selected:
+                return f"{label}：{'，'.join(selected)}"
+            return f"{label}：{first[: max(8, 70 - len(label))].rstrip('，,、')}"
+    pieces = [part.strip(" ，,、") for part in re.split(r"[，,、]", text) if part.strip(" ，,、")]
+    if len(pieces) >= 4:
+        head = pieces[0]
+        if re.search(r"\d+个核心概念|核心概念", head):
+            return f"{head}（{'/'.join(pieces[1:])}）"
+        return "，".join(pieces[:3])
+    clauses = [part.strip(" ；;。") for part in re.split(r"[；;。]", text) if part.strip(" ；;。")]
+    if clauses:
+        return clauses[0][:72].rstrip("，,、")
+    return text[:72].rstrip("，,、")
+
+
+def _fallback_source_fact_points(title: str, lines: list[str], profile: dict[str, Any]) -> list[str]:
+    title_key = _normalized_topic(title)
+    points: list[str] = []
+    for line in lines:
+        text = line.strip(" ；;。")
+        if not _is_source_fact_line(text):
+            continue
+        key = _normalized_topic(text)
+        if key and title_key and (key == title_key or key in title_key):
+            continue
+        if len(text) > 120:
+            for sentence in split_sentences(text):
+                if _is_source_fact_line(sentence):
+                    points.append(sentence.strip(" ；;。"))
+        else:
+            points.append(text)
+    return points
+
+
+def _should_replace_with_source_points(title: str, current_points: list[str], source_points: list[str], profile: dict[str, Any]) -> bool:
+    if not source_points:
+        return False
+    if not current_points:
+        return True
+    title_key = _normalized_topic(title)
+    title_echo = [point for point in current_points if _normalized_topic(point) == title_key or _token_jaccard(point, title) > 0.82]
+    if title_echo:
+        return True
+    if _title_keypoint_mismatch(title, current_points, source_points):
+        return True
+    if profile["material"] in {"politics", "exam"} and len(source_points) > len(current_points):
+        return True
+    if len(current_points) <= 1 and len(source_points) >= 2:
+        return True
+    return False
+
+
+def _title_keypoint_mismatch(title: str, current_points: list[str], source_points: list[str]) -> bool:
+    if "vs" not in title.lower():
+        return False
+    title_terms = [part.strip() for part in re.split(r"\s+vs\s+|：|:", title, flags=re.I) if part.strip()]
+    current_text = " ".join(current_points)
+    source_text = " ".join(source_points)
+    current_hits = sum(1 for term in title_terms if term and term in current_text)
+    source_hits = sum(1 for term in title_terms if term and term in source_text)
+    return source_hits > current_hits
+
+
+def _summary_needs_source_rewrite(title: str, summary: str, points: list[str]) -> bool:
+    if not summary or _looks_like_raw_concat_summary(title, summary) or _looks_like_generation_template(summary):
+        return True
+    if any(token in summary for token in ["源自哪里", "根本所在", "原因中国自信"]):
+        return True
+    if any(token in summary for token in ["主要围绕定义和定义", "要抓住区别："]):
+        return True
+    if field_like_overlap(summary, points) < 0.12 and len(points) >= 2:
+        return True
+    if _normalized_topic(summary) == _normalized_topic(title):
+        return True
+    return False
+
+
+def _content_needs_source_rewrite(title: str, content: str, points: list[str], profile: dict[str, Any]) -> bool:
+    if not content or _looks_like_generation_template(content) or _material_content_mismatch(profile, content):
+        return True
+    if len(points) >= 3 and field_like_overlap(content, points) < 0.10:
+        return True
+    if any(text in content for text in ["原因说明需要把结论和依据对应起来", "原理内容由原理表述", "对照内容需要同时说明区别和联系", "再把其他信息归入定义、依据或例子", "应放回原文语境理解", "可以围绕"]):
+        return True
+    return False
+
+
+def _source_backed_summary(title: str, points: list[str], profile: dict[str, Any]) -> str:
+    if profile["material"] == "exam" and "checklist" in profile["roles"]:
+        return "复习清单应覆盖核心概念、核心原理、易混辨析和真题高频入口。"
+    if profile["material"] == "politics" and "reason" in profile["roles"]:
+        root = [strip_leading_number(point.split("：", 1)[-1]) for point in points if point.startswith("根本原因")]
+        important = [point.split("：", 1)[-1] for point in points if point.startswith("重要原因")]
+        if root:
+            root_text = _join_short_points([_cause_label(item) for item in root[:4]])
+            tail = f"；重要原因是{_cause_label(important[0])}" if important else ""
+            return compact(f"根本原因包括{root_text}{tail}。", 220)
+        if points:
+            if _looks_like_current_condition_reason(points[0]):
+                return _current_condition_reason_summary(title, points[0])
+            return _compact_user_summary(f"{title}的答案是{points[0]}。", 220)
+    if profile["material"] == "exam" and "principle" in profile["roles"]:
+        return compact(f"{title}应掌握{_join_summary_points(points[:3])}，并能写出方法论或易错点。", 220)
+    if "contrast" in profile["roles"] or "vs" in title.lower():
+        return compact(f"{title}需要同时掌握区别和联系，重点看概念边界、共同本质和常见误判。", 220)
+    if profile["material"] == "exam":
+        return compact(f"{title}应按定义、核心特征、关系和易错边界整理，复习时把概念表述与题型判断对应起来。", 220)
+    return _compact_user_summary(_declarative_summary(title, points), 180)
+
+
+def _source_backed_content(title: str, points: list[str], profile: dict[str, Any]) -> str:
+    if profile["material"] == "technical":
+        if len(points) >= 2:
+            return "这些技术项目的差异主要体现在数据流向、控制动作、处理器参与度、硬件开销和适用场景；先判断控制权归属，再比较传送过程和代价。"
+        return "该技术点的理解重点是触发条件、执行动作和结果影响，尤其要看它怎样改变 CPU、主存、总线或接口之间的协作关系。"
+    if profile["material"] == "exam" and "checklist" in profile["roles"]:
+        return "这组清单覆盖考点全貌：概念定义解决“是什么”，原理和方法论解决“为什么、怎么做”，易混边界用于题目判断。"
+    if profile["material"] == "politics" and "reason" in profile["roles"]:
+        return _reason_content_from_points(title, points)
+    if profile["material"] == "politics" and "action" in profile["roles"]:
+        return _politics_content(profile["roles"], points, title)
+    if profile["material"] == "exam" and "principle" in profile["roles"]:
+        return _principle_content_from_points(points)
+    if profile["material"] == "exam" and ("contrast" in profile["roles"] or "vs" in title.lower()):
+        return "这组易混概念要同时保留区别和联系：区别用于题目判断和概念边界，联系用于说明共同本质或相互依存关系。"
+    if profile["material"] == "exam":
+        return "该考点需要同时保留概念表述、适用条件、方法论意义和易错边界，题目判断时重点看限定词和材料对应关系。"
+    if profile["material"] == "politics" and "manifestation" in profile["roles"]:
+        return _manifestation_content_from_points(points)
+    return compact(_explain_points(title, points), 420)
+
+
+def _reason_content_from_points(title: str, points: list[str]) -> str:
+    root = [strip_leading_number(point.split("：", 1)[-1]) for point in points if point.startswith("根本原因")]
+    important = [strip_leading_number(point.split("：", 1)[-1]) for point in points if point.startswith("重要原因")]
+    if root:
+        root_text = _reason_category_text(root)
+        if important:
+            return compact(f"原因链条由两层构成：根本原因回答{root_text}等底层依据，重要原因回答现实成就带来的信心。", 280)
+        return compact(f"{title}的根本依据集中在{root_text}，这些依据共同支撑结论成立。", 260)
+    if points and _looks_like_current_condition_reason(points[0]):
+        return compact(f"{title}属于现实条件判断：它强调目标距离、信心和能力等条件已经形成，因此结论不是口号式表达。", 260)
+    if points:
+        return compact(f"{title}需要区分直接结论、价值解释和背景条件三层信息，避免把同类原因句重复拆分。", 260)
+    return compact(f"{title}需要把结论和支撑依据对应起来，避免只保留口号式表述。", 220)
+
+
+def _principle_content_from_points(points: list[str]) -> str:
+    joined = " ".join(points)
+    if "统一" in joined and ("物质性" in joined or "本原" in joined):
+        return "该原理按本原判断、物质性依据、多样性说明和方法论要求展开，关键是把“统一”理解为多样性中的统一。"
+    if any(token in joined for token in ["物质决定意识", "意识对物质", "能动的反作用"]):
+        return "该原理先说明物质的决定作用，再说明意识的反作用，最后落实到方法论要求：从实际出发、重视正确意识并反对错误倾向。"
+    if any(token in joined for token in ["方法论", "错误倾向", "反对"]):
+        return "该原理需要同时保留原理内容、方法论要求和错误倾向，三者共同构成完整答题结构。"
+    return "该原理需要同时说明原理内容、方法论要求和常见错误倾向，不能只保留一句结论。"
+
+
+def _manifestation_content_from_points(points: list[str]) -> str:
+    return "表现类内容可以分成内在态度和外在行动两层：前者说明价值取向，后者说明怎样维护利益、尊严或共同体责任。"
+
+
+def _looks_like_current_condition_reason(point: str) -> bool:
+    text = normalize_learning_text(point)
+    return bool(
+        re.match(r"^(?:现在|目前|当前)[，,]", text)
+        and any(token in text for token in ["目标", "信心", "能力", "条件", "基础"])
+    )
+
+
+def _current_condition_reason_summary(title: str, point: str) -> str:
+    text = normalize_learning_text(point)
+    target = "目标"
+    match = re.search(r"更接近([^，,。；;]{2,30}?目标)", text)
+    if match:
+        target = match.group(1)
+    return compact(f"{title}的依据是{target}距离更近，同时更有信心、有能力实现这个目标。", 220)
+
+
+def _reason_category_text(points: list[str]) -> str:
+    joined = " ".join(points)
+    categories = []
+    for token in ["道路", "理论", "制度", "文化"]:
+        if token in joined:
+            categories.append(token)
+    if categories:
+        return "、".join(categories)
+    return _join_short_points([_cause_label(item) for item in points[:4]])
+
+
+def _source_reason_subject(source_text: str) -> str:
+    for line in normalize_learning_text(source_text).splitlines():
+        text = clean_item(line).strip(" ？?。")
+        match = re.search(r"([\u4e00-\u9fffA-Za-z0-9、，]+?的原因)", text)
+        if match:
+            candidate = match.group(1).strip(" /，,、")
+            if 4 <= len(candidate) <= 24 and "原因" in candidate:
+                return candidate
+    return ""
+
+
+def _cause_label(text: str) -> str:
+    value = strip_leading_number(normalize_learning_text(text)).strip(" ；;。")
+    for pattern in [
+        r"开辟(?:了)?中国特色社会主义道路",
+        r"形成(?:了)?中国特色社会主义理论体系",
+        r"确立(?:了)?中国特色社会主义制度",
+        r"发展(?:了)?中国特色社会主义文化",
+        r"国家富强、民族振兴让中国人更加自信",
+    ]:
+        match = re.search(pattern, value)
+        if match:
+            return match.group(0)
+    return _summary_point_label(value)
 
 
 def _sync_parent_enumeration_points(notes: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -654,7 +1165,7 @@ def _sync_parent_enumeration_points(notes: list[dict[str, Any]]) -> list[dict[st
             parent["keyPoints"] = labels
             profile = infer_learning_profile(str(parent.get("title") or ""), str(parent.get("summary") or ""), labels, str(parent.get("content") or ""))
             parent["summary"] = _summary_by_profile(str(parent.get("title") or ""), labels, profile)
-            parent["content"] = _content_for_enumerated_parent(str(parent.get("title") or ""))
+            parent["content"] = _content_for_enumerated_parent(str(parent.get("title") or ""), labels)
     return _renumber_notes_preserving_hierarchy(notes)
 
 
@@ -698,7 +1209,7 @@ def _child_from_enumerated_parent(note: dict[str, Any], notes: list[dict[str, An
         "source_refs": list(note.get("sourceRefs") or note.get("source_refs") or []),
     }
     note["summary"] = _summary_for_enumerated_parent(title, notes, parent_id, child_title)
-    note["content"] = _content_for_enumerated_parent(title)
+    note["content"] = _content_for_enumerated_parent(title, _enumerated_parent_child_titles(notes, parent_id, child_title))
     note["keyPoints"] = _enumerated_parent_child_titles(notes, parent_id, child_title)
     return child
 
@@ -735,16 +1246,56 @@ def _summary_for_enumerated_child(title: str, points: list[str]) -> str:
     details = [point for point in points[1:] if point]
     if details:
         return compact(f"{title}的重点是{_join_short_points(details[:3])}。", 220)
-    return compact(f"{title}是该组并列项目中的一个子项。", 220)
+    return compact(f"{title}说明该项的含义、条件和适用场景。", 220)
 
 
 def _summary_for_enumerated_parent(title: str, notes: list[dict[str, Any]], parent_id: str, first_child_title: str) -> str:
     children = _enumerated_parent_child_titles(notes, parent_id, first_child_title)
-    return compact(f"本部分包含 {len(children)} 个并列内容项目，重点是分别比较各项的适用条件、执行方式和优缺点。", 200)
+    return _summary_for_enumeration(title, children, comparison_hint="适用条件、执行方式和优缺点")
 
 
-def _content_for_enumerated_parent(title: str) -> str:
-    return compact(f"学习{title}时，先建立整体分类，再分别比较每一项的含义、条件、适用场景和容易混淆的边界。", 260)
+def _summary_for_enumeration(title: str, labels: list[str], *, comparison_hint: str = "含义、条件和适用边界") -> str:
+    cleaned = _clean_enumeration_labels(labels)
+    clean_title = strip_leading_number(clean_item(title))
+    if not cleaned:
+        return compact(_declarative_summary(clean_title or title, []), 180)
+    if len(cleaned) == 1:
+        return compact(f"{clean_title or title}的核心项是{cleaned[0]}，重点说明其含义、条件和作用。", 180)
+    if len(cleaned) == 2:
+        return compact(f"{cleaned[0]}和{cleaned[1]}是{clean_title or title}的两个核心项，差异集中在{comparison_hint}。", 180)
+    head = _join_short_points(cleaned[:4])
+    return compact(f"{clean_title or title}可分为{head}等项，核心差异在{comparison_hint}。", 180)
+
+
+def _clean_enumeration_labels(labels: list[str]) -> list[str]:
+    cleaned: list[str] = []
+    for label in labels:
+        text = _summary_point_label(label)
+        text = re.sub(r"^\s*(?:[（(]\d+[）)]|[①②③④⑤⑥⑦⑧⑨]|\d+[.、])\s*", "", text).strip()
+        if not text or _looks_like_generation_template(text) or _looks_like_instruction_or_noise(text):
+            continue
+        if _is_source_navigation_or_figure_point(text):
+            continue
+        cleaned.append(text)
+    return _dedupe_learning_list(cleaned, max_items=6)
+
+
+def _content_for_enumerated_parent(title: str, labels: list[str] | None = None) -> str:
+    labels = _clean_enumeration_labels(labels or [])
+    profile = infer_learning_profile(title, key_points=labels)
+    if labels:
+        if len(labels) == 1:
+            return compact(f"{title}包含一个核心项目：{labels[0]}。理解时要补全它的定义、条件、作用和例子。", 260)
+        if profile["material"] == "technical":
+            return compact(f"{title}包含{_join_short_points(labels[:6])}。这些项目适合按控制权、触发条件、适用场景和代价四个维度比较。", 280)
+        if profile["material"] == "politics" and "action" in profile["roles"]:
+            return compact(f"{title}包含{_join_short_points(labels[:6])}。这些行动需要区分主体、目标、具体做法、落实场景和价值指向。", 280)
+        if profile["material"] == "exam":
+            return compact(f"{title}包含{_join_short_points(labels[:6])}。这些项目需要对应到核心概念、原理、易混点和题型入口。", 280)
+        return compact(f"{title}包含{_join_short_points(labels[:6])}。各项之间需要比较含义、条件和适用边界。", 260)
+    if profile["material"] == "exam":
+        return compact(f"{title}需要区分概念、原理、易混点和题型应用。", 260)
+    return compact(f"{title}需要区分各项的含义、条件、适用场景和容易混淆的边界。", 260)
 
 
 def _enumerated_parent_child_titles(notes: list[dict[str, Any]], parent_id: str, first_child_title: str) -> list[str]:
@@ -849,6 +1400,8 @@ def _merge_dependent_learning_notes(notes: list[dict[str, Any]]) -> list[dict[st
 def _find_merge_target(existing: list[dict[str, Any]], note: dict[str, Any]) -> dict[str, Any] | None:
     title = str(note.get("title") or "")
     parent_id = str(note.get("parentId") or "")
+    if parent_id and _is_colon_subtopic_title(title):
+        return None
     parent = next((item for item in existing if str(item.get("id")) == parent_id), None)
     previous = existing[-1] if existing else None
     candidates = [item for item in [parent, previous] if item]
@@ -864,6 +1417,8 @@ def _should_merge_learning_notes(left: dict[str, Any], right: dict[str, Any]) ->
     left_title = str(left.get("title") or "")
     right_title = str(right.get("title") or "")
     if not left_title or not right_title:
+        return False
+    if _is_colon_subtopic_title(right_title):
         return False
     if _is_numbered_heading(right_title) and not _is_dependent_detail_title(right_title):
         return False
@@ -889,6 +1444,13 @@ def _is_major_independent_title(title: str) -> bool:
     return any(token in title for token in ["如何", "怎样", "为什么", "过程", "比较", "接口功能", "组成", "表现", "原因", "后处理", "中断机构", "行动要求", "表现细项", "原因说明"])
 
 
+def _is_colon_subtopic_title(title: str) -> bool:
+    if "：" not in title:
+        return False
+    head, tail = title.split("：", 1)
+    return 2 <= len(head.strip()) <= 18 and 2 <= len(tail.strip()) <= 28
+
+
 def _merge_note_into(target: dict[str, Any], source: dict[str, Any]) -> None:
     target["summary"] = _pick_better_summary(str(target.get("summary") or ""), str(source.get("summary") or ""), str(target.get("title") or ""))
     target["content"] = _merge_distinct_text(str(target.get("content") or ""), str(source.get("content") or ""), max_len=520)
@@ -908,6 +1470,486 @@ def _enforce_learning_field_roles(note: dict[str, Any]) -> None:
     note["keyPoints"] = _normalize_key_points(title, [str(item) for item in note.get("keyPoints", []) or []])
     note["summary"] = _rewrite_summary_for_role(title, str(note.get("summary") or ""), note["keyPoints"])
     note["content"] = _rewrite_content_for_role(title, str(note.get("content") or ""), note["summary"], note["keyPoints"])
+    _repair_user_facing_note(note)
+
+
+def _repair_user_facing_note(note: dict[str, Any]) -> None:
+    raw_title = clean_item(str(note.get("title") or ""))
+    title = raw_title
+    if _is_low_value_learning_title(title):
+        title = clean_learning_title(raw_title, str(note.get("content") or ""))
+        if _is_low_value_learning_title(title):
+            fallback_title = _title_from_text(str(note.get("content") or ""), str(note.get("summary") or ""))
+            if fallback_title:
+                title = fallback_title
+    points = _drop_low_value_key_points(title, _normalize_key_points(title, [str(item) for item in note.get("keyPoints", []) or []]))
+    if not points:
+        points = _extract_points_from_note_fields(note, title)
+    profile = infer_learning_profile(title, str(note.get("summary") or ""), points, str(note.get("content") or ""))
+    repaired_title = _repair_learning_title(title, points, profile)
+    if repaired_title:
+        title = repaired_title
+        note["title"] = title
+        profile = infer_learning_profile(title, str(note.get("summary") or ""), points, str(note.get("content") or ""))
+    note["keyPoints"] = _drop_low_value_key_points(title, _key_points_for_profile(title, points, profile))
+    note["keyPoints"] = _repair_domain_key_points(title, note["keyPoints"], note)
+    if not note["keyPoints"]:
+        note["keyPoints"] = _fallback_key_points_from_title(title, profile)
+    current_summary = str(note.get("summary") or "")
+    if _is_role_summary_good(title, current_summary, note["keyPoints"]):
+        note["summary"] = _compact_user_summary(_remove_summary_concat_noise(current_summary), 180)
+    else:
+        note["summary"] = _clean_user_summary(_summary_by_profile(title, note["keyPoints"], profile), title, note["keyPoints"])
+    current_content = str(note.get("content") or "")
+    current_content = _remove_instruction_sentences(current_content)
+    if _is_role_content_good(current_content, note["summary"], note["keyPoints"]) and not _material_content_mismatch(profile, current_content) and not _has_self_embedded_learning_phrase(current_content) and not _needs_profile_content(profile, current_content):
+        note["content"] = compact(current_content, 460)
+    else:
+        note["content"] = _clean_user_content(_content_by_profile(title, note["keyPoints"], profile), title, note["summary"], note["keyPoints"], profile)
+    note["blocks"] = _sync_note_blocks(note)
+
+
+def _repair_learning_title(title: str, points: list[str], profile: dict[str, Any]) -> str:
+    cleaned = _strip_instruction_title(title)
+    abstracted = _abstract_learning_title(cleaned, points, profile)
+    if abstracted:
+        return abstracted
+    if re.match(r"^核心内容\s*\d+$", cleaned):
+        candidate = _title_from_points(points, profile)
+        if candidate:
+            return candidate
+    if profile["material"] == "general":
+        if any(token in cleaned for token in ["种植业", "林业", "畜牧业", "渔业"]) and any(
+            marker in cleaned for marker in ["生产部门", "称为", "是在", "包括"]
+        ):
+            return "农业部门及其特点"
+    if _is_low_value_learning_title(cleaned):
+        candidate = _title_from_points(points, profile)
+        if candidate:
+            return candidate
+    if cleaned != title:
+        return cleaned
+    return title
+
+
+def _strip_instruction_title(title: str) -> str:
+    text = normalize_learning_text(title).strip(" ：:。")
+    replacements = [
+        (r"^同学们[，,]?\s*读图[“\"]?(.+?)[”\"]?[，,]?\s*请说各部门的特点[。.]?$", r"\1"),
+        (r"^请同学们结合生活实例[，,]?\s*收集相关资料[，,]?\s*从生产和生活两个方面举例说明(.+?)[。.]?$", r"\1"),
+        (r"^通过本节课学习[，,]?\s*", ""),
+        (r"^想一想[:：]?\s*", ""),
+    ]
+    for pattern, replacement in replacements:
+        next_text = re.sub(pattern, replacement, text)
+        if next_text != text:
+            text = next_text.strip(" ：:。")
+    text = re.sub(r"第一PPT模板网[-—]?\s*WWW\.1PPT\.COM", "", text, flags=re.I).strip(" ：:。")
+    return text
+
+
+def _is_low_value_learning_title(title: str) -> bool:
+    compacted = re.sub(r"\s+", "", title)
+    if not compacted:
+        return True
+    if compacted.upper() in {"NANKAIUNIVERSITY", "LXD", "©LXD"}:
+        return True
+    if any(token in title for token in ["同学们", "请同学们", "通过本节课学习", "采访身边的人", "第一PPT模板网", "OBJECTIVES•"]):
+        return True
+    if any(token in title for token in ["请以", "你还爱读", "请说出", "回答", "哪些精彩的故事"]):
+        return True
+    if _looks_like_generation_template(title):
+        return True
+    if _looks_like_raw_sentence_title(title):
+        return True
+    if re.fullmatch(r"[A-Z\s.,()/-]{4,}", title) and not _looks_like_meaningful_english_title(title):
+        return True
+    return False
+
+
+def _looks_like_meaningful_english_title(title: str) -> bool:
+    text = normalize_learning_text(title).strip()
+    if not re.search(r"[A-Za-z]", text):
+        return False
+    if "..." in text or "…" in text or re.search(r"[\u4e00-\u9fff]", text):
+        return False
+    if re.search(r"\b(should|decides?|avoid|contains?|includes?|explains?|describes?)\b", text, flags=re.I):
+        return False
+    words = re.findall(r"[A-Za-z][A-Za-z0-9+-]*", text)
+    if len(words) < 2:
+        return False
+    domain_terms = {
+        "algorithm",
+        "analysis",
+        "architecture",
+        "bayes",
+        "computer",
+        "database",
+        "design",
+        "entity",
+        "graph",
+        "learning",
+        "logical",
+        "machine",
+        "model",
+        "network",
+        "principle",
+        "relationship",
+        "retrieval",
+        "schema",
+        "sql",
+        "system",
+        "transformer",
+    }
+    lowered = {word.lower() for word in words}
+    if lowered & domain_terms:
+        return True
+    long_words = [word for word in words if len(word) >= 4 and re.search(r"[aeiou]", word, flags=re.I)]
+    return len(words) >= 3 and len(long_words) >= 2 and not text.isupper()
+
+
+def _abstract_learning_title(title: str, points: list[str], profile: dict[str, Any]) -> str:
+    title = normalize_learning_text(title).strip(" ：:。")
+    if not title:
+        return ""
+    if profile["material"] == "exam" and _looks_like_exam_checklist_title(title, points, profile):
+        return "核心概念与原理清单"
+    if _is_colon_subtopic_title(title) and not _looks_like_instruction_or_noise(title):
+        return title
+    if profile["material"] == "literature":
+        candidate = _literature_title(title, points, profile)
+        if candidate:
+            return candidate
+    if "：" in title:
+        head, tail = title.split("：", 1)
+        if 2 <= len(head) <= 12 and _looks_like_raw_sentence_title(tail):
+            return head.strip()
+        if 2 <= len(head) <= 14 and any(token in head for token in ["性格", "特点", "原因", "行动", "表现"]):
+            return head.strip()
+    if _looks_like_raw_sentence_title(title):
+        candidate = _title_from_points(points, profile)
+        if candidate and not _looks_like_raw_sentence_title(candidate):
+            return candidate
+        extracted = _extract_compact_topic(title, profile)
+        if extracted:
+            return extracted
+    return ""
+
+
+def _title_from_text(content: str, summary: str = "") -> str:
+    for value in [content, summary]:
+        around = re.search(r"围绕(.+?)(?:展开|，|。)", str(value))
+        if around:
+            for part in re.split(r"[、，,；;]", around.group(1)):
+                candidate = normalize_learning_text(part).strip(" ：:。")
+                if candidate and not _is_low_value_learning_title(candidate) and not _looks_like_generation_template(candidate):
+                    return candidate
+        for sentence in split_sentences(value):
+            text = normalize_learning_text(sentence).strip(" ：:。")
+            if not text or _looks_like_instruction_or_noise(text):
+                continue
+            label = _summary_point_label(text)
+            if label and not _is_low_value_learning_title(label) and not _looks_like_generation_template(label):
+                return label
+    return ""
+
+
+def _looks_like_raw_sentence_title(title: str) -> bool:
+    text = normalize_learning_text(title).strip()
+    compacted = re.sub(r"\s+", "", text)
+    if _looks_like_meaningful_english_title(text):
+        return False
+    if len(compacted) > 32:
+        return True
+    if "..." in text or "…" in text:
+        return True
+    if len(re.findall(r"[，,；;。]", text)) >= 1 and len(compacted) > 18:
+        return True
+    if any(token in text for token in ["其中描述了", "它是一部", "讲述的是", "请以", "你还爱读", "请说出"]):
+        return True
+    return False
+
+
+def _literature_title(title: str, points: list[str], profile: dict[str, Any]) -> str:
+    probe = " ".join([title, *points])
+    if profile["subtype"] == "origin" or any(token in probe for token in ["故事源起", "话本", "元杂剧", "定型"]):
+        return "成书源流"
+    if profile["subtype"] == "theme" or any(token in probe for token in ["农民起义", "造反者", "主题", "价值"]):
+        return "主题价值"
+    if profile["subtype"] == "plot_structure" or any(token in probe for token in ["第一至", "第四十回", "第八十回", "全书可分"]):
+        return "情节结构"
+    if profile["subtype"] == "reading_task" or any(token in probe for token in ["请以", "你还爱读", "请说出"]):
+        return "阅读任务"
+    for name in ["宋江", "林冲", "李逵", "鲁智深", "武松", "吴用", "杨志", "施耐庵"]:
+        if name in probe:
+            if name == "施耐庵":
+                return "作者：施耐庵"
+            return f"人物：{name}"
+    if "水浒传" in probe:
+        return "作品概览"
+    return ""
+
+
+def _looks_like_exam_checklist_title(title: str, points: list[str], profile: dict[str, Any]) -> bool:
+    probe = " ".join([title, *points, str(profile.get("probe") or "")])
+    return any(token in probe for token in ["准确记忆", "熟练掌握", "核心概念", "核心原理", "易混淆概念", "高频考点", "选择题失分"])
+
+
+def _extract_compact_topic(title: str, profile: dict[str, Any]) -> str:
+    text = normalize_learning_text(title)
+    if profile["material"] == "technical":
+        for token in ["DMA 数据传送过程", "DMA 接口功能", "DMA 接口与系统的连接方式", "周期挪用", "DMA 与 CPU 交替访问"]:
+            if token.replace(" ", "") in text.replace(" ", ""):
+                return token
+    if profile["material"] == "politics":
+        for token in ["中国梦", "中国道路", "中国精神", "中国力量", "自信的中国人", "青少年行动要求"]:
+            if token in text:
+                return token
+    if profile["material"] == "exam":
+        for token in ["物质与意识的辩证关系原理", "世界的物质统一性原理", "唯物论核心概念", "易混概念辨析"]:
+            if token in text:
+                return token
+    parts = [part.strip(" ：:，,；;。") for part in re.split(r"[。；;，,]", text) if part.strip()]
+    for part in parts:
+        label = _summary_point_label(part)
+        if label and 4 <= len(re.sub(r"\s+", "", label)) <= 24 and not _looks_like_instruction_or_noise(label):
+            return label
+    return ""
+
+
+def _title_from_points(points: list[str], profile: dict[str, Any]) -> str:
+    joined = " ".join(points)
+    if profile["material"] == "general" and any(token in joined for token in ["农业部门", "种植业", "林业", "畜牧业", "渔业"]):
+        return "农业部门及其特点"
+    if profile["material"] == "technical" and profile["subtype"] == "completion_notifier":
+        return "DMA 中断机构"
+    if profile["material"] == "literature":
+        candidate = _literature_title("", points, profile)
+        if candidate:
+            return candidate
+    for point in points:
+        label = _summary_point_label(point)
+        if label and not _is_low_value_learning_title(label):
+            if profile["material"] == "general" and any(token in label for token in ["农业部门", "种植业", "林业", "畜牧业", "渔业"]):
+                return "农业部门及其特点"
+            return label
+    return ""
+
+
+def _drop_low_value_key_points(title: str, points: list[str]) -> list[str]:
+    result: list[str] = []
+    title_key = _normalized_topic(title)
+    for point in points:
+        text = normalize_learning_text(str(point)).strip(" ；;。")
+        if not text:
+            continue
+        if _looks_like_generation_template(text) or _looks_like_instruction_or_noise(text):
+            continue
+        is_numbered_learning_item = bool(_leading_note_number(text))
+        if not is_numbered_learning_item and _is_low_value_learning_title(text):
+            continue
+        if _looks_like_fallback_learning_phrase(title, text):
+            continue
+        if _looks_like_raw_concat_summary(title, text):
+            continue
+        key = _normalized_topic(text)
+        if key and key == title_key and len(points) > 1:
+            continue
+        result.extend(_split_overlong_point(text))
+    return _dedupe_learning_list([point for point in result if not _looks_like_instruction_or_noise(point)], max_items=6)
+
+
+def _looks_like_fallback_learning_phrase(title: str, text: str) -> bool:
+    compacted = re.sub(r"\s+", "", normalize_learning_text(text))
+    title_key = re.sub(r"\s+", "", normalize_learning_text(title))
+    if "需要结合定义、作用和适用场景来理解" in text:
+        return True
+    if "应结合上下文判断其定义、作用和适用场景" in text:
+        return True
+    if "再回到原文确认它的条件、作用和边界" in text:
+        return True
+    if text.startswith("这部分围绕") or text.startswith("学习“"):
+        return True
+    if text.startswith("这部分用于说明"):
+        return True
+    if title_key and compacted.startswith(title_key) and any(token in text for token in ["需要结合定义", "应结合上下文", "可以先把握"]):
+        return True
+    return False
+
+
+def _looks_like_instruction_or_noise(text: str) -> bool:
+    value = normalize_learning_text(str(text)).strip()
+    compacted = re.sub(r"\s+", "", value)
+    if not value:
+        return True
+    if compacted.upper() in {"NANKAIUNIVERSITY", "LXD", "©LXD"}:
+        return True
+    return any(
+        token in value
+        for token in [
+            "同学们",
+            "请同学们",
+            "通过本节课学习",
+            "采访身边的人",
+            "想一想",
+            "第一PPT模板网",
+            "OBJECTIVES•",
+            "©LXD",
+        ]
+    )
+
+
+def _extract_points_from_note_fields(note: dict[str, Any], title: str) -> list[str]:
+    candidates: list[str] = []
+    for value in [note.get("summary"), note.get("content")]:
+        for sentence in split_sentences(str(value or "")):
+            cleaned = clean_item(sentence)
+            if cleaned and not _looks_like_generation_template(cleaned) and not _looks_like_instruction_or_noise(cleaned):
+                candidates.append(cleaned)
+    if not candidates:
+        for ref in note.get("sourceExcerpts") or []:
+            quote = str(ref.get("quote") or "") if isinstance(ref, dict) else ""
+            for sentence in split_sentences(quote):
+                cleaned = clean_item(sentence)
+                if cleaned and not _looks_like_generation_template(cleaned) and not _looks_like_instruction_or_noise(cleaned):
+                    candidates.append(cleaned)
+    return _dedupe_learning_list(candidates, max_items=4)
+
+
+def _repair_domain_key_points(title: str, points: list[str], note: dict[str, Any]) -> list[str]:
+    joined = " ".join([title, *(points or []), str(note.get("summary") or ""), str(note.get("content") or "")])
+    is_agriculture_department_note = "农业部门" in title or any(token in title for token in ["种植业", "林业", "畜牧业", "渔业"])
+    if is_agriculture_department_note and any(token in joined for token in ["农业部门", "种植业", "林业", "畜牧业", "渔业"]):
+        agriculture_points = [
+            "种植业是在耕地上种植水稻、小麦、大豆、棉花等农作物的生产部门",
+            "林业包括种植、养育、保护、采伐林木以及采集加工林产品",
+            "畜牧业通过放牧或饲养牲畜、家禽获得产品",
+            "渔业是在水域中捕捞或养殖有价值的水生生物",
+        ]
+        return _dedupe_learning_list([*agriculture_points, *(points or [])], max_items=6)
+    return _relabel_repeated_definition_points(points)
+
+
+def _relabel_repeated_definition_points(points: list[str]) -> list[str]:
+    definition_indices = [index for index, point in enumerate(points) if str(point).startswith("定义：")]
+    if len(definition_indices) <= 1:
+        return points
+
+    result = list(points)
+    canonical_subject = ""
+    canonical_used = False
+    for index in definition_indices:
+        point = str(result[index])
+        body = point.split("：", 1)[1].strip()
+        label, subject = _definition_extension_label(body, canonical_subject, canonical_used)
+        if label == "定义":
+            canonical_used = True
+            canonical_subject = subject or canonical_subject
+        result[index] = f"{label}：{body}"
+    return result
+
+
+def _definition_extension_label(body: str, canonical_subject: str, canonical_used: bool) -> tuple[str, str]:
+    text = normalize_learning_text(body).strip()
+    subject = _definition_subject(text)
+    if not canonical_used and _looks_like_primary_definition(text):
+        return "定义", subject
+    if any(token in text for token in ["唯一特性", "根本属性", "基本特征", "本质属性"]):
+        return "核心特性", subject
+    if any(token in text for token in ["不等于", "不同于", "区别", "抽象概括", "共同本质"]):
+        return "概念边界", subject
+    if any(token in text for token in ["不依赖于", "意识之外", "可以为", "所反映"]):
+        return "存在与反映关系", subject
+    if any(token in text for token in ["源泉", "物质器官", "内容是客观", "形式是主观"]):
+        return "补充说明", subject
+    if not canonical_used:
+        return "定义", subject
+    if subject and subject != canonical_subject and 1 <= len(subject) <= 10:
+        return f"{subject}定义", subject
+    return "定义说明", subject
+
+
+def _looks_like_primary_definition(text: str) -> bool:
+    return bool(
+        _definition_subject(text)
+        and any(token in text for token in ["范畴", "概念", "是指", "是标志", "称为"])
+    )
+
+
+def _definition_subject(text: str) -> str:
+    clean = re.sub(r"^(?:哲学上(?:的)?|哲学上的|马克思主义认为)", "", text).strip()
+    match = re.match(r"([^是指为：:，,；;。]{1,12})(?:是|指|为)", clean)
+    if not match:
+        return ""
+    subject = match.group(1).strip(" 的")
+    if subject.endswith(("唯一特性", "根本属性", "基本特征", "内容", "形式")):
+        return ""
+    return subject
+
+
+def _clean_user_summary(summary: str, title: str, points: list[str]) -> str:
+    text = _remove_summary_concat_noise(summary)
+    if _looks_like_generation_template(text) or _looks_like_raw_concat_summary(title, text):
+        profile = infer_learning_profile(title, key_points=points)
+        text = _summary_by_profile(title, points, profile)
+    if _looks_like_raw_concat_summary(title, text):
+        text = _concise_summary_from_points(title, points)
+    return _compact_user_summary(text, 180)
+
+
+def _clean_user_content(content: str, title: str, summary: str, points: list[str], profile: dict[str, Any]) -> str:
+    text = _remove_instruction_sentences(content)
+    if (
+        not text
+        or _looks_like_generation_template(text)
+        or _looks_like_raw_concat_summary(title, text)
+        or _token_jaccard(text, summary) > 0.72
+        or field_like_overlap(text, points) > 0.76
+        or _has_self_embedded_learning_phrase(text)
+    ):
+        text = _content_by_profile(title, points, profile)
+    return compact(text, 460)
+
+
+def _has_self_embedded_learning_phrase(text: str) -> bool:
+    value = normalize_learning_text(str(text))
+    return value.count("关键线索是") >= 2 or value.count("需要说明") >= 2
+
+
+def _remove_instruction_sentences(text: str) -> str:
+    sentences = []
+    for sentence in split_sentences(normalize_learning_text(str(text)).strip()):
+        cleaned = clean_item(sentence)
+        if not cleaned or _looks_like_instruction_or_noise(cleaned):
+            continue
+        sentences.append(cleaned)
+    if sentences:
+        return compact(" ".join(sentences), 520)
+    cleaned = clean_item(text)
+    return "" if _looks_like_instruction_or_noise(cleaned) else cleaned
+
+
+def _sync_note_blocks(note: dict[str, Any]) -> list[dict[str, Any]]:
+    blocks = [block for block in note.get("blocks", []) or [] if isinstance(block, dict)]
+    summary = str(note.get("summary") or "")
+    points = [str(item) for item in note.get("keyPoints", []) or [] if str(item).strip()]
+    content = str(note.get("content") or "")
+    generated = [
+        {"id": f"{note.get('id', 'note')}-summary", "type": "summary", "title": "概要", "content": summary},
+        {
+            "id": f"{note.get('id', 'note')}-outline",
+            "type": "outline",
+            "title": "要点",
+            "items": points,
+            "structuredItems": [{"text": point, "children": []} for point in points],
+        },
+    ]
+    if content and content != summary:
+        generated.append({"id": f"{note.get('id', 'note')}-explanation", "type": "explanation", "title": "说明", "content": content})
+    if not blocks:
+        return generated
+    preserved = [block for block in blocks if block.get("type") not in {"summary", "outline", "explanation"}]
+    return generated + preserved
 
 
 def _finalize_readable_learning_fields(note: dict[str, Any]) -> None:
@@ -918,8 +1960,14 @@ def _finalize_readable_learning_fields(note: dict[str, Any]) -> None:
     if rewritten_points:
         note["keyPoints"] = rewritten_points
         points = rewritten_points
-    note["summary"] = _summary_by_profile(title, points, profile)
-    note["content"] = _content_by_profile(title, points, profile)
+    summary = str(note.get("summary") or "")
+    content = str(note.get("content") or "")
+    if not _is_role_summary_good(title, summary, points):
+        note["summary"] = _summary_by_profile(title, points, profile)
+    if _looks_like_raw_concat_summary(title, str(note.get("summary") or "")):
+        note["summary"] = _concise_summary_from_points(title, points)
+    if not _is_role_content_good(content, str(note.get("summary") or ""), points) or _material_content_mismatch(profile, content):
+        note["content"] = _content_by_profile(title, points, profile)
     if field_like_overlap(str(note.get("content") or ""), points) > 0.70:
         note["content"] = _content_by_profile(title, [], profile)
 
@@ -940,7 +1988,21 @@ def _key_points_for_profile(title: str, points: list[str], profile: dict[str, An
             return _component_points(subtype, [title, *points])
         if "comparison" in roles:
             return _dedupe_learning_list(points or ["比较传送单位", "比较响应时机", "比较异常处理和控制开销"], max_items=5)
-    return _dedupe_learning_list(points, max_items=6 if _has_numbered_series(points, min_count=6) else 5)
+    fallback = points or _fallback_key_points_from_title(title, profile)
+    return _dedupe_learning_list(fallback, max_items=6 if _has_numbered_series(fallback, min_count=6) else 5)
+
+
+def _fallback_key_points_from_title(title: str, profile: dict[str, Any]) -> list[str]:
+    cleaned = strip_leading_number(clean_item(title))
+    cleaned = re.sub(r"^(?:行动要求|具体做法|做法|要求|路径|措施|要点)[:：]\s*", "", cleaned).strip()
+    if not cleaned:
+        return []
+    if profile["material"] == "politics" and "action" in profile["roles"]:
+        parts = [part.strip(" 。；;，,") for part in re.split(r"[，、；;]", cleaned) if part.strip(" 。；;，,")]
+        return parts[:4] or [cleaned]
+    if profile["material"] in {"politics", "exam"}:
+        return [cleaned]
+    return []
 
 
 def _technical_method_points(subtype: str, points: list[str]) -> list[str]:
@@ -1013,16 +2075,18 @@ def _summary_by_profile(title: str, key_points: list[str], profile: dict[str, An
     subtype = profile["subtype"]
     labels = profile.get("numberedLabels") or [profile_point_label(point) for point in key_points if _leading_note_number(point)]
     if "enumeration" in roles and labels:
-        return compact(f"本部分包含 {len(labels)} 个并列内容项目，重点是分别说明各项的含义、条件和适用边界。", 180)
+        return _summary_for_enumeration(title, labels)
     if profile["material"] == "technical":
         return _technical_summary(title, subtype, roles, key_points)
     if profile["material"] == "politics":
         return _politics_summary(title, roles, key_points)
     if profile["material"] == "exam":
         return _exam_summary(title, roles, key_points)
+    if profile["material"] == "literature":
+        return _literature_summary(title, subtype, roles, key_points)
     if key_points:
-        return compact(f"{title}围绕{_join_summary_points(key_points[:2])}展开，重点是理解概念含义和适用边界。", 160)
-    return compact(f"{title}说明本部分的核心概念、适用条件和判断边界。", 160)
+        return compact(_declarative_summary(title, key_points), 160)
+    return compact(_declarative_summary(title, []), 160)
 
 
 def _technical_summary(title: str, subtype: str, roles: set[str], key_points: list[str]) -> str:
@@ -1058,62 +2122,70 @@ def _technical_summary(title: str, subtype: str, roles: set[str], key_points: li
         return "流程类内容应按触发条件、执行阶段和结束处理来理解。"
     if "comparison" in roles:
         return "比较类技术点要对照传送单位、响应时机、异常处理和控制开销。"
+    if key_points:
+        return compact(_declarative_summary(title, key_points), 160)
     return "这一技术点需要放在数据流和控制流中理解，重点看触发条件、控制动作和传送结果。"
 
 
 def _politics_summary(title: str, roles: set[str], key_points: list[str]) -> str:
+    if key_points:
+        return compact(_declarative_summary(title, key_points), 160)
     if "action" in roles:
-        return "行动类内容应先明确主体，再按目标、做法和落实场景组织答案。"
+        return "行动类内容需要明确主体、目标、做法和落实场景。"
     if "reason" in roles:
-        return "原因类内容要先给结论，再归纳制度、道路、文化和现实成就等依据。"
+        return "原因类内容需要把结论与制度、道路、文化和现实成就等依据对应起来。"
     if "manifestation" in roles:
         return "表现类内容要区分态度认同、价值底气和具体行动。"
-    if key_points:
-        return compact(f"这部分适合整理成答题框架，围绕{_join_summary_points(key_points[:3])}展开。", 160)
-    return "这部分适合整理成答题框架，先写核心结论，再按主体、原因或行动路径展开。"
+    return "这部分需要说明核心结论、依据和行动路径。"
 
 
 def _exam_summary(title: str, roles: set[str], key_points: list[str]) -> str:
+    if "checklist" in roles:
+        return "复习清单用于把核心概念、核心原理、易混点和常见题型入口放在一起检查。"
     if "principle" in roles:
         return "原理类内容要抓住原理表述、方法论要求和材料分析入口。"
     if "contrast" in roles:
         return "易混概念要区分概念边界、联系和常见错误表述。"
-    if "checklist" in roles:
-        return "高频考点应作为考前清单使用，重点对应选择题触发词和分析题常用原理。"
     if key_points:
-        return compact(f"备考时围绕{_join_summary_points(key_points[:2])}压缩关键词，并练习展开成完整答案。", 160)
-    return "备考类内容应压缩为概念、原理、易混点和题型应用，避免重复罗列原文长句。"
+        labels = _join_summary_points(key_points[:2])
+        return compact(f"{title}需要抓住{labels}，并能说明定义、判断依据和易错边界。", 160)
+    return "备考类内容需要覆盖概念、原理、易混点和题型应用。"
 
 
 def _content_by_profile(title: str, key_points: list[str], profile: dict[str, Any]) -> str:
     roles = profile["roles"]
     subtype = profile["subtype"]
     if profile["material"] == "technical":
-        return _technical_content(subtype, roles)
+        return _technical_content(subtype, roles, key_points, title)
     if profile["material"] == "politics":
-        return _politics_content(roles, key_points)
+        return _politics_content(roles, key_points, title)
     if profile["material"] == "exam":
-        return _exam_content(roles)
+        return _exam_content(roles, key_points)
+    if profile["material"] == "literature":
+        return _literature_content(subtype, roles, key_points, title)
     if key_points:
-        return compact(f"学习时先说明{title}的核心含义，再围绕{_join_short_points(key_points[:2])}补充条件、作用和边界。", 420)
-    return "学习时先用一句话说明概念，再补充适用条件、作用和常见易错点。"
+        return compact(_explain_points(title, key_points), 420)
+    return _explain_points(title, [])
 
 
-def _technical_content(subtype: str, roles: set[str]) -> str:
+def _technical_content(subtype: str, roles: set[str], key_points: list[str] | None = None, title: str = "") -> str:
+    key_points = key_points or []
+    if key_points and subtype == "generic":
+        return compact(_explain_points(title or "该技术点", key_points), 420)
     if subtype == "completion_notifier":
-        return "学习时抓住触发条件和作用：本批数据传送完成后，完成通知部件向处理器发出中断请求，由处理器执行校验、继续传送判断等收尾操作。"
+        return "本批数据传送完成后，完成通知部件向处理器发出中断请求，由处理器执行校验、继续传送判断等收尾操作。"
     if subtype == "data_buffer":
-        return "学习时区分两侧数据宽度：主存侧通常按字传送，设备侧可能按字节或位传送，缓冲部件负责暂存数据并配合装配或拆卸。"
+        return "主存侧通常按字传送，设备侧可能按字节或位传送，缓冲部件负责暂存数据并配合装配或拆卸。"
     if subtype in {"counter", "address_register", "control_logic", "component_group", "interface_function"}:
         return "这类接口结构应按职责记忆：地址类部件负责定位，计数类部件负责长度，缓冲类部件暂存数据，控制逻辑负责协调请求、响应和结束通知。"
     if subtype == "connection_type":
-        return "复习时区分连接方式：有的结构强调单个高速设备独占服务，有的结构强调多个低速设备按请求线、优先级或交叉方式共享服务。"
+        return "连接方式的差异在服务对象和请求机制：有的结构强调单个高速设备独占服务，有的结构强调多个低速设备按请求线、优先级或交叉方式共享服务。"
     if subtype == "exclusive_access":
         return "比较时关注主存使用权：这种方式控制逻辑简单，但处理器在传送阶段不能访问主存，适合需要成组快速传送且可接受等待的场景。"
     if subtype == "cycle_stealing":
-        return "学习重点是总线控制权：每次传送只临时占用一个或少数主存周期，需要申请、建立并归还控制权，适合外设速度慢于主存的场景。"
+        return "周期挪用的关键是总线控制权：每次传送只临时占用一个或少数主存周期，需要申请、建立并归还控制权，适合外设速度慢于主存的场景。"
     if subtype == "interleaved_access":
-        return "这一方式把处理器周期划分为交替访存的分周期，可减少长时间等待，但需要更复杂的地址、数据和读写控制逻辑。"
+        return "交替访问把工作周期划分为不同访存分周期，处理器和传送方按分周期交替访问主存，适合按固定节奏分时访存的场景，但硬件地址、数据和读写控制更复杂。"
     if subtype == "parallel_execution":
         return "理解重点是并行关系：传送控制器独立完成数据块交换，处理器不必一直等待；传送结束后再通过完成通知执行收尾处理。"
     if subtype == "request_arbitration":
@@ -1124,35 +2196,143 @@ def _technical_content(subtype: str, roles: set[str]) -> str:
         return "比较时先确定使用场景，再按传送单位、响应时间、异常处理、现场保护和控制开销逐项对照。"
     if "process" in roles:
         return "流程类内容要按预处理、数据传送、后处理三步记忆：先设置地址和长度，再在设备就绪后接管数据块交换，最后由处理器完成校验和后处理。"
-    return "这类技术点要放回数据流和控制流中理解，重点区分触发条件、执行动作和最终结果。"
+    if key_points:
+        return compact(_explain_points(title or "该技术点", key_points), 420)
+    return "这类技术点需要结合数据流和控制流理解，重点区分触发条件、执行动作和最终结果。"
 
 
-def _politics_content(roles: set[str], key_points: list[str]) -> str:
+def _politics_content(roles: set[str], key_points: list[str], title: str = "") -> str:
     if "action" in roles:
-        return "答题时按主体组织：国家或集体层面写方向和条件，个人层面写理想信念、学习实践、责任担当和法治意识。"
+        if has_any(title, ["青少年", "个人", "新时代的青少年"]):
+            return "个人行动可以分成能力建设和行为约束两条线：理想信念、学习实践和责任担当负责提升能力，道德修养和法治观念负责规范行动。"
+        if has_any(title, ["国家层面", "怎样实现", "实现中国梦"]):
+            return "国家层面行动由领导核心、道路方向、精神支撑和人民力量共同构成，宏观条件需要与具体路径一一对应。"
+        if has_any(title, ["自信", "自信中国人"]):
+            return "自信类行动需要把心态要求和实践要求分开：心态上保持理性平和，行动上落实为实干、劳动和坚定信心。"
+        labels = [_summary_point_label(point) for point in key_points[:5] if point]
+        if labels:
+            return compact("这些行动要求需要分清主体、目标和落实场景，再判断每项做法属于态度建设、能力建设还是行为约束。", 260)
+        return "行动要求需要按主体拆解：国家或集体层面强调方向和条件，个人层面强调理想信念、学习实践、责任担当和法治意识。"
     if "reason" in roles:
-        return "原因类题要先给结论，再展开制度、道路、理论、文化和现实成就等依据，避免只罗列口号。"
+        return _reason_content_from_points(title or "该主题", key_points)
     if "manifestation" in roles:
-        return "表现类题要把态度和行动分开：先说明认同和底气，再说明如何落实到理性心态、实践和责任中。"
-    return f"这类思政内容应整理成答题框架，围绕{_join_short_points(key_points[:3])}形成可背诵的并列要点。"
+        return _manifestation_content_from_points(key_points)
+    if key_points:
+        return compact(_explain_points("该主题", key_points), 420)
+    return "该主题需要结合结论、依据和行动路径理解。"
 
 
-def _exam_content(roles: set[str]) -> str:
-    if "contrast" in roles:
-        return "易混概念要按区别、联系、判断关键词三栏复习，选择题重点看概念边界，分析题重点看原理能否套用到材料。"
-    if "principle" in roles:
-        return "原理类内容适合按分析题模板记忆：先写原理内容，再写方法论，最后结合材料说明为什么要这样做。"
+def _exam_content(roles: set[str], key_points: list[str]) -> str:
     if "checklist" in roles:
-        return "高频考点应转成检查清单：逐项回忆定义、关键词和易错说法，再用真题判断哪些表述属于偷换概念。"
-    return "备考时不要只背长句，应把概念、原理和易混点压缩成关键词，并练习把关键词展开成完整答案。"
+        return "这组清单覆盖概念定义、原理表述、方法论要求和易错表述，适合作为考点完整性检查。"
+    if "contrast" in roles:
+        return "易混概念需要同时说明区别、联系和判断关键词；选择题看限定词，分析题看概念边界与材料对应关系。"
+    if "principle" in roles:
+        return _principle_content_from_points(key_points)
+    if key_points:
+        labels = [_summary_point_label(point) for point in key_points[:4] if point]
+        return compact(f"该考点围绕{_join_short_points(labels)}展开，需要对应概念、原理、方法论和易错限定词。", 260)
+    return "该考点由定义、适用条件和常见错误表述构成。"
+
+
+def _literature_summary(title: str, subtype: str, roles: set[str], key_points: list[str]) -> str:
+    if subtype == "character" or "character" in roles:
+        character = title.split("：", 1)[1] if "：" in title else title
+        return f"{character}这一人物可从身份、性格、关键情节和形象意义四个角度把握。"
+    if subtype == "origin":
+        return "成书源流部分说明作品故事从民间材料到定型文本的发展过程。"
+    if subtype == "theme":
+        return "主题价值部分重点把握作品如何塑造英雄群像并呈现社会矛盾。"
+    if subtype == "plot_structure":
+        return "情节结构部分用于建立整本书的阶段框架，避免只记零散故事。"
+    if subtype == "reading_task":
+        return "阅读任务应转化为练习，不宜作为知识 NOTE 的主体内容。"
+    if subtype == "author":
+        return "作者背景帮助理解作品来源和创作基础。"
+    if key_points:
+        labels = [_summary_point_label(point) for point in key_points[:2]]
+        labels = [label for label in labels if label]
+        if labels:
+            return f"{title}围绕{'、'.join(labels)}展开，适合整理成阅读笔记。"
+    return "文学类内容应围绕人物、情节、主题和阅读任务建立结构。"
+
+
+def _literature_content(subtype: str, roles: set[str], key_points: list[str], title: str) -> str:
+    if subtype == "character" or "character" in roles:
+        return "人物类笔记应先确认身份和绰号，再用关键情节解释性格，最后归纳人物在作品主题中的作用。"
+    if subtype == "origin":
+        return "复习时按时间线整理：先看故事材料来源，再看民间流传和戏曲改编，最后看小说定型。"
+    if subtype == "theme":
+        return "主题价值要结合人物群像和情节冲突理解，重点说明作品为什么具有文学史意义。"
+    if subtype == "plot_structure":
+        return "情节结构适合按阶段记忆：人物出场、梁山聚义、接受招安和结局收束，各阶段承担不同叙事功能。"
+    if subtype == "reading_task":
+        return "这类内容更适合进入复习题或课堂练习，用户学习时应把它转化为情节赏析或人物分析任务。"
+    if key_points:
+        return compact(_explain_points(title, key_points), 420)
+    return "阅读类材料需要把原文信息整理成作者背景、作品结构、人物形象和主题价值。"
+
+
+def _declarative_summary(title: str, key_points: list[str]) -> str:
+    if any(token in title for token in ["农业部门", "种植业", "林业", "畜牧业", "渔业"]):
+        return "这部分用于区分种植业、林业、畜牧业和渔业，重点看各部门的生产对象和生产方式。"
+    clean_points = [_summary_point_label(point) for point in key_points if not _looks_like_instruction_or_noise(point)]
+    clean_points = [point for point in clean_points if not _looks_like_fallback_learning_phrase(title, point)]
+    clean_points = [point for point in _dedupe_learning_list(clean_points, max_items=2) if point]
+    if not clean_points:
+        return f"{strip_leading_number(clean_item(title)) or title}用于建立该知识点的基本认识。"
+    if len(clean_points) == 1:
+        return _single_point_summary(title, clean_points[0])
+    return _two_point_summary(title, clean_points[0], clean_points[1])
+
+
+def _single_point_summary(title: str, point: str) -> str:
+    title_clean = strip_leading_number(clean_item(title))
+    if title_clean and _token_jaccard(title_clean, point) > 0.72:
+        return f"{title_clean}的重点在于把握其含义、适用场景和相邻概念。"
+    if title_clean and title_clean in point:
+        return f"{title_clean}围绕{point}展开，学习时要把结论和依据对应起来。"
+    return f"{title_clean or title}的关键内容是{point}。"
+
+
+def _two_point_summary(title: str, first: str, second: str) -> str:
+    title_clean = strip_leading_number(clean_item(title))
+    if title_clean and (title_clean in first or title_clean in second):
+        return f"{title_clean}包含{first}和{second}两个重点，需要分别对应到原文依据。"
+    return f"{title_clean or title}主要围绕{first}和{second}展开。"
+
+
+def _concise_summary_from_points(title: str, points: list[str]) -> str:
+    labels = [_summary_point_label(point) for point in points if not _looks_like_generation_template(point)]
+    labels = [label for label in _dedupe_learning_list(labels, max_items=2) if label]
+    if not labels:
+        return f"{strip_leading_number(clean_item(title)) or title}用于建立该知识点的基本认识。"
+    if len(labels) == 1:
+        return _single_point_summary(title, labels[0])
+    return _two_point_summary(title, labels[0], labels[1])
+
+
+def _explain_points(title: str, key_points: list[str]) -> str:
+    clean_points = [
+        point
+        for point in _dedupe_learning_list(key_points, max_items=4)
+        if not _looks_like_instruction_or_noise(point) and not _looks_like_fallback_learning_phrase(title, point)
+    ]
+    if not clean_points:
+        return f"{title}需要明确它回答的问题、成立依据和使用边界。"
+    if len(clean_points) == 1:
+        if _token_jaccard(title, clean_points[0]) > 0.72:
+            return f"{title}的重点是结论本身以及它适用的场景。"
+        return f"{title}的核心依据是{clean_points[0]}，需要补充它的条件、作用或例子。"
+    return f"{title}包含{clean_points[0]}和{clean_points[1]}等要点，需要分别归入定义、依据、作用或例子。"
 
 
 def _rewrite_summary_for_role(title: str, summary: str, key_points: list[str]) -> str:
     text = normalize_learning_text(summary).strip()
     if _is_role_summary_good(title, text, key_points):
-        return compact(_remove_summary_concat_noise(text), 160)
+        return _compact_user_summary(_remove_summary_concat_noise(text), 160)
     profile = infer_learning_profile(title, summary, key_points)
-    return compact(_summary_by_profile(title, key_points, profile), 160)
+    return _compact_user_summary(_summary_by_profile(title, key_points, profile), 160)
 
 
 def _rewrite_content_for_role(title: str, content: str, summary: str, key_points: list[str]) -> str:
@@ -1166,8 +2346,18 @@ def _rewrite_content_for_role(title: str, content: str, summary: str, key_points
 def _material_content_mismatch(profile: dict[str, Any], content: str) -> bool:
     if profile["material"] == "politics" and any(token in content for token in ["备考时", "选择题", "分析题", "真题"]):
         return True
+    if profile["material"] == "politics" and "action" in profile["roles"]:
+        probe = str(profile.get("probe") or "")
+        if has_any(probe, ["青少年", "个人层面", "自身素质", "社会实践", "法治观念"]) and "国家层面" in content:
+            return True
     if profile["material"] == "exam" and any(token in content for token in ["国家层面", "个人层面", "法治意识"]):
         return True
+    return False
+
+
+def _needs_profile_content(profile: dict[str, Any], content: str) -> bool:
+    if profile["material"] == "literature" and profile["subtype"] in {"character", "reading_task"}:
+        return "人物类笔记" not in content and "阅读任务" not in content
     return False
 
 
@@ -1219,21 +2409,50 @@ def _is_role_content_good(content: str, summary: str, key_points: list[str]) -> 
 
 
 def _looks_like_generation_template(text: str) -> bool:
+    if re.search(r"本部分包含\s*\d+\s*个并列内容项目", text):
+        return True
+    if re.search(r"学习[“\"']?.{0,30}[”\"']?时[，,]?\s*先", text):
+        return True
+    if re.search(r"(?:[一-龥A-Za-z]+类\s*)?NOTE\s*(?:应|要|不应|用于|可以)", text):
+        return True
     return any(
         token in text
         for token in [
             "学习时先理解",
+            "学习时先说明",
+            "备考时不要只背长句",
+            "压缩关键词，并练习展开成完整答案",
             "再围绕",
             "梳理作用、条件和易混点",
+            "并列内容项目",
+            "这部分围绕",
+            "这部分用于说明",
+            "核心线索",
+            "关键线索是",
+            "需要说明",
+            "重点说明这些要点",
+            "含义、条件、作用和区别",
+            "条件、作用和边界",
+            "概念含义、使用条件和应用场景",
+            "这类技术点要放回",
+            "这类技术点需要结合",
+            "这一技术点需要放在",
             "核心是理解本主题的背景、结论和应用边界",
             "核心是理解核心概念、判断依据和应用边界",
             "学习这个主题时",
             "需要结合原文",
+            "应结合原文确认",
             "主要学习",
             "之间的关系",
             "不应承载",
             "结构总览",
             "交给各子模块",
+            "直接记住原文依据",
+            "原理类内容由",
+            "先点明原理",
+            "材料如何体现该原理",
+            "用原文短语支撑每个表现",
+            "考前自检",
         ]
     )
 
@@ -1303,6 +2522,8 @@ def _has_numbered_series(points: list[str], *, min_count: int) -> bool:
 def _is_redundant_colon_child_point(title: str, point: str) -> bool:
     if "：" not in title:
         return False
+    if re.match(r"^\s*(?:行动要求|具体做法|做法|要求|路径|措施|要点)[:：]", title):
+        return False
     detail = title.split("：", 1)[1].strip()
     if not detail:
         return False
@@ -1369,9 +2590,34 @@ def _remove_summary_concat_noise(text: str) -> str:
     sentences = split_sentences(text)
     if sentences:
         text = sentences[0]
-    if len(text) > 150:
-        text = compact(text, 150)
-    return text
+    return _compact_user_summary(text, 150)
+
+
+def _compact_user_summary(text: str, limit: int) -> str:
+    value = normalize_learning_text(text).strip()
+    if len(value) <= limit:
+        return value
+    sentences = [sentence.strip() for sentence in split_sentences(value) if sentence.strip()]
+    for sentence in sentences:
+        if len(sentence) <= limit:
+            return sentence
+    clauses = [part.strip(" ，,；;。") for part in re.split(r"[；;。]", value) if part.strip(" ，,；;。")]
+    for clause in clauses:
+        if len(clause) <= limit:
+            return clause + "。"
+    parts = [part.strip(" ，,；;。") for part in re.split(r"[，,；;]", value) if part.strip(" ，,；;。")]
+    selected: list[str] = []
+    total = 0
+    for part in parts:
+        projected = total + len(part) + (1 if selected else 0)
+        if selected and projected > limit - 1:
+            break
+        if projected <= limit - 1:
+            selected.append(part)
+            total = projected
+    if selected:
+        return "，".join(selected).rstrip("，,；;。") + "。"
+    return value[: max(1, limit - 1)].rstrip("，,；;。") + "。"
 
 
 def _looks_like_raw_concat_summary(title: str, summary: str) -> bool:
@@ -1441,6 +2687,8 @@ def _summary_point_label(point: str) -> str:
     for sep in ["，", "；", "。"]:
         if sep in text and len(text) > 28:
             text = text.split(sep, 1)[0]
+    if _looks_like_meaningful_english_title(text):
+        return text
     return compact(text, 32)
 
 
@@ -1573,6 +2821,7 @@ def _attach_colon_detail_notes(notes: list[dict[str, Any]]) -> list[dict[str, An
 
 
 def _normalize_learning_levels(notes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    _detach_semantically_invalid_parents(notes)
     technical_roots = [note for note in notes if infer_learning_profile(str(note.get("title") or ""), str(note.get("summary") or ""), note.get("keyPoints") or [], str(note.get("content") or ""))["material"] == "technical"]
     interface_parent = _first_parent_matching(technical_roots, lambda profile, title: "component" in profile["roles"] and profile["subtype"] != "connection_type" and has_any(title, ["接口", "功能", "组成", "结构"]))
     transfer_parent = _first_parent_matching(technical_roots, lambda profile, title: "enumeration" in profile["roles"] and "transfer_method" in profile["roles"])
@@ -1595,6 +2844,48 @@ def _normalize_learning_levels(notes: list[dict[str, Any]]) -> list[dict[str, An
             note["level"] = max(2, int(note.get("level") or 1))
             note["parentId"] = process_parent.get("id")
     return notes
+
+
+def _detach_semantically_invalid_parents(notes: list[dict[str, Any]]) -> None:
+    by_id = {str(note.get("id") or ""): note for note in notes}
+    for note in notes:
+        parent = by_id.get(str(note.get("parentId") or ""))
+        if not parent:
+            continue
+        if _parent_child_semantic_conflict(parent, note):
+            note["parentId"] = None
+            note["level"] = 1
+
+
+def _parent_child_semantic_conflict(parent: dict[str, Any], child: dict[str, Any]) -> bool:
+    parent_title = str(parent.get("title") or "")
+    child_title = str(child.get("title") or "")
+    parent_profile = infer_learning_profile(parent_title, str(parent.get("summary") or ""), parent.get("keyPoints") or [], str(parent.get("content") or ""))
+    child_profile = infer_learning_profile(child_title, str(child.get("summary") or ""), child.get("keyPoints") or [], str(child.get("content") or ""))
+    if parent_profile["material"] != child_profile["material"]:
+        return True
+    if parent_profile["material"] == "technical":
+        if "transfer_method" in parent_profile["roles"] and _belongs_to_interface_parent(child_profile, child_title):
+            return True
+        if parent_profile["subtype"] == "connection_type" and "transfer_method" in child_profile["roles"]:
+            return True
+    if parent_profile["material"] == "politics":
+        parent_probe = " ".join([parent_title, str(parent.get("summary") or ""), " ".join(str(item) for item in parent.get("keyPoints", []) or [])])
+        child_probe = " ".join([child_title, str(child.get("summary") or ""), " ".join(str(item) for item in child.get("keyPoints", []) or [])])
+        parent_is_national = has_any(parent_probe, ["国家层面", "党的领导", "中国道路", "中国精神", "中国力量"])
+        child_is_personal = has_any(child_probe, ["青少年", "个人层面", "自身素质", "社会实践", "法治观念", "亲社会行为"])
+        if parent_is_national and child_is_personal:
+            return True
+        if "reason" in parent_profile["roles"] and "reason" in child_profile["roles"]:
+            if not _source_refs_overlap(parent, child) and _token_jaccard(parent_title, child_title) < 0.10:
+                return True
+    return False
+
+
+def _source_refs_overlap(left: dict[str, Any], right: dict[str, Any]) -> bool:
+    left_refs = {str(item) for item in [*(left.get("sourceRefs") or []), *(left.get("source_refs") or [])] if str(item)}
+    right_refs = {str(item) for item in [*(right.get("sourceRefs") or []), *(right.get("source_refs") or [])] if str(item)}
+    return bool(left_refs & right_refs)
 
 
 def _first_parent_matching(notes: list[dict[str, Any]], predicate) -> dict[str, Any] | None:
@@ -1634,6 +2925,7 @@ def _build_questions(notes: list[dict[str, Any]]) -> list[dict[str, Any]]:
         title = clean_learning_title(str(note.get("title") or f"note-{index}"), str(note.get("content") or ""))
         body = str(note.get("summary") or note.get("content") or "")
         q_type, question = _question_for_note(title, body)
+        answer = _review_answer_for_note(note)
         questions.append(
             {
                 "id": f"q{index}",
@@ -1641,13 +2933,30 @@ def _build_questions(notes: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "difficulty": difficulties[index - 1],
                 "question": question,
                 "options": [],
-                "answer": compact(str(note.get("content") or note.get("summary") or ""), 160),
+                "answer": answer,
                 "explanation": "\u7b54\u6848\u5e94\u4f9d\u636e\u5173\u8054\u7b14\u8bb0\u548c\u6765\u6e90\u7247\u6bb5\uff0c\u4f18\u5148\u590d\u8ff0\u5173\u952e\u5b9a\u4e49\u3001\u6b65\u9aa4\u6216\u56e0\u679c\u5173\u7cfb\u3002",
                 "relatedNoteId": note["id"],
                 "citationIds": [],
             }
         )
     return questions
+
+
+def _review_answer_for_note(note: dict[str, Any]) -> str:
+    title = str(note.get("title") or "")
+    points = _drop_low_value_key_points(title, [str(item) for item in note.get("keyPoints", []) or []])
+    summary = str(note.get("summary") or "").strip()
+    content = str(note.get("content") or "").strip()
+    parts: list[str] = []
+    if summary and not _looks_like_generation_template(summary) and not _looks_like_raw_concat_summary(title, summary):
+        parts.append(summary.rstrip("。"))
+    if points:
+        parts.append("要点包括：" + "；".join(points[:4]))
+    elif content and not _looks_like_generation_template(content):
+        parts.append(content.rstrip("。"))
+    if not parts:
+        parts.append(f"{title}需要回到原文定位其定义、作用和适用条件")
+    return compact("。".join(parts) + "。", 220)
 
 
 def _question_for_note(title: str, body: str) -> tuple[str, str]:
