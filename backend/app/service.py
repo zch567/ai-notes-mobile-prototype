@@ -16,6 +16,7 @@ from .normalization import normalize_agent_result, raw_contract_report
 from .rag.fingerprint import corpus_hash
 from .rag.io_utils import load_chunks
 from .rag.llm_polish import polish_result_with_provider
+from .rag.quality_diagnostics import attach_quality_diagnostics
 
 
 class AgentService:
@@ -88,6 +89,7 @@ class AgentService:
         if model_log:
             result["_meta"]["modelLog"] = model_log
 
+        attach_quality_diagnostics(result)
         normalized = normalize_agent_result(result)
         result_id = normalized["id"] or f"agent-{uuid.uuid4().hex[:8]}"
         normalized["id"] = result_id

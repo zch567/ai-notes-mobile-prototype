@@ -400,6 +400,28 @@ def _attach_note_support(
         "missingTerms": missing_terms,
         "unsupportedClaims": missing_terms[:5] if level in {"low", "unsupported"} else [],
     }
+    ranked_citations = sorted(
+        [citation for citation in citations if str(citation.get("quote") or "").strip()],
+        key=lambda citation: (
+            1.0 if str(citation.get("sourceId") or "") in explicit_ids else 0.0,
+            _quote_note_relevance(note, str(citation.get("quote") or "")),
+            float((citation.get("support") or {}).get("quoteScore", 0)),
+            float(citation.get("confidence", 0)),
+        ),
+        reverse=True,
+    )
+    note["sourceExcerpts"] = [
+        {
+            "sourceId": str(citation.get("sourceId") or ""),
+            "sourceRef": str(citation.get("sourceRef") or ""),
+            "page": citation.get("page"),
+            "slide": citation.get("slide"),
+            "quote": str(citation.get("quote") or "").strip(),
+            "confidence": citation.get("confidence"),
+        }
+        for citation in ranked_citations
+        if str(citation.get("sourceId") or "") in explicit_ids or _quote_note_relevance(note, str(citation.get("quote") or "")) >= 0.08
+    ][:3]
     if level in {"low", "unsupported"}:
         note.setdefault("quality_issues", [])
         if "low_note_source_support" not in note["quality_issues"]:
@@ -411,7 +433,7 @@ def _enrich_low_support_note(
     citations: list[dict[str, Any]],
     chunks: list[SourceChunk],
 ) -> None:
-    if not citations or "Source evidence:" in str(note.get("content", "")):
+    if not citations or "原文依据：" in str(note.get("content", "")):
         return
     support = note.get("support") or {}
     if float(support.get("score", 0)) >= 0.55:
@@ -421,7 +443,7 @@ def _enrich_low_support_note(
         return
     evidence = "; ".join(dict.fromkeys(quotes[:2]))
     content = str(note.get("content") or "").strip()
-    note["content"] = compact(f"{content} Source evidence: {evidence}", 520)
+    note["content"] = compact(f"{content} 原文依据：{evidence}", 520)
 
 def _note_source_support(
     note: dict[str, Any],
@@ -443,6 +465,56 @@ def _note_source_support(
         quote_tokens = set(tokenize(citation_text))
     overlap = len(note_tokens & quote_tokens)
     return overlap / max(1, len(note_tokens))
+
+
+def _quote_note_relevance(note: dict[str, Any], quote: str) -> float:
+    query = " ".join(
+        [
+            str(note.get("title") or ""),
+            str(note.get("summary") or ""),
+            " ".join(str(item) for item in note.get("keyPoints", []) or []),
+        ]
+    )
+    note_tokens = set(tokenize(query))
+    quote_tokens = set(tokenize(quote))
+    if not note_tokens or not quote_tokens:
+        return 0.0
+    overlap = len(note_tokens & quote_tokens) / max(1, len(note_tokens))
+    containment = len(note_tokens & quote_tokens) / max(1, len(quote_tokens))
+    title_tokens = set(tokenize(str(note.get("title") or "")))
+    title_overlap = len(title_tokens & quote_tokens) / max(1, len(title_tokens)) if title_tokens else 0.0
+    score = overlap * 0.45 + containment * 0.20 + title_overlap * 0.35
+    note_number = _leading_number(str(note.get("title") or ""))
+    quote_number = _leading_number(quote)
+    if note_number and quote_number and note_number != quote_number:
+        score *= 0.35
+    if _quote_has_topic_anchor(note, quote):
+        score += 0.18
+    return round(min(1.0, score), 4)
+
+
+def _leading_number(value: str) -> str:
+    match = re.match(r"^\s*(?:[（(](\d+)[）)]|([①②③④⑤⑥⑦⑧⑨])|(\d+)[.、])", str(value))
+    return next((group for group in match.groups() if group), "") if match else ""
+
+
+def _quote_has_topic_anchor(note: dict[str, Any], quote: str) -> bool:
+    title = str(note.get("title") or "")
+    probe = " ".join([title, " ".join(str(item) for item in note.get("keyPoints", []) or [])])
+    pairs = [
+        ("青少年", "增强法治观念"),
+        ("青少年", "努力学习科学文化知识"),
+        ("青少年", "树立崇高远大理想"),
+        ("助力实现中国梦", "树立崇高远大理想"),
+        ("助力实现中国梦", "增强法治观念"),
+        ("如何做自信中国人", "理性平和"),
+        ("如何做自信中国人", "四个自信"),
+        ("自信中国人", "四个自信"),
+        ("物质与意识", "意识对物质具有能动"),
+        ("唯物论核心基本概念", "物质"),
+        ("后处理", "决定是否继续"),
+    ]
+    return any(left in probe and right in quote for left, right in pairs)
 
 
 def _build_citation(

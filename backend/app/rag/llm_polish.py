@@ -5,6 +5,7 @@ from typing import Any
 
 from ..provider_config import create_provider
 from ..providers import ModelLog
+from .content_quality import assess_content_quality
 from .schemas import SourceChunk
 from .text_utils import compact
 
@@ -69,26 +70,31 @@ def apply_polish_result(
         key_points = [_clean_field(item, limit=160) for item in _string_list(patch.get("keyPoints") or patch.get("key_points"))]
         key_points = [item for item in key_points if item]
 
+        candidate = dict(note)
         if title:
-            note["title"] = title
+            candidate["title"] = title
         if summary:
-            note["summary"] = summary
+            candidate["summary"] = summary
         if content:
-            note["content"] = content
+            candidate["content"] = content
         if key_points:
-            note["keyPoints"] = _dedupe(key_points)[:8]
+            candidate["keyPoints"] = _dedupe(key_points)[:8]
 
         level = _int(patch.get("level"))
         if level is not None and 1 <= level <= 4:
-            note["level"] = level
+            candidate["level"] = level
         parent_id = patch.get("parentId")
         if parent_id is None or parent_id == "" or str(parent_id) in by_id:
-            note["parentId"] = str(parent_id) if parent_id else None
+            candidate["parentId"] = str(parent_id) if parent_id else None
 
-        note["citationIds"] = []
-        note["sourceRefs"] = existing_refs
-        note["source_refs"] = existing_refs
-        note["blocks"] = _blocks_from_polished_note(note)
+        candidate["citationIds"] = []
+        candidate["sourceRefs"] = existing_refs
+        candidate["source_refs"] = existing_refs
+        candidate["blocks"] = _blocks_from_polished_note(candidate)
+        if not _polish_candidate_is_safe(candidate):
+            continue
+        note.clear()
+        note.update(candidate)
         applied += 1
 
     if applied:
@@ -147,8 +153,16 @@ def _build_polish_payload(result: dict[str, Any], chunks: list[SourceChunk], *, 
             "doNotReturnCitations": True,
             "backendWillRebuildCitations": True,
             "summary": "one concise explanatory sentence; do not duplicate keyPoints",
-            "keyPoints": "deduplicated complete bullet points; no broken clauses",
+            "keyPoints": "deduplicated complete bullet points; no broken clauses, no isolated labels",
             "content": "supplementary explanation only; omit repeated lists",
+            "ifAlreadyClean": "return the original note fields unchanged instead of rewriting aggressively",
+            "hardRejectPatterns": [
+                "raw concatenated summaries",
+                "summary that starts by copying title then listing every key point",
+                "broken OCR/PDF fragments",
+                "transition fragments such as 通过说明, 对应输入情况, 经处理完毕",
+                "key points shorter than a learning concept or ending with conjunctions",
+            ],
         },
         "outputSchema": {
             "notes": [
@@ -174,8 +188,36 @@ def _polish_prompt() -> str:
         "必须遵守：1) 不新增 note id；2) 不新增 sourceRefs；3) 不输出 citations；"
         "4) summary 只写一句解释，不复制 keyPoints；5) keyPoints 必须完整、去重、无断句；"
         "6) content 只补充机制/上下文/例子，不重复 summary 和 keyPoints；"
-        "7) classroom prompt 或材料句不要作为标题，改成概念化标题。"
+        "7) classroom prompt 或材料句不要作为标题，改成概念化标题；"
+        "8) 如果原 note 已经清晰，不要为了润色而重写；"
+        "9) 不要输出拼接式概要、过短标签、过渡残片或 OCR/PDF 断裂片段。"
     )
+
+
+def _polish_candidate_is_safe(note: dict[str, Any]) -> bool:
+    quality = assess_content_quality({"notes": [note]})
+    failed = set(quality.get("failedChecks") or [])
+    hard_failures = {
+        "template-summary-high",
+        "low-info-summary-high",
+        "low-quality-content-high",
+        "visual-label-point-high",
+        "long-key-point-high",
+        "weak-key-point-high",
+        "over-fragmented-key-point-high",
+        "fragment-title-present",
+        "numbering-break-high",
+        "broken-fragment-present",
+        "truncated-sentence-high",
+        "raw-concat-summary-present",
+        "title-summary-mismatch-present",
+        "generic-template-mismatch-present",
+        "transition-fragment-present",
+        "internal-process-language-present",
+        "template-content-present",
+        "semantic-field-repetition-high",
+    }
+    return not (failed & hard_failures)
 
 
 def _blocks_from_polished_note(note: dict[str, Any]) -> list[dict[str, Any]]:

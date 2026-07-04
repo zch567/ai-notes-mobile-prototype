@@ -22,6 +22,8 @@ export function ResultScreen({ result, onOpenNote, onOpenMindMap, onRetry, onRes
   const meta = result._meta || {};
   const modelLog = meta.modelLog || {};
   const citationDiagnostics = result.citationDiagnostics || {};
+  const qualityDiagnostics = result.qualityDiagnostics || {};
+  const hasQualityDiagnostics = Boolean(Object.keys(qualityDiagnostics).length);
   const hasBackendMeta = Boolean(meta.pipeline || meta.parser || modelLog.provider || Object.keys(citationDiagnostics).length);
 
   async function runValidation() {
@@ -122,6 +124,40 @@ export function ResultScreen({ result, onOpenNote, onOpenMindMap, onRetry, onRes
             {result.citations.length ? `，另有 ${result.citations.length} 条 citation 审计记录。` : "。"}
           </div>
         </Card>
+
+        {hasQualityDiagnostics ? (
+          <Card title="质量诊断" subtitle="Quality">
+            <div className="flex items-start gap-3">
+              <div className="grid h-16 w-16 shrink-0 place-items-center rounded-3xl bg-blue-600 text-white shadow-sm">
+                <div className="text-center">
+                  <p className="text-[22px] font-semibold leading-6">{scoreText(qualityDiagnostics.overallScore)}</p>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-blue-100">Score</p>
+                </div>
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-[13px] leading-5 text-slate-600">
+                  {qualityDiagnostics.summaryText || "后端已返回质量诊断，本次结果可继续查看和复习。"}
+                </p>
+                {qualityDiagnostics.warnings?.length ? (
+                  <div className="mt-2 space-y-1.5">
+                    {qualityDiagnostics.warnings.slice(0, 3).map((warning) => (
+                      <p key={warning} className="rounded-2xl bg-amber-50 px-3 py-2 text-[12px] leading-5 text-amber-900">
+                        {warning}
+                      </p>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            </div>
+
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              <QualityMetric label="产物完整" value={qualityDiagnostics.assetCompleteness} />
+              <QualityMetric label="引用质量" value={qualityDiagnostics.citationScore} />
+              <QualityMetric label="结构质量" value={qualityDiagnostics.structureScore} />
+              <QualityMetric label="复习质量" value={qualityDiagnostics.reviewScore} />
+            </div>
+          </Card>
+        ) : null}
 
         {diagnostics.length ? (
           <Card title="解析提示" subtitle="Diagnostics">
@@ -352,10 +388,41 @@ function Metric({ label, value }) {
   );
 }
 
+function QualityMetric({ label, value }) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-[12px] font-medium text-slate-500">{label}</p>
+        <p className="text-[14px] font-semibold text-slate-900">{scoreText(value)}</p>
+      </div>
+      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-200">
+        <div className="h-full rounded-full bg-blue-600" style={{ width: `${scorePercent(value)}%` }} />
+      </div>
+    </div>
+  );
+}
+
 function percentText(value) {
   const number = Number(value);
   if (!Number.isFinite(number)) return "-";
   return `${Math.round(number * 100)}%`;
+}
+
+function scoreText(value) {
+  const number = normalizeScore(value);
+  return number === null ? "-" : String(Math.round(number));
+}
+
+function scorePercent(value) {
+  const number = normalizeScore(value);
+  return number === null ? 0 : number;
+}
+
+function normalizeScore(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return null;
+  const scaled = number <= 1 ? number * 100 : number;
+  return Math.min(Math.max(scaled, 0), 100);
 }
 
 function Message({ role, text, tone = "user" }) {

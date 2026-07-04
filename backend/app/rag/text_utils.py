@@ -66,8 +66,8 @@ def _repair_inline_learning_artifacts(text: str) -> str:
         ("传", "送"),
     ]:
         value = re.sub(fr"{left}\s*[\n、]\s*{right}", left + right, value)
-    value = re.sub(r"([一-龥A-Za-z0-9）)])、(服务|方式|控制权|主存|可能|周期|传送)", r"\1\2", value)
-    value = re.sub(r"(和|与|或)、(服务|方式|控制权|主存|可能|周期|传送)", r"\1\2", value)
+    value = re.sub(r"([一-龥A-Za-z0-9）)])、(服务|控制权|主存|可能)", r"\1\2", value)
+    value = re.sub(r"(和|与|或)、(服务|方式|控制权|主存|可能|传送)", r"\1\2", value)
     value = re.sub(r"([，、；;])\s*(等内容|等等内容)", r"\1", value)
     value = re.sub(r"因为等等内容", "因为", value)
     return value
@@ -101,7 +101,11 @@ def _should_merge_hard_break(previous: str, current: str) -> bool:
     cur_cjk = bool(re.match(r"^[\u4e00-\u9fff]", cur))
     if not (prev_cjk and cur_cjk):
         return False
-    continuation_tail = "\u4e3b\u603b\u63a7\u5236\u65b9\u670d\u53ef\u5c3d\u4e2d\u5468\u4f20\u60c5\u6216\u5e76\u53ca\u5bf9\u4ee5\u4e3a\u4e0e\u5c06\u88ab\u628a\u7c7b\u6761\u5148\u540e\u6982"
+    if prev.endswith(("通过", "由于", "因为", "以及", "或者", "并由")):
+        return True
+    if (prev.endswith("总线") and cur.startswith("控制权")) or (prev.endswith("判决") and cur.startswith("机构")) or (prev.endswith("优先级别") and cur.startswith("先后")):
+        return True
+    continuation_tail = "\u4e3b\u603b\u63a7\u5236\u65b9\u670d\u53ef\u5c3d\u4e2d\u5468\u4f20\u60c5\u6216\u5e76\u53ca\u5bf9\u4ee5\u4e3a\u4e0e\u5c06\u88ab\u628a\u7c7b\u6761\u5148\u540e\u6982\u8fc7"
     if prev[-1] in continuation_tail:
         return True
     return False

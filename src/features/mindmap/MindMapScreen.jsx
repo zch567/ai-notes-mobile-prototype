@@ -65,37 +65,31 @@ export function MindMapScreen({ result, onResultChange = () => {}, onBack }) {
   const { nodes, edges } = result.mindMap;
   const [selectedNodeId, setSelectedNodeId] = useState(null);
   const [zoom, setZoom] = useState(1);
+  const [collapsedNodeIds, setCollapsedNodeIds] = useState(() => new Set());
   const isWebView = isWebViewShell();
-  const presentableMap = useMemo(() => createPresentableMindMap(nodes, edges, result.topic), [nodes, edges, result.topic]);
+  const presentableMap = useMemo(() => createPresentableMindMap(nodes, edges, result.topic, collapsedNodeIds), [nodes, edges, result.topic, collapsedNodeIds]);
   const displayNodes = presentableMap.nodes;
   const displayEdges = presentableMap.edges;
   const nodeById = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes]);
   const displayNodeById = useMemo(() => new Map(displayNodes.map((node) => [node.id, node])), [displayNodes]);
   const selectedNode = selectedNodeId ? nodeById.get(selectedNodeId) : null;
-  const centerNode = nodeById.get("center") || nodes[0];
+  const centerNode = nodeById.get("root") || nodeById.get("center") || nodes[0];
   const displayCenterNode = displayNodeById.get(centerNode?.id) || displayNodes[0];
   const displaySelectedNode = selectedNodeId ? displayNodeById.get(selectedNodeId) : null;
   const detailNode = displaySelectedNode || displayCenterNode;
-  const selectedRelations = useMemo(
-    () =>
-      displayEdges.filter(
-        (edge) =>
-          selectedNodeId &&
-          hasRelationMetadata(edge) &&
-          (edge.from === selectedNodeId || edge.to === selectedNodeId),
-      ),
-    [displayEdges, selectedNodeId],
-  );
   const focusX = displaySelectedNode ? 50 - displaySelectedNode.x : 0;
   const focusY = displaySelectedNode ? 50 - displaySelectedNode.y : 0;
   const toolboxSide = displaySelectedNode?.x > 58 ? "left" : "right";
   const toolboxVertical =
     displaySelectedNode?.y > 68 ? "bottom" : displaySelectedNode?.y < 32 ? "top" : "middle";
   const hasMap = nodes.length > 0;
+  const selectedHasChildren = selectedNode ? edges.some((edge) => edge.from === selectedNode.id) : false;
+  const selectedCollapsed = selectedNode ? collapsedNodeIds.has(selectedNode.id) : false;
   const mapActions = [
     { key: "child", label: "新增子节点", onClick: addChildNode, disabled: !hasMap },
     { key: "sibling", label: "同级节点", onClick: addSiblingNode, disabled: !selectedNode || selectedNode.id === centerNode?.id },
     { key: "rename", label: "重命名", onClick: renameNode, disabled: !detailNode },
+    { key: "toggle", label: selectedCollapsed ? "展开分支" : "折叠分支", onClick: toggleBranch, disabled: !selectedNode || !selectedHasChildren },
     { key: "hide", label: "隐藏分支", onClick: hideBranch, disabled: !selectedNode || selectedNode.id === centerNode?.id },
   ];
 
@@ -132,9 +126,14 @@ export function MindMapScreen({ result, onResultChange = () => {}, onBack }) {
       desc: "点击重命名补充这个知识点",
     });
 
+    setCollapsedNodeIds((current) => {
+      const next = new Set(current);
+      next.delete(parent.id);
+      return next;
+    });
     updateMindMap({
       nodes: [...nodes, newNode],
-      edges: [...edges, { from: parent.id, to: nodeId, type: "hierarchy", label: "归属" }],
+      edges: [...edges, { from: parent.id, to: nodeId }],
     }, nodeId);
   }
 
@@ -157,7 +156,7 @@ export function MindMapScreen({ result, onResultChange = () => {}, onBack }) {
 
     updateMindMap({
       nodes: [...nodes, newNode],
-      edges: [...edges, { from: parent.id, to: nodeId, type: "hierarchy", label: "归属" }],
+      edges: [...edges, { from: parent.id, to: nodeId }],
     }, nodeId);
   }
 
@@ -177,6 +176,20 @@ export function MindMapScreen({ result, onResultChange = () => {}, onBack }) {
     }
   }
 
+  function toggleBranch() {
+    if (!selectedNode || !selectedHasChildren) return;
+
+    setCollapsedNodeIds((current) => {
+      const next = new Set(current);
+      if (next.has(selectedNode.id)) {
+        next.delete(selectedNode.id);
+      } else {
+        next.add(selectedNode.id);
+      }
+      return next;
+    });
+  }
+
   function hideBranch() {
     if (!selectedNode || selectedNode.id === centerNode?.id) return;
 
@@ -185,6 +198,11 @@ export function MindMapScreen({ result, onResultChange = () => {}, onBack }) {
 
     const nextNodes = nodes.filter((node) => !hiddenNodeIds.has(node.id));
     const nextEdges = edges.filter((edge) => !hiddenNodeIds.has(edge.from) && !hiddenNodeIds.has(edge.to));
+    setCollapsedNodeIds((current) => {
+      const next = new Set(current);
+      hiddenNodeIds.forEach((id) => next.delete(id));
+      return next;
+    });
     updateMindMap({ nodes: nextNodes, edges: nextEdges }, null);
   }
 
@@ -246,41 +264,41 @@ export function MindMapScreen({ result, onResultChange = () => {}, onBack }) {
                 const from = displayNodeById.get(edge.from);
                 const to = displayNodeById.get(edge.to);
                 if (!from || !to) return null;
-                const sideX = to.x < from.x ? 35 : to.x > from.x ? 65 : 50;
-                const controlY = to.y < from.y ? to.y + 14 : to.y > from.y ? to.y - 14 : to.y;
-                const path = `M ${from.x} ${from.y} C ${sideX} ${controlY}, ${sideX} ${to.y}, ${to.x} ${to.y}`;
+                const midX = Math.round(((from.x + to.x) / 2) * 10) / 10;
+                const path = `M ${from.x} ${from.y} C ${midX} ${from.y}, ${midX} ${to.y}, ${to.x} ${to.y}`;
+                const midY = Math.round(((from.y + to.y) / 2) * 10) / 10;
+                const relationLabel = edge.label || edgeTypeLabel(edge.type);
+                const stroke = edgeTypeColor(edge.type, to.line || "#93c5fd");
                 return (
-                  <path
-                    key={`${edge.from}-${edge.to}-${index}`}
-                    d={path}
-                    fill="none"
-                    stroke={to.line || "#93c5fd"}
-                    strokeLinecap="round"
-                    strokeWidth="2.2"
-                    filter="url(#softShadow)"
-                    opacity="0.88"
-                  />
+                  <g key={`${edge.from}-${edge.to}-${index}`}>
+                    <path
+                      d={path}
+                      fill="none"
+                      stroke={stroke}
+                      strokeLinecap="round"
+                      strokeWidth={edge.type === "hierarchy" ? "1.8" : "2.4"}
+                      strokeDasharray={edge.type === "contrast" ? "2 2" : undefined}
+                      filter="url(#softShadow)"
+                      opacity={edge.type === "hierarchy" ? "0.62" : "0.9"}
+                    />
+                    {relationLabel ? (
+                      <text
+                        x={midX}
+                        y={midY - 1.2}
+                        textAnchor="middle"
+                        dominantBaseline="middle"
+                        className="select-none fill-slate-600 text-[2.6px] font-semibold"
+                        paintOrder="stroke"
+                        stroke="white"
+                        strokeWidth="0.9"
+                      >
+                        {relationLabel}
+                      </text>
+                    ) : null}
+                  </g>
                 );
               })}
             </svg>
-
-            {displayEdges.map((edge, index) => {
-              const from = displayNodeById.get(edge.from);
-              const to = displayNodeById.get(edge.to);
-              if (!from || !to || !hasRelationMetadata(edge)) return null;
-              return (
-                <div
-                  key={`label-${edge.from}-${edge.to}-${index}`}
-                  className="pointer-events-none absolute z-[5] -translate-x-1/2 -translate-y-1/2 rounded-full border border-white/90 bg-white/90 px-2 py-0.5 text-[8px] font-semibold tracking-wide text-slate-500 shadow-sm backdrop-blur"
-                  style={{
-                    left: `${(from.x + to.x) / 2}%`,
-                    top: `${(from.y + to.y) / 2}%`,
-                  }}
-                >
-                  {edge.label || mindMapRelationLabel(edge.type)}
-                </div>
-              );
-            })}
 
             {displayNodes.map((node) => {
               const isCenter = node.id === displayCenterNode?.id;
@@ -291,7 +309,7 @@ export function MindMapScreen({ result, onResultChange = () => {}, onBack }) {
                   onClick={() => setSelectedNodeId((current) => (current === node.id ? null : node.id))}
                   className={`absolute z-10 -translate-x-1/2 -translate-y-1/2 overflow-hidden border text-left shadow-[0_16px_30px_rgba(15,23,42,0.12)] transition duration-200 hover:-translate-y-[52%] hover:shadow-[0_20px_38px_rgba(15,23,42,0.16)] ${
                     isSelected ? "scale-[1.05] ring-2 ring-slate-900/10" : ""
-                  } ${isCenter ? "w-[170px] rounded-[26px] border-blue-200 bg-white px-4 py-4 text-center" : "w-[160px] rounded-[20px] px-3 py-3"}`}
+                  } ${isCenter ? "w-[180px] rounded-[24px] border-blue-200 bg-white px-4 py-4 text-center" : "w-[150px] rounded-[18px] px-3 py-2.5"}`}
                   style={{
                     left: `${node.x}%`,
                     top: `${node.y}%`,
@@ -307,7 +325,14 @@ export function MindMapScreen({ result, onResultChange = () => {}, onBack }) {
                   ) : (
                     <>
                       <p className="line-clamp-2 break-words text-[12px] font-semibold leading-tight text-slate-950">{node.label}</p>
-                      <p className="mt-2 line-clamp-2 break-words text-[11px] leading-4 text-slate-600">{node.desc}</p>
+                      <div className="mt-1.5 flex items-center justify-between gap-2">
+                        <p className="min-w-0 flex-1 truncate text-[10px] leading-4 text-slate-500">{node.desc}</p>
+                        {node.childCount ? (
+                          <span className="shrink-0 rounded-full bg-white/70 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500">
+                            {node.collapsed ? `+${node.childCount}` : "?"}
+                          </span>
+                        ) : null}
+                      </div>
                     </>
                   )}
                 </button>
@@ -416,26 +441,6 @@ export function MindMapScreen({ result, onResultChange = () => {}, onBack }) {
                     ))}
                 </div>
               </div>
-
-              {selectedRelations.length ? (
-                <div className="mt-3 rounded-[22px] border border-blue-100 bg-blue-50/80 p-3">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-blue-500">关联关系</p>
-                  <div className="mt-2 max-h-28 space-y-2 overflow-y-auto">
-                    {selectedRelations.map((edge, index) => {
-                      const isOutgoing = edge.from === selectedNodeId;
-                      const peer = displayNodeById.get(isOutgoing ? edge.to : edge.from);
-                      return (
-                        <div key={`${edge.from}-${edge.to}-${index}`} className="rounded-2xl bg-white px-3 py-2 text-[11px] leading-5 text-slate-600">
-                          <p className="font-semibold text-slate-800">
-                            {isOutgoing ? "指向" : "来自"} {peer?.label || "关联节点"} · {edge.label || mindMapRelationLabel(edge.type)}
-                          </p>
-                          {edge.reason ? <p className="mt-1 text-slate-500">{edge.reason}</p> : null}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              ) : null}
             </aside>
           ) : (
             <div className="absolute right-5 top-5 z-30 rounded-[24px] border border-white/80 bg-white/80 px-4 py-3 shadow-[0_14px_36px_rgba(15,23,42,0.12)] backdrop-blur-xl">
@@ -482,74 +487,144 @@ const mindMapPalette = [
   { fill: "#e2e8f0", line: "#64748b" },
 ];
 
-function createPresentableMindMap(nodes, edges, topic) {
+function createPresentableMindMap(nodes, edges, topic, collapsedNodeIds = new Set()) {
   if (!nodes.length) {
     return { nodes: [], edges: [] };
   }
 
-  const center = nodes.find((node) => node.id === "center" || node.id === "root") || nodes[0];
+  const sourceNodeById = new Map(nodes.map((node) => [node.id, node]));
+  const center = sourceNodeById.get("root") || sourceNodeById.get("center") || nodes[0];
+  const validNodeIds = new Set(nodes.map((node) => node.id));
+  const normalizedEdges = edges
+    .filter((edge) => validNodeIds.has(edge.from) && validNodeIds.has(edge.to) && edge.from !== edge.to)
+    .map((edge) => ({ ...edge, from: edge.from, to: edge.to }));
+
+  if (normalizedEdges.length) {
+    return createMarkmapLayout(center, sourceNodeById, normalizedEdges, topic, collapsedNodeIds);
+  }
+
   const nonCenterNodes = nodes.filter((node) => node.id !== center.id);
-  const centerNode = {
-    ...center,
-    id: center.id,
-    label: center.label || topic || "中心主题",
-    desc: center.desc || "中心主题",
-    x: 50,
+  const centerNode = normalizeDisplayNode(center, 0, {
+    topic,
+    isCenter: true,
+    x: 12,
     y: 50,
-    fill: "#ffffff",
-    line: "#2563eb",
-  };
+    depth: 0,
+    childCount: nonCenterNodes.length,
+    collapsed: false,
+  });
   const placed = [centerNode];
   const childNodes = nonCenterNodes.map((node, index) => {
       const slot = pickNodeSlot(index, nonCenterNodes.length, placed);
-      const color = nodeColor(node, index);
-      const nextNode = {
-        ...node,
+      const nextNode = normalizeDisplayNode(node, index + 1, {
+        topic,
         x: slot.x,
         y: slot.y,
-        fill: color.fill,
-        line: color.line,
-        desc: node.desc || detailSummary(node.detail) || "点击查看详情",
-      };
+        depth: 1,
+        childCount: 0,
+        collapsed: false,
+      });
       placed.push(nextNode);
       return nextNode;
     });
   const presentableNodes = [centerNode, ...childNodes];
 
-  const presentableNodeIds = new Set(presentableNodes.map((node) => node.id));
-  const presentableEdges = edges
-    .filter((edge) => presentableNodeIds.has(edge.from) && presentableNodeIds.has(edge.to) && edge.from !== edge.to)
-    .map((edge) => ({ ...edge, from: edge.from, to: edge.to }));
-  const connectedTargets = new Set(presentableEdges.map((edge) => edge.to));
-  nonCenterNodes.forEach((node) => {
-    if (!connectedTargets.has(node.id)) {
-      presentableEdges.push({ from: center.id, to: node.id });
-    }
-  });
-
   return {
     nodes: presentableNodes,
-    edges: presentableEdges.length ? presentableEdges : edges,
+    edges: childNodes.map((node) => ({ from: center.id, to: node.id })),
   };
 }
 
-function hasRelationMetadata(edge) {
-  return Boolean(edge.label || edge.reason || edge.sourceRefs?.length || edge.confidence);
+function createMarkmapLayout(center, nodeById, edges, topic, collapsedNodeIds) {
+  const childrenByParent = new Map();
+  edges.forEach((edge) => {
+    if (!childrenByParent.has(edge.from)) childrenByParent.set(edge.from, []);
+    childrenByParent.get(edge.from).push(edge.to);
+  });
+
+  const visibleIds = [];
+  const visibleEdges = [];
+  const metaById = new Map();
+  const visited = new Set();
+
+  function leafWeight(nodeId) {
+    const children = childrenByParent.get(nodeId) || [];
+    if (!children.length || collapsedNodeIds.has(nodeId)) return 1;
+    return children.reduce((sum, childId) => sum + leafWeight(childId), 0);
+  }
+
+  const totalWeight = Math.max(leafWeight(center.id), 1);
+  const verticalStart = 12;
+  const verticalEnd = 88;
+  const unit = totalWeight > 1 ? (verticalEnd - verticalStart) / (totalWeight - 1) : 0;
+  let cursor = 0;
+  const maxDepth = Math.max(1, maxTreeDepth(center.id, childrenByParent, collapsedNodeIds));
+
+  function visit(nodeId, depth = 0, parentId = null) {
+    if (visited.has(nodeId)) return metaById.get(nodeId)?.y || 50;
+    const node = nodeById.get(nodeId);
+    if (!node) return 50;
+    visited.add(nodeId);
+    visibleIds.push(nodeId);
+    if (parentId) {
+      const sourceEdge = edges.find((edge) => edge.from === parentId && edge.to === nodeId);
+      visibleEdges.push(sourceEdge ? { ...sourceEdge, from: parentId, to: nodeId } : { from: parentId, to: nodeId });
+    }
+
+    const childIds = childrenByParent.get(nodeId) || [];
+    const isCollapsed = collapsedNodeIds.has(nodeId);
+    const visibleChildren = isCollapsed ? [] : childIds.filter((childId) => nodeById.has(childId));
+    const childYs = visibleChildren.map((childId) => visit(childId, depth + 1, nodeId));
+    const y = childYs.length ? childYs.reduce((sum, next) => sum + next, 0) / childYs.length : verticalStart + cursor++ * unit;
+    const x = depth === 0 ? 10 : Math.min(90, 28 + (depth - 1) * (62 / Math.max(maxDepth - 1, 1)));
+    metaById.set(nodeId, {
+      x: Math.round(x * 10) / 10,
+      y: Math.round(y * 10) / 10,
+      depth,
+      childCount: childIds.length,
+      collapsed: isCollapsed,
+    });
+    return y;
+  }
+
+  visit(center.id);
+
+  return {
+    nodes: visibleIds.map((nodeId, index) => {
+      const meta = metaById.get(nodeId) || { x: 50, y: 50, depth: 0, childCount: 0, collapsed: false };
+      return normalizeDisplayNode(nodeById.get(nodeId), index, {
+        topic,
+        isCenter: nodeId === center.id,
+        ...meta,
+      });
+    }),
+    edges: visibleEdges,
+  };
 }
 
-function mindMapRelationLabel(type) {
+function maxTreeDepth(nodeId, childrenByParent, collapsedNodeIds, seen = new Set()) {
+  if (seen.has(nodeId) || collapsedNodeIds.has(nodeId)) return 0;
+  seen.add(nodeId);
+  const children = childrenByParent.get(nodeId) || [];
+  if (!children.length) return 0;
+  return 1 + Math.max(...children.map((childId) => maxTreeDepth(childId, childrenByParent, collapsedNodeIds, new Set(seen))));
+}
+
+function normalizeDisplayNode(node, index, options) {
+  const isCenter = Boolean(options.isCenter);
+  const color = isCenter ? { fill: "#ffffff", line: "#2563eb" } : nodeColor(node, Math.max(index - 1, 0));
   return {
-    hierarchy: "归属",
-    prerequisite: "先修",
-    component: "组成",
-    mechanism: "机制",
-    "training-flow": "训练流",
-    evolution: "演进",
-    application: "应用",
-    contrast: "对比",
-    evidence: "证据",
-    solution: "解决",
-  }[type] || "关联";
+    ...node,
+    label: node.label || (isCenter ? options.topic || "中心主题" : "知识点"),
+    desc: compactMapText(node.desc || detailSummary(node.detail) || (isCenter ? "中心主题" : "点击查看详情"), isCenter ? 20 : 18),
+    x: Math.max(6, Math.min(94, Number(options.x))),
+    y: Math.max(8, Math.min(92, Number(options.y))),
+    depth: options.depth || 0,
+    childCount: options.childCount || 0,
+    collapsed: Boolean(options.collapsed),
+    fill: node.fill || color.fill,
+    line: node.line || color.line,
+  };
 }
 
 function nodeColor(node, index) {
@@ -598,9 +673,45 @@ function circleSlot(index, total) {
   };
 }
 
+function compactMapText(text, limit = 18) {
+  const normalized = String(text || "").replace(/\s+/g, " ").trim();
+  if (normalized.length <= limit) return normalized;
+  return `${normalized.slice(0, limit - 1)}…`;
+}
+
 function detailSummary(detail) {
   if (!detail) return "";
   return String(detail).split(/\n+/).find((paragraph) => paragraph.trim())?.trim() || "";
+}
+
+function edgeTypeColor(type, fallback) {
+  return {
+    hierarchy: fallback || "#94a3b8",
+    prerequisite: "#2563eb",
+    component: "#0f766e",
+    mechanism: "#7c3aed",
+    "training-flow": "#ea580c",
+    evolution: "#be123c",
+    application: "#0284c7",
+    contrast: "#64748b",
+    evidence: "#16a34a",
+    solution: "#0891b2",
+  }[type] || fallback || "#93c5fd";
+}
+
+function edgeTypeLabel(type) {
+  return {
+    hierarchy: "层级",
+    prerequisite: "先修",
+    component: "组成",
+    mechanism: "机制",
+    "training-flow": "流程",
+    evolution: "演进",
+    application: "应用",
+    contrast: "对比",
+    evidence: "证据",
+    solution: "解法",
+  }[type] || "";
 }
 
 function Metric({ label, value }) {

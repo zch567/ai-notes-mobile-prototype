@@ -5,6 +5,7 @@ import re
 from typing import Any
 
 from .schemas import SourceChunk
+from .learning_profile import infer_learning_profile, leading_number as profile_leading_number
 from .text_utils import compact, extract_keywords, normalize_learning_text, split_sentences
 
 
@@ -146,8 +147,8 @@ class NoteBlockAssembler:
         for note, unit in pairs:
             note["title"] = unit.title
             note["summary"] = unit.summary
-            note["content"] = "" if is_redundant_pair(unit.explanation, unit.summary) else unit.explanation
-            note["keyPoints"] = [item.text for item in unit.outline_items]
+            note["content"] = user_facing_content(unit)
+            note["keyPoints"] = learning_key_points(unit)
             note["examples"] = unit.examples
             note["relations"] = unit.relations
             note["sourceRefs"] = unit.source_refs
@@ -156,6 +157,83 @@ class NoteBlockAssembler:
             note["structure"] = {"style": "learning-unit-contract-v2", "concepts": ["LearningUnit", "parent-child consistency", "typed blocks", "postprocess validator"], "modelFirst": True, "postProcessing": "learning-unit-normalization", "qualityIssues": unit.quality_issues}
             result.append(note)
         return result
+
+
+def learning_key_points(unit: LearningUnit) -> list[str]:
+    title = strip_section_number(unit.title)
+    outline_text = " ".join(item.text for item in unit.outline_items if item.text)
+    points = [item.text for item in unit.outline_items if keep_outline_text(item.text)]
+    points = [point for point in points if not has_truncated_learning_point(point)]
+    profile = infer_learning_profile(title, unit.summary, points, outline_text)
+    return learning_key_points_for_profile(profile, points)
+
+
+def learning_key_points_for_profile(profile: dict[str, Any], points: list[str]) -> list[str]:
+    labels = profile.get("numberedLabels") or []
+    if "enumeration" in profile["roles"] and labels:
+        return dedupe_learning_values(labels, max_items=6 if len(labels) >= 6 else 5)
+    if profile["material"] != "technical":
+        return dedupe_learning_values(points, max_items=6 if numbered_series_count(points) >= 6 else 5)
+    subtype = profile["subtype"]
+    if "transfer_method" in profile["roles"]:
+        if subtype == "cycle_stealing":
+            return ["每次传送要申请和归还总线控制权", "适合外设读写周期大于主存周期的场景", "优点是提高处理器对主存的利用率"]
+        if subtype == "exclusive_access":
+            return ["处理器暂停访问主存", "传送方独占主存完成数据交换", "控制简单但处理器利用率较低"]
+        if subtype == "interleaved_access":
+            return ["把工作周期划分为不同访存分周期", "传送方和处理器交替访问主存", "硬件控制逻辑更复杂"]
+    if "component" in profile["roles"]:
+        if subtype == "completion_notifier":
+            return ["一批数据传送结束后发出中断请求", "通知 CPU 执行后处理", "不要把完成通知部件等同于数据缓冲部件"]
+        if subtype == "data_buffer":
+            return ["暂存每次传送的数据", "主存侧通常按字传送", "设备侧可能按字节或位传送", "接口需要完成字装配或拆卸"]
+        if subtype == "interface_function":
+            return ["申请传送并接管总线", "维护地址和传送长度", "管理数据交换并通知处理器"]
+        if subtype == "connection_type":
+            joined = " ".join(points)
+            if "选择型" in joined:
+                return ["物理上可连接多个设备", "逻辑上同一时间只服务一个设备", "适合高速设备独占式传送"]
+            if "多路型" in joined or "字节交叉" in joined:
+                return ["物理上可连接多个设备", "多个设备可共享接口服务", "可采用字节交叉方式传送"]
+            return ["区分单设备独占与多设备共享", "按设备速度选择连接方式", "关注请求线和响应线组织"]
+        if subtype == "component_group":
+            return ["地址类部件负责定位", "计数类部件记录长度", "缓冲类部件暂存数据", "控制逻辑协调传送"]
+    if "process" in profile["roles"]:
+        if subtype == "request_arbitration":
+            return ["设备准备好数据后可申请传送", "多个请求由硬件排队决定优先级", "获得控制权后开始数据交换"]
+        if subtype == "parallel_execution":
+            return ["处理器继续执行主程序", "传送控制器独立完成数据块交换", "传送结束后发出完成通知"]
+        if subtype == "three_phase_process":
+            return ["预处理设置地址和传送长度", "数据传送阶段完成数据块交换", "结束后执行校验和后处理"]
+        if subtype == "post_process":
+            return ["校验传送数据是否正确", "判断是否继续传送其他数据块", "必要时重新初始化接口或停止外设"]
+    return dedupe_learning_values(points, max_items=5)
+
+
+def dedupe_learning_values(values: list[str], *, max_items: int) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        text = clean_item(value)
+        key = re.sub(r"[\W_]+", "", normalize_learning_text(text)).lower()
+        if text and key and key not in seen:
+            seen.add(key)
+            result.append(text)
+        if len(result) >= max_items:
+            break
+    return result
+
+
+def numbered_series_count(values: list[str]) -> int:
+    return sum(1 for value in values if profile_leading_number(value))
+
+
+def has_truncated_learning_point(value: str) -> bool:
+    text = clean_item(value)
+    return bool(
+        re.search(r"(可以采$|可以采。|预置信$|字装配\s*/$|DMA接$|有选择$|后处$|CPU停$|已$|P\d+\s*[-－]\s*\d+)", text)
+        or is_transition_fragment(text)
+    )
 
 
 def enrich_learning_notes_contract(notes: list[dict[str, Any]], chunks: list[SourceChunk]) -> list[dict[str, Any]]:
@@ -471,10 +549,10 @@ def aggregate_parent_summary(title: str, children: list[LearningUnit]) -> str:
         return "Transformer的核心组件包括" + "、".join(names[:8]) + "；这些子模块分别承担输入表示、顺序补充、关系建模、非线性变换和训练稳定化等职责。"
     label = semantic_relation_label(title)
     if len(names) == 1:
-        return compact(f"{title}围绕{names[0]}展开，重点说明其在{label}中的位置和理解边界。", 220)
+        return compact(f"{title}说明{names[0]}，需要结合原文判断它的适用条件和作用。", 220)
     if names:
-        return compact(f"{title}围绕{label}组织内容，重点区分" + "、".join(names[:4]) + "之间的作用和边界。", 220)
-    return compact(f"{title}围绕{label}展开，帮助理解本部分知识之间的关系。", 220)
+        return compact(f"{title}包含" + "、".join(names[:4]) + f"等内容，重点是理解{label}。", 220)
+    return compact(f"{title}用于说明{label}。", 220)
 
 
 def render_blocks(unit: LearningUnit) -> list[dict[str, Any]]:
@@ -528,14 +606,25 @@ def summarize_from_outline(title: str, outline: list[OutlineItem], source_text: 
     if len(outline) == 1:
         item = outline[0]
         if item.children:
-            return compact(f"{strip_section_number(title)}围绕{strip_section_number(item.text)}展开，重点把握下级要点之间的关系和适用条件。", 220)
-        return compact(f"{strip_section_number(title)}重点说明{strip_section_number(item.text)}，学习时应结合原文理解其条件、作用或结论。", 220)
+            children = [summary_outline_label(str(child)) for child in item.children]
+            children = [child for child in dedupe_strings(children) if child][:4]
+            if children:
+                joined = "、".join(children)
+                if same_learning_text(item.text, title):
+                    return compact(f"{strip_section_number(title)}具体包括{joined}。", 220)
+                return compact(f"{strip_section_number(title)}说明{summary_outline_label(item.text) or strip_section_number(item.text)}，具体包括{joined}。", 220)
+        return compact(normalize_summary_sentence(title, item.text, source_text), 220)
     relation = semantic_relation_label(title)
-    return compact(f"{strip_section_number(title)}围绕{relation}展开，学习时应先把握整体关系，再逐项理解关键要点。", 220)
+    labels = [summary_outline_label(item.text) for item in outline]
+    labels = [label for label in dedupe_strings(labels) if label][:4]
+    if not labels:
+        return explanatory_sentence_from_source(title, source_text)
+    names = "、".join(labels)
+    return compact(f"{strip_section_number(title)}包含{names}，核心是理解{relation}。", 220)
 
 
 def explanation_from_unit(title: str, model_content: str, summary: str, blocks: list[LearningBlock]) -> str:
-    parts = [summary]
+    parts: list[str] = []
     for block in blocks:
         if block.type in {"summary", "outline"}:
             continue
@@ -548,12 +637,124 @@ def explanation_from_unit(title: str, model_content: str, summary: str, blocks: 
                 parts.append(f"{block.title}：{rendered}")
     text = normalize_text("\n".join(dedupe_strings(parts)))
     has_typed_blocks = any(block.type not in {"summary", "outline"} for block in blocks)
-    if len(text) < 80 and model_content and has_typed_blocks:
+    if len(text) < 80 and model_content:
         extra = remove_evidence_tail(model_content)
         extra_sentence = first_non_redundant_sentence(extra, text)
         if extra_sentence:
             text = normalize_text(text + "\n" + extra_sentence)
+    if not text and has_typed_blocks:
+        text = first_non_redundant_sentence(model_content, summary)
     return text
+
+
+def user_facing_content(unit: LearningUnit) -> str:
+    learning = learning_explanation(unit.title, unit.summary, unit.outline_items)
+    if learning:
+        return compact(learning, 420)
+    explanation = normalize_text(unit.explanation)
+    if explanation and not is_low_quality_user_content(explanation) and not is_redundant_pair(explanation, unit.summary):
+        return compact(explanation, 420)
+    source = explanatory_content_from_source(unit.title, unit.summary, unit.source_text, unit.outline_items)
+    if source and not is_low_quality_user_content(source) and not is_redundant_pair(source, unit.summary):
+        return compact(source, 420)
+    return synthesized_explanation(unit.title, unit.outline_items)
+
+
+def learning_explanation(title: str, summary: str, outline: list[OutlineItem]) -> str:
+    title_clean = strip_section_number(title)
+    points = [strip_section_number(item.text).rstrip("。；") for item in outline if item.text and keep_outline_text(item.text)]
+    points = [point for point in points if not same_learning_text(point, title_clean)][:4]
+    profile = infer_learning_profile(title_clean, summary, points)
+    explanation = explanation_for_profile(profile, points)
+    if explanation:
+        return explanation
+    if points:
+        return compact(f"学习时先理解{title_clean}的核心含义，再围绕" + "、".join(points[:3]) + "梳理作用、条件和易混点。", 420)
+    return ""
+
+
+def explanation_for_profile(profile: dict[str, Any], points: list[str]) -> str:
+    material = profile["material"]
+    roles = profile["roles"]
+    subtype = profile["subtype"]
+    if material == "technical":
+        if subtype == "cycle_stealing":
+            return "学习时抓住“临时占用主存周期”这一点：它提高主存利用率，但每次传送都涉及总线控制权申请、建立和归还。"
+        if subtype == "interleaved_access":
+            return "这一方式把工作周期分成不同访存分周期，重点比较它与临时占用周期方式的区别：处理器不必长时间等待，但硬件控制逻辑更复杂。"
+        if subtype == "exclusive_access":
+            return "学习时围绕主存使用权比较：控制简单的一方通常以处理器等待为代价，适合成组快速传送但不利于处理器利用率。"
+        if subtype == "data_buffer":
+            return "缓冲部件用于暂存本次传送的数据。要区分主存侧和设备侧的数据宽度，理解为什么需要装配或拆卸。"
+        if subtype == "completion_notifier":
+            return "完成通知部件用于在一批数据传送结束后通知处理器执行后处理，学习时要把它和数据暂存、地址更新等职责区分开。"
+        if subtype in {"component_group", "interface_function", "counter", "address_register", "control_logic"}:
+            return "学习时按部件职责记忆：地址类负责定位，计数类负责长度，缓冲类负责暂存，控制逻辑负责协调请求、响应和结束通知。"
+        if subtype == "connection_type":
+            return "复习时区分连接方式：有的结构强调单个高速设备独占服务，有的结构强调多个低速设备按请求线、优先级或交叉方式共享服务。"
+        if "process" in roles:
+            if subtype == "parallel_execution":
+                return "理解重点是并行关系：传送控制器独立完成数据块交换，处理器不必一直等待；传送结束后再通过完成通知执行收尾处理。"
+            return "流程类内容可按预处理、数据传送、后处理三步记忆：先设置地址和长度，再管理数据块传送，最后通知处理器收尾。"
+        if "comparison" in roles:
+            return "比较时重点看传送单位、响应时间、异常处理和现场保护，先判断适用场景，再逐项对照差异。"
+        return "这类技术点要放回数据流和控制流中理解，重点分清触发条件、执行动作和最终结果。"
+    if material == "politics":
+        if "action" in roles:
+            return "这部分是行动路径题，答题时可从主体、目标、具体做法和落实场景组织。"
+        if "reason" in roles:
+            return "原因类题要先给结论，再补充制度、道路、文化和现实成就等依据，避免只罗列口号。"
+        if "manifestation" in roles:
+            return "表现类题要把态度和行动分开：先说明认同和底气，再说明如何落实到理性心态、实践和责任中。"
+    if material == "exam":
+        if "contrast" in roles:
+            return "这类内容适合做对照记忆：先找区别，再记联系，避免把抽象范畴和具体对象混为一谈。"
+        if "principle" in roles:
+            return "原理类题按“原理内容、方法论、结合材料”三步展开，选择题重点识别是否偷换或夸大概念。"
+        if "checklist" in roles:
+            return "这部分应作为考前清单使用，重点标记选择题触发词和分析题常用原理，复习时逐项回忆对应表述。"
+    return ""
+
+
+def explanatory_content_from_source(title: str, summary: str, source_text: str, outline: list[OutlineItem]) -> str:
+    existing = " ".join([title, summary, render_items_text(outline)])
+    candidates: list[str] = []
+    for sentence in normalized_sentences(source_text):
+        clean_sentence = clean_item(sentence)
+        if not keep_outline_text(clean_sentence):
+            continue
+        if is_redundant_pair(clean_sentence, existing):
+            continue
+        if is_activity_or_prompt_line(clean_sentence) or is_visual_label_line(clean_sentence):
+            continue
+        candidates.append(clean_sentence)
+        if len(candidates) >= 2:
+            break
+    return normalize_text(" ".join(candidates))
+
+
+def synthesized_explanation(title: str, outline: list[OutlineItem]) -> str:
+    names = [item.text.rstrip("。；") for item in outline if item.text and not is_low_quality_user_content(item.text)][:3]
+    title_clean = strip_section_number(title)
+    profile = infer_learning_profile(title_clean, key_points=names)
+    generated = explanation_for_profile(profile, names)
+    if generated:
+        return generated
+    if names:
+        relation = semantic_relation_label(title_clean)
+        return compact(f"这部分说明{relation}，可结合" + "、".join(names[:2]) + "等内容理解。", 220)
+    return compact(f"{title_clean}需要结合上下文理解其定义、作用和适用场景。", 220)
+
+
+def normalize_summary_sentence(title: str, item_text: str, source_text: str) -> str:
+    title_clean = strip_section_number(title)
+    item = summary_outline_label(item_text)
+    if item and not same_learning_text(item, title_clean):
+        if title_clean.endswith("？") or title_clean.startswith(("为什么", "怎样", "如何", "什么是")):
+            return f"{title_clean}的关键答案是：{item}。"
+        return f"{title_clean}说明{item}。"
+    source_sentence = explanatory_sentence_from_source(title, source_text)
+    return source_sentence or title_clean
 
 
 def semantic_relation_label(title: str) -> str:
@@ -570,14 +771,26 @@ def semantic_relation_label(title: str) -> str:
         return "作用、影响和实践价值"
     if any(token in probe for token in ["概念", "原理", "范畴"]):
         return "核心概念、判断依据和应用边界"
-    return "核心概念与关键要点"
+    return "本主题的背景、结论和应用边界"
+
+
+def summary_outline_label(value: str) -> str:
+    text = strip_section_number(clean_item(value)).rstrip("。；")
+    if not text or is_transition_fragment(text) or is_broken_outline_fragment(text):
+        return ""
+    if len(text) > 38 and re.search(r"[，,；;：:]", text):
+        head = re.split(r"[，,；;：:]", text, maxsplit=1)[0].strip()
+        if 4 <= len(head) <= 38 and not is_transition_fragment(head) and not is_broken_outline_fragment(head):
+            text = head
+    text = re.sub(r"^(说明|包括|主要包括)\s*", "", text).strip()
+    return compact(text, 42)
 
 
 def explanatory_sentence_from_source(title: str, source_text: str) -> str:
     sentence = first_meaningful_sentence(source_text)
     if sentence and not same_learning_text(sentence, title):
         return compact(sentence, 220)
-    return compact(f"{strip_section_number(title)}用于组织本部分的核心概念、关系和应用条件。", 220)
+    return compact(strip_section_number(title), 220)
 
 
 def reduce_summary_outline_duplication(title: str, summary: str, outline: list[OutlineItem], source_text: str) -> str:
@@ -831,9 +1044,11 @@ def is_good_note_title(candidate: str, source_text: str = "") -> bool:
         return False
     if re.match(r"^[\u7684\u5f97\u5730\u548c\u4e0e\u53ca\u6216\u3001\uff0c\u3002\uff1b\uff1a,.;:\uff09)]", value):
         return False
-    if re.match(r"^(存的|制权|式高|务|能是|期长|送之前|设备交换信息不需要 CPU暂停执行原程序为设备)", value):
+    if re.match(r"^(存的|制权|式高|务|能是|期长|送之前|理时|设备地址|设备交换信息不需要 CPU暂停执行原程序为设备)", value):
         return False
-    if value.endswith(("\u6216", "\u548c", "\u4e0e", "\u5bf9", "\u628a", "\u5c06", "\u63a7", "\u4e3b", "\u5c3d")):
+    if is_visual_label_line(value):
+        return False
+    if value.endswith(("\u6216", "\u548c", "\u4e0e", "\u5bf9", "\u628a", "\u5c06", "\u63a7", "\u4e3b", "\u5c3d", "\u901a\u8fc7")):
         return False
     if len(value) <= 8 and source_text and source_text.count(value) <= 1 and not re.search(r"[A-Za-z]{2,}|\d", value):
         return False
@@ -841,10 +1056,20 @@ def is_good_note_title(candidate: str, source_text: str = "") -> bool:
 
 def clean_outline_items(title: str, items: list[OutlineItem]) -> list[OutlineItem]:
     cleaned: list[OutlineItem] = []
+    title_number = leading_item_number(title)
     for item in items:
         text = clean_item(item.text)
+        item_number = leading_item_number(text)
+        if title_number and item_number and item_number != title_number:
+            continue
         children = [clean_item(str(child)) for child in item.children]
         children = [child for child in children if keep_child_text(child) and not same_learning_text(child, title)]
+        if title_number:
+            children = [
+                child
+                for child in children
+                if not (leading_item_number(child) and leading_item_number(child) != title_number)
+            ]
         if same_learning_text(text, title) and children:
             cleaned.extend(OutlineItem(child, []) for child in children[:4])
             continue
@@ -885,6 +1110,9 @@ def merge_broken_pair(left: str, right: str) -> str:
         "周期": "挪用",
         "字装配 /": "拆卸",
         "字装配/": "拆卸",
+        "总线": "控制权",
+        "判决": "机构",
+        "优先级别": "先后",
         "采": "取",
     }
     for tail, head in pairs.items():
@@ -917,7 +1145,7 @@ def is_noisy_learning_text(value: str) -> bool:
 
 def is_subsection_marker(value: str) -> bool:
     text = clean_item(value)
-    return bool(re.fullmatch(r"[\(?]?\d+[\)?]?", text) or re.fullmatch(r"[??????????]", text))
+    return bool(re.fullmatch(r"[\(?]?\d+[\)?]?", text) or re.fullmatch(r"[一二三四五六七八九十①②③④⑤⑥⑦⑧⑨⑩]", text))
 
 def clean_item(value: str) -> str:
     value = normalize_learning_text(normalize_text(value))
@@ -926,6 +1154,10 @@ def clean_item(value: str) -> str:
     value = value.replace("Linear↓ReLU↓Linear", "Linear -> ReLU -> Linear").replace("↓", " -> ")
     value = value.replace("控制电；路", "控制电路")
     value = value.replace("控制电、路", "控制电路")
+    value = value.replace("操、作", "操作")
+    value = value.replace("信 息", "信息")
+    value = value.replace("设备地址 寄 存器", "设备地址寄存器")
+    value = value.replace("设备地址 寄", "设备地址寄存器")
     value = value.replace("周期；挪用", "周期挪用")
     value = value.replace("字装配 /；拆卸", "字装配/拆卸")
     value = value.replace("字装配 /、拆卸", "字装配/拆卸")
@@ -979,7 +1211,7 @@ def label_without_colon(value: str) -> str:
 
 
 def strip_bullet(value: str) -> str:
-    value = re.sub(r"^[-*•]\s*", "", value)
+    value = re.sub(r"^[-*•✓✔☑]\s*", "", value)
     value = re.sub(r"^\d+[.、．]\s*", "", value)
     return value.strip()
 
@@ -992,17 +1224,31 @@ def strip_section_number(value: str) -> str:
     return value.strip()
 
 
+def leading_item_number(value: str) -> str:
+    text = str(value or "").strip()
+    match = re.match(r"^\s*(?:\((\d+)\)|（(\d+)）|([①②③④⑤⑥⑦⑧⑨]))", text)
+    if not match:
+        return ""
+    return next((group for group in match.groups() if group), "")
+
+
 def keep_outline_text(text: str) -> bool:
     value = clean_item(text)
     if not value or is_orphan_label(value) or is_minor_example_line(value):
+        return False
+    if is_transition_fragment(value):
         return False
     if is_noisy_learning_text(value):
         return False
     if is_background_filler(value) or is_transformer_solution(value):
         return False
+    if is_activity_or_prompt_line(value) or is_visual_label_line(value):
+        return False
     if is_broken_outline_fragment(value):
         return False
     if re.fullmatch(r"\d{1,3}", value):
+        return False
+    if re.fullmatch(r"[\u4e00-\u9fff]", value):
         return False
     if re.fullmatch(r"[\u2460-\u2469]+", value):
         return False
@@ -1013,7 +1259,24 @@ def keep_outline_text(text: str) -> bool:
 
 def keep_child_text(text: str) -> bool:
     value = clean_item(text)
-    return bool(value and not is_orphan_label(value) and not is_minor_example_line(value) and not is_noisy_learning_text(value) and not is_broken_outline_fragment(value))
+    return bool(value and not is_orphan_label(value) and not is_minor_example_line(value) and not is_noisy_learning_text(value) and not is_transition_fragment(value) and not is_broken_outline_fragment(value) and not is_activity_or_prompt_line(value) and not is_visual_label_line(value))
+
+
+def is_low_quality_user_content(value: str) -> bool:
+    text = normalize_text(clean_item(value))
+    if not text:
+        return True
+    if len(re.sub(r"\s+", "", text)) < 18:
+        return True
+    if is_activity_or_prompt_line(text) or is_visual_label_line(text) or is_transition_fragment(text) or is_broken_outline_fragment(text):
+        return True
+    if re.search(r"(结构拆解[:：].*要点|要点介绍[:：].*结构拆解)", text):
+        return True
+    if re.search(r"(DMA\s*接口组成\s*线|DMA\s*传送速\s*率高|起总线竞争|CPU在一个工作周期内访$|^\d+[.、]\s*DMA\s*接口功能)", text):
+        return True
+    if re.match(r"^\d+[.、]\s*DMA\s*接口功能", text) or re.match(r"^DMA\s*接口功能\s*\(", text):
+        return True
+    return False
 
 
 def is_orphan_label(value: str) -> bool:
@@ -1038,13 +1301,77 @@ def is_broken_outline_fragment(value: str) -> bool:
     text = clean_item(value)
     if not text:
         return True
-    if text.endswith(("但", "因为", "由于", "和", "或", "与", "由", "对", "把", "将", "未")) and len(text) <= 24:
+    compacted = re.sub(r"\s+", "", text)
+    if is_transition_fragment(text):
         return True
-    if re.match(r"^(路、|服务，|制权|式高|存的|能是|期长|送之前|待中断|主程序|充分发挥|取以下)", text):
+    if text.endswith(("但", "因为", "由于", "通过", "以及", "和", "或", "与", "由", "对", "把", "将", "未", "当", "已", "访", "控", "制", "电", "方", "速")) and len(text) <= 42:
         return True
-    if re.search(r"(控制电；路|字装配\s*/、|主存和；服务|原程序为设备|因为等)", text):
+    if re.match(r"^(路、|服务，|制权|式高|率高|存的|能是|期长|送之前|待中断|主程序|充分发挥|取以下|起总线竞争|拆卸硬件|问一次存储器|很快，硬件)", text):
+        return True
+    if re.search(r"(控制电[；;、]?\s*路|字装配\s*/[、；;]?\s*拆卸|主存和[、；;]\s*服务|原程序为设备|因为等|在一段时间内\s*[，,]?\s*$)", text):
+        return True
+    if re.search(r"(DMA\s*传送速\s*率高|DMA\s*接口组成\s*线|CPU在一个工作周期内访|问一次存储器即可不需要\s*申请建立和归还\s*总线)", text):
+        return True
+    if re.search(r"(控[、；;\s]+制权|方[、；;\s]+式高|主[、；;\s]+存|尽[、；;\s]+管|控制电[、；;\s]+路)", text):
+        return True
+    if compacted in {"线", "数据传送", "DMA接口组成线", "DMA传送速", "率高总线", "请", "求"}:
+        return True
+    if re.search(r"(关键是在预处|在预处$)", text):
+        return True
+    if re.search(r"^(控制逻|接口\d+|接口nCPU|数据线|DMA响应\d*|DMA请求\d*|\+1|…)$", compacted):
+        return True
+    if re.search(r"(设备设备设备DMA|理时，将所选设备|设备地址寄存器$|DMA接口（page_\d+）)", text):
+        return True
+    if re.search(r"(DMA操$|^作的后处理|设备信$|^息存储区|与接口$|^相连的设备|各自$|^的传送参数)", text):
+        return True
+    if re.search(r"(可以采$|可以采。|分时使用主存，可以采)", text):
+        return True
+    if re.search(r"(接口nCPU|I/O总线|地址线|打印机\s*t|磁带\s*t|磁盘\s*t|每\d+\s*s请求DMA|s\s*一次DMA传送)", text):
+        return True
+    if len(compacted) <= 8 and any(token in compacted for token in ["控制逻", "溢出信号", "中断"]):
         return True
     return False
+
+
+def is_transition_fragment(value: str) -> bool:
+    text = clean_item(value)
+    compacted = re.sub(r"\s+", "", text)
+    return bool(
+        re.search(r"^(?:✓|✔|☑)\s*", str(value or ""))
+        or re.search(r"(通过说明|预处理之后|对应输入情况|对应输出情况|经处理完毕|便通过\s*DMA)", text)
+        or re.search(r"当\s*(?:I/O|IO)?设备准备好发送的数据$", text)
+        or compacted.endswith("便通过DMA")
+    )
+
+
+def is_activity_or_prompt_line(value: str) -> bool:
+    text = clean_item(value)
+    if any(token in text for token in ["采访身边的人", "想一想", "你对", "为何会产生", "思考：", "基础型作业", "发展型作业", "完成课时练习", "应该怎么做"]):
+        return True
+    if re.search(r"[A-D][．.]", text) and re.search(r"[①②③④]", text):
+        return True
+    return False
+
+
+def is_visual_label_line(value: str) -> bool:
+    text = re.sub(r"\s+", "", clean_item(value))
+    if text in {"t", "I/O", "设", "备", "ACC", "线", "+1", "…", "控制逻", "数据线"}:
+        return True
+    labels = [
+        "主存工作时间",
+        "CPU不执行程序",
+        "DMA不工作",
+        "DMA工作",
+        "CPU控制并使用主存",
+        "DMA控制并使用主存",
+        "DMA传送速率高总线",
+        "DMA接口组成线",
+        "接口CPU主存",
+        "设备设备设备DMA",
+        "DMA响应",
+        "DMA请求",
+    ]
+    return any(text == label or (len(text) <= len(label) + 4 and label in text) for label in labels)
 
 
 def is_heading_line(line: str) -> bool:

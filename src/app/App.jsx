@@ -13,6 +13,7 @@ import { NoteDetailScreen } from "../features/notes/NoteDetailScreen";
 import { NotesScreen } from "../features/notes/NotesScreen";
 import { ReviewScreen } from "../features/notes/ReviewScreen";
 import { ProfileScreen } from "../features/profile/ProfileScreen";
+import { ShowcaseScreen } from "../features/showcase/ShowcaseScreen";
 import { isWebViewShell } from "../services/appShellMode";
 import {
   initializeLocalDemoFs,
@@ -293,6 +294,22 @@ function getScreen({
     return <MindMapLibraryScreen result={agentResult} onOpenMap={() => setDetailView(DETAIL_VIEWS.MINDMAP)} />;
   }
 
+  if (nav === "showcase") {
+    return (
+      <ShowcaseScreen
+        result={agentResult}
+        onOpenNote={openNote}
+        onOpenMindMap={() => {
+          setNav("mindmap");
+          setDetailView(DETAIL_VIEWS.MINDMAP);
+        }}
+        onRunAgent={() => {
+          setNav("ai");
+          setAgentStatus(AGENT_STATUS.IDLE);
+        }}
+      />
+    );
+  }
   if (nav === "profile") {
     return <ProfileScreen />;
   }

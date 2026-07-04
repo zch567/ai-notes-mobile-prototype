@@ -12,6 +12,7 @@ const emptyAgentResult = {
   notes: [],
   citations: [],
   citationDiagnostics: {},
+  qualityDiagnostics: {},
   mindMap: {
     nodes: [],
     edges: [],
@@ -65,6 +66,7 @@ export function normalizeAgentResult(rawResult) {
     notes: normalizeArray(result.notes, emptyAgentResult.notes).map(normalizeNote),
     citations: normalizeArray(result.citations, emptyAgentResult.citations).map(normalizeCitation),
     citationDiagnostics: normalizeObject(result.citationDiagnostics || result.citation_diagnostics),
+    qualityDiagnostics: normalizeQualityDiagnostics(result.qualityDiagnostics || result.quality_diagnostics),
     _meta: normalizeObject(result._meta || result.meta),
     mindMap: {
       nodes: normalizeArray(result.mindMap.nodes, emptyAgentResult.mindMap.nodes).map(normalizeMindMapNode),
@@ -260,6 +262,21 @@ function normalizeRecommendation(item) {
   return stringOrFallback(item?.suggestion || item?.message || item?.text, "");
 }
 
+function normalizeQualityDiagnostics(value) {
+  const diagnostics = normalizeObject(value);
+  if (!Object.keys(diagnostics).length) return {};
+
+  return {
+    overallScore: numberOrNull(diagnostics.overallScore ?? diagnostics.overall_score),
+    assetCompleteness: numberOrNull(diagnostics.assetCompleteness ?? diagnostics.asset_completeness),
+    citationScore: numberOrNull(diagnostics.citationScore ?? diagnostics.citation_score),
+    structureScore: numberOrNull(diagnostics.structureScore ?? diagnostics.structure_score),
+    reviewScore: numberOrNull(diagnostics.reviewScore ?? diagnostics.review_score),
+    warnings: normalizeArray(diagnostics.warnings, []).map(normalizeDiagnostic).filter(Boolean),
+    summaryText: stringOrFallback(diagnostics.summaryText || diagnostics.summary_text, ""),
+  };
+}
+
 function normalizeArray(value, fallback) {
   return Array.isArray(value) ? value : fallback;
 }
@@ -281,6 +298,11 @@ function valueStringOrFallback(value, fallback) {
 function numberOrFallback(value, fallback, min = undefined) {
   const number = Number.isFinite(Number(value)) ? Number(value) : fallback;
   return typeof min === "number" ? Math.max(number, min) : number;
+}
+
+function numberOrNull(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
 }
 
 function normalizeQuestionType(value) {

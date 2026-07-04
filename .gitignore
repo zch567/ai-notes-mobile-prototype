@@ -2,6 +2,7 @@ node_modules
 dist
 dist-webview
 .vite
+.pytest_cache/
 *.apk
 *.aab
 *.ap_
@@ -13,3 +14,24 @@ dist-webview
 coverage
 Thumbs.db
 导图参考/
+
+# Local generated artifacts and experiment outputs
+ai-history-learning-product.html
+backend-capability-showcase.html
+transformer-learning-product.current-backup.html
+transformer-learning-product.html
+dist-share/
+reports/
+backend/reports/
+backend/scripts/backend_deep_audit.py
+backend/scripts/render_ai_history_product_html.py
+backend/scripts/render_transformer_product_html.py
+backend/scripts/render_transformer_product_html.stable-backup-20260620.py
+backend/scripts/run_lanxin_ai_history_product.py
+backend/scripts/run_lanxin_transformer_product.py
+backend/app/rag/learning_units.before-complete-refactor-20260620.py
+backend/app/rag/semantic_notes.before-content-normalization-20260620.py
+backend/app/rag/semantic_notes.before-learning-unit-refactor-20260620.py
+test_set/text/ai_history_lanxin_agent_result.json
+test_set/text/transformer_agent_result.json
+test_set/text/transformer_lanxin_agent_result.json
