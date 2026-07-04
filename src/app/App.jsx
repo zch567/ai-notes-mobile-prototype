@@ -129,40 +129,115 @@ export default function App() {
   const isLandscapeMindMap = nav === "mindmap" && detailView === DETAIL_VIEWS.MINDMAP;
   const showBottomNav = !detailView && !isLandscapeMindMap;
   const isWebView = isWebViewShell();
+  const viewportMetrics = useWebViewViewportMetrics(isWebView);
+  const navHeight = viewportMetrics.compactNav ? 82 : 104;
+  const webViewShellStyle = isWebView
+    ? {
+        "--app-viewport-height": `${viewportMetrics.height}px`,
+        "--bottom-nav-height": `${navHeight}px`,
+        "--bottom-nav-offset": `${viewportMetrics.bottomOffset}px`,
+      }
+    : undefined;
   const shellClass = isWebView
-    ? "h-[100dvh] w-screen flex-col border-0 bg-slate-100 shadow-none"
+    ? "h-[var(--app-viewport-height)] w-screen flex-col border-0 bg-slate-100 shadow-none"
     : isLandscapeMindMap
       ? "h-[min(430px,calc(100vh-3rem))] w-full max-w-[920px] origin-center flex-col rounded-[34px] border border-slate-200 bg-slate-100 shadow-[0_24px_80px_rgba(15,23,42,0.12)] max-[640px]:fixed max-[640px]:left-1/2 max-[640px]:top-1/2 max-[640px]:m-0 max-[640px]:h-[calc(100vw-1.25rem)] max-[640px]:w-[calc(100vh-1.25rem)] max-[640px]:max-w-none max-[640px]:-translate-x-1/2 max-[640px]:-translate-y-1/2 max-[640px]:rotate-90"
       : "h-[calc(100vh-3rem)] max-w-[430px] flex-col rounded-[40px] border border-slate-200 bg-slate-100 shadow-[0_24px_80px_rgba(15,23,42,0.12)]";
   const pageClass = isWebView
-    ? `min-h-[100dvh] bg-slate-100 text-slate-900 ${isLandscapeMindMap ? "overflow-hidden" : ""}`
+    ? `h-[var(--app-viewport-height)] min-h-[var(--app-viewport-height)] overflow-hidden bg-slate-100 text-slate-900 ${isLandscapeMindMap ? "overflow-hidden" : ""}`
     : `min-h-screen bg-[radial-gradient(circle_at_top,#eff6ff_0%,#f8fafc_36%,#ffffff_80%)] px-4 py-6 text-slate-900 ${isLandscapeMindMap ? "flex items-center max-[640px]:overflow-hidden max-[640px]:p-0" : ""}`;
   const contentSafeAreaStyle = isWebView
     ? {
         paddingTop: isLandscapeMindMap
           ? "max(10px, env(safe-area-inset-top))"
           : "max(22px, env(safe-area-inset-top))",
+        paddingBottom: showBottomNav
+          ? "calc(var(--bottom-nav-height) + var(--bottom-nav-offset) + 8px)"
+          : undefined,
       }
     : undefined;
 
   return (
-    <div className={pageClass}>
-      <div className={`relative mx-auto flex overflow-hidden ${shellClass}`}>
+    <div className={pageClass} style={webViewShellStyle}>
+      <div className={`relative mx-auto flex overflow-hidden ${shellClass}`} style={webViewShellStyle}>
         {isWebView ? null : <StatusBar />}
         <main
-          className={`min-h-0 flex-1 ${showBottomNav ? "overflow-y-auto pb-28" : "overflow-hidden"}`}
+          className={`min-h-0 flex-1 ${showBottomNav ? (isWebView ? "overflow-y-auto" : "overflow-y-auto pb-28") : "overflow-hidden"}`}
           style={contentSafeAreaStyle}
         >
           {screen}
         </main>
         {showBottomNav ? (
-          <div className="absolute bottom-0 left-0 right-0 z-20">
-            <BottomNav active={nav} onChange={handleNav} isWebView={isWebView} />
+          <div
+            className="absolute left-0 right-0 z-20"
+            style={isWebView ? { bottom: "var(--bottom-nav-offset)" } : { bottom: 0 }}
+          >
+            <BottomNav
+              active={nav}
+              onChange={handleNav}
+              isWebView={isWebView}
+              compact={isWebView && viewportMetrics.compactNav}
+            />
           </div>
         ) : null}
       </div>
     </div>
   );
+}
+
+function useWebViewViewportMetrics(enabled) {
+  const [metrics, setMetrics] = useState(() => getWebViewViewportMetrics());
+
+  useEffect(() => {
+    if (!enabled || typeof window === "undefined") return undefined;
+
+    let frameId = 0;
+    const update = () => {
+      window.cancelAnimationFrame(frameId);
+      frameId = window.requestAnimationFrame(() => {
+        setMetrics(getWebViewViewportMetrics());
+      });
+    };
+
+    update();
+    window.addEventListener("resize", update);
+    window.addEventListener("orientationchange", update);
+    window.visualViewport?.addEventListener("resize", update);
+    window.visualViewport?.addEventListener("scroll", update);
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+      window.removeEventListener("resize", update);
+      window.removeEventListener("orientationchange", update);
+      window.visualViewport?.removeEventListener("resize", update);
+      window.visualViewport?.removeEventListener("scroll", update);
+    };
+  }, [enabled]);
+
+  return metrics;
+}
+
+function getWebViewViewportMetrics() {
+  if (typeof window === "undefined") {
+    return {
+      height: 720,
+      bottomOffset: 0,
+      compactNav: false,
+    };
+  }
+
+  const visualViewport = window.visualViewport;
+  const layoutHeight = window.innerHeight || document.documentElement.clientHeight || 720;
+  const visualHeight = visualViewport?.height || layoutHeight;
+  const visualTop = visualViewport?.offsetTop || 0;
+  const height = Math.max(360, Math.floor(visualHeight));
+  const bottomOffset = Math.max(0, Math.floor(layoutHeight - visualHeight - visualTop));
+
+  return {
+    height,
+    bottomOffset,
+    compactNav: height < 680,
+  };
 }
 
 function getScreen({
