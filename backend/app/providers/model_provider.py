@@ -1,6 +1,7 @@
 ﻿from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import time
@@ -10,6 +11,12 @@ from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+
+
+logger = logging.getLogger("model_provider.audit")
+logger.setLevel(logging.INFO)
+AUDIT_PREVIEW_CHARS = 1200
+AUDIT_CONTEXT_CHARS = 420
 
 
 @dataclass
@@ -98,10 +105,44 @@ class OpenAICompatibleProvider(ModelProvider):
         last_error: Exception | None = None
         for attempt in range(self.retries + 1):
             try:
+                log_model_request(
+                    provider=self.name,
+                    model=self.model,
+                    task_type="note_generation",
+                    request_id=request_id,
+                    attempt=attempt + 1,
+                    max_attempts=self.retries + 1,
+                    input_chars=len(user_prompt),
+                    max_tokens=4096,
+                )
                 payload = post_json(url, body, self.api_key, timeout_seconds=self.timeout_seconds)
-                content = payload["choices"][0]["message"]["content"]
-                result = parse_model_json(content)
+                content = extract_chat_content(
+                    payload,
+                    provider=self.name,
+                    model=self.model,
+                    task_type="note_generation",
+                    request_id=request_id,
+                    attempt=attempt + 1,
+                )
+                result = parse_model_json(
+                    content,
+                    provider=self.name,
+                    model=self.model,
+                    task_type="note_generation",
+                    request_id=request_id,
+                    attempt=attempt + 1,
+                )
                 result = normalize_result(result, selected)
+                log_model_success(
+                    provider=self.name,
+                    model=self.model,
+                    task_type="note_generation",
+                    request_id=request_id,
+                    attempt=attempt + 1,
+                    input_chars=len(user_prompt),
+                    output_chars=len(content),
+                    latency_ms=int((time.time() - start) * 1000),
+                )
                 return result, ModelLog(
                     requestId=request_id,
                     provider=self.name,
@@ -131,7 +172,10 @@ class OpenAICompatibleProvider(ModelProvider):
         request_id = str(uuid.uuid4())
         system_prompt = (
             "You are a learning-material backend Agent module. Return strict JSON only. "
-            "Do not use Markdown fences and do not add facts not supported by the input."
+            "Return one non-empty JSON object as the entire response. "
+            "Do not use Markdown fences, comments, explanations, or trailing text. "
+            "Escape every newline inside string values as \\n. "
+            "Do not add facts not supported by the input."
         )
         user_prompt = prompt.strip() + "\n\nInput JSON:\n" + compact_json(payload)
         start = time.time()
@@ -153,9 +197,43 @@ class OpenAICompatibleProvider(ModelProvider):
         last_error: Exception | None = None
         for attempt in range(self.retries + 1):
             try:
+                log_model_request(
+                    provider=self.name,
+                    model=self.model,
+                    task_type=module.upper(),
+                    request_id=request_id,
+                    attempt=attempt + 1,
+                    max_attempts=self.retries + 1,
+                    input_chars=len(user_prompt),
+                    max_tokens=max_tokens,
+                )
                 response = post_json(url, body, self.api_key, timeout_seconds=self.timeout_seconds)
-                content = response["choices"][0]["message"]["content"]
-                result = parse_model_json(content)
+                content = extract_chat_content(
+                    response,
+                    provider=self.name,
+                    model=self.model,
+                    task_type=module.upper(),
+                    request_id=request_id,
+                    attempt=attempt + 1,
+                )
+                result = parse_model_json(
+                    content,
+                    provider=self.name,
+                    model=self.model,
+                    task_type=module.upper(),
+                    request_id=request_id,
+                    attempt=attempt + 1,
+                )
+                log_model_success(
+                    provider=self.name,
+                    model=self.model,
+                    task_type=module.upper(),
+                    request_id=request_id,
+                    attempt=attempt + 1,
+                    input_chars=len(user_prompt),
+                    output_chars=len(content),
+                    latency_ms=int((time.time() - start) * 1000),
+                )
                 return result, ModelLog(
                     requestId=request_id,
                     provider=self.name,
@@ -226,17 +304,289 @@ def post_json(url: str, body: dict[str, Any], api_key: str, timeout_seconds: int
         raise RuntimeError(f"Network error: {exc.reason}") from exc
 
 
-def parse_model_json(text: str) -> dict[str, Any]:
+def extract_chat_content(
+    payload: dict[str, Any],
+    *,
+    provider: str,
+    model: str,
+    task_type: str,
+    request_id: str,
+    attempt: int,
+) -> str:
+    choices = payload.get("choices") if isinstance(payload, dict) else None
+    choice = choices[0] if isinstance(choices, list) and choices else {}
+    message = choice.get("message") if isinstance(choice, dict) else {}
+    content = message.get("content") if isinstance(message, dict) else ""
+    if content is None:
+        content = ""
+    if not isinstance(content, str):
+        content = str(content)
+    if content.strip():
+        return content
+
+    log_empty_model_content(
+        provider=provider,
+        model=model,
+        task_type=task_type,
+        request_id=request_id,
+        attempt=attempt,
+        payload=payload,
+        choice=choice if isinstance(choice, dict) else {},
+        message=message if isinstance(message, dict) else {},
+    )
+    raise RuntimeError("model returned empty message content")
+
+
+def parse_model_json(
+    text: str,
+    *,
+    provider: str = "",
+    model: str = "",
+    task_type: str = "",
+    request_id: str = "",
+    attempt: int = 1,
+) -> dict[str, Any]:
     text = text.strip()
     text = re.sub(r"^```(?:json)?\s*", "", text)
     text = re.sub(r"\s*```$", "", text)
+    candidate = _extract_json_object(text)
     try:
-        return json.loads(text)
+        return json.loads(candidate)
+    except json.JSONDecodeError as original_error:
+        repaired = _escape_control_chars_in_json_strings(candidate)
+        try:
+            result = json.loads(repaired)
+            log_model_json_repair(
+                provider=provider,
+                model=model,
+                task_type=task_type,
+                request_id=request_id,
+                attempt=attempt,
+                error=original_error,
+                raw_text=text,
+                candidate=candidate,
+            )
+            return result
+        except json.JSONDecodeError as repaired_error:
+            log_model_json_failure(
+                provider=provider,
+                model=model,
+                task_type=task_type,
+                request_id=request_id,
+                attempt=attempt,
+                original_error=original_error,
+                repaired_error=repaired_error,
+                raw_text=text,
+                candidate=candidate,
+                repaired=repaired,
+            )
+            raise original_error
+
+
+def _extract_json_object(text: str) -> str:
+    try:
+        json.loads(text)
+        return text
     except json.JSONDecodeError:
         match = re.search(r"\{.*\}", text, flags=re.S)
-        if not match:
-            raise
-        return json.loads(match.group(0))
+        return match.group(0) if match else text
+
+
+def _escape_control_chars_in_json_strings(text: str) -> str:
+    result: list[str] = []
+    in_string = False
+    escaped = False
+
+    for char in text:
+        if in_string:
+            if escaped:
+                result.append(char)
+                escaped = False
+                continue
+            if char == "\\":
+                result.append(char)
+                escaped = True
+                continue
+            if char == '"':
+                result.append(char)
+                in_string = False
+                continue
+            if char == "\n":
+                result.append("\\n")
+                continue
+            if char == "\r":
+                result.append("\\r")
+                continue
+            if char == "\t":
+                result.append("\\t")
+                continue
+        elif char == '"':
+            in_string = True
+        result.append(char)
+
+    return "".join(result)
+
+
+def log_model_request(
+    *,
+    provider: str,
+    model: str,
+    task_type: str,
+    request_id: str,
+    attempt: int,
+    max_attempts: int,
+    input_chars: int,
+    max_tokens: int,
+) -> None:
+    logger.info(
+        "model_request provider=%s model=%s task=%s requestId=%s attempt=%s/%s inputChars=%s maxTokens=%s",
+        provider,
+        model,
+        task_type,
+        request_id,
+        attempt,
+        max_attempts,
+        input_chars,
+        max_tokens,
+    )
+
+
+def log_model_success(
+    *,
+    provider: str,
+    model: str,
+    task_type: str,
+    request_id: str,
+    attempt: int,
+    input_chars: int,
+    output_chars: int,
+    latency_ms: int,
+) -> None:
+    logger.info(
+        "model_success provider=%s model=%s task=%s requestId=%s attempt=%s inputChars=%s outputChars=%s latencyMs=%s",
+        provider,
+        model,
+        task_type,
+        request_id,
+        attempt,
+        input_chars,
+        output_chars,
+        latency_ms,
+    )
+
+
+def log_model_json_repair(
+    *,
+    provider: str,
+    model: str,
+    task_type: str,
+    request_id: str,
+    attempt: int,
+    error: json.JSONDecodeError,
+    raw_text: str,
+    candidate: str,
+) -> None:
+    logger.warning(
+        "model_json_repaired provider=%s model=%s task=%s requestId=%s attempt=%s error=%s line=%s column=%s char=%s rawChars=%s candidateChars=%s preview=%s",
+        provider,
+        model,
+        task_type,
+        request_id,
+        attempt,
+        error.msg,
+        error.lineno,
+        error.colno,
+        error.pos,
+        len(raw_text),
+        len(candidate),
+        _safe_log_text(raw_text[:AUDIT_PREVIEW_CHARS]),
+    )
+
+
+def log_model_json_failure(
+    *,
+    provider: str,
+    model: str,
+    task_type: str,
+    request_id: str,
+    attempt: int,
+    original_error: json.JSONDecodeError,
+    repaired_error: json.JSONDecodeError,
+    raw_text: str,
+    candidate: str,
+    repaired: str,
+) -> None:
+    logger.error(
+        "model_json_parse_failed provider=%s model=%s task=%s requestId=%s attempt=%s originalError=%s originalLine=%s originalColumn=%s originalChar=%s repairedError=%s repairedLine=%s repairedColumn=%s repairedChar=%s rawChars=%s candidateChars=%s rawPreview=%s errorContext=%s repairedContext=%s",
+        provider,
+        model,
+        task_type,
+        request_id,
+        attempt,
+        original_error.msg,
+        original_error.lineno,
+        original_error.colno,
+        original_error.pos,
+        repaired_error.msg,
+        repaired_error.lineno,
+        repaired_error.colno,
+        repaired_error.pos,
+        len(raw_text),
+        len(candidate),
+        _safe_log_text(raw_text[:AUDIT_PREVIEW_CHARS]),
+        _json_error_context(candidate, original_error.pos),
+        _json_error_context(repaired, repaired_error.pos),
+    )
+
+
+def log_empty_model_content(
+    *,
+    provider: str,
+    model: str,
+    task_type: str,
+    request_id: str,
+    attempt: int,
+    payload: dict[str, Any],
+    choice: dict[str, Any],
+    message: dict[str, Any],
+) -> None:
+    logger.error(
+        "model_empty_content provider=%s model=%s task=%s requestId=%s attempt=%s finishReason=%s payloadKeys=%s choiceKeys=%s messageKeys=%s usage=%s messagePreview=%s",
+        provider,
+        model,
+        task_type,
+        request_id,
+        attempt,
+        choice.get("finish_reason"),
+        sorted(payload.keys()),
+        sorted(choice.keys()),
+        sorted(message.keys()),
+        _safe_log_text(json.dumps(payload.get("usage", {}), ensure_ascii=False)),
+        _safe_log_text(json.dumps(_message_preview(message), ensure_ascii=False)[:AUDIT_PREVIEW_CHARS]),
+    )
+
+
+def _message_preview(message: dict[str, Any]) -> dict[str, str]:
+    preview: dict[str, str] = {}
+    for key, value in message.items():
+        if key == "content":
+            preview[key] = f"<empty length={len(str(value or ''))}>"
+            continue
+        if isinstance(value, (dict, list)):
+            preview[key] = json.dumps(value, ensure_ascii=False)[:AUDIT_CONTEXT_CHARS]
+        else:
+            preview[key] = str(value)[:AUDIT_CONTEXT_CHARS]
+    return preview
+
+
+def _json_error_context(text: str, pos: int) -> str:
+    start = max(0, pos - AUDIT_CONTEXT_CHARS)
+    end = min(len(text), pos + AUDIT_CONTEXT_CHARS)
+    return _safe_log_text(text[start:end])
+
+
+def _safe_log_text(text: str) -> str:
+    return text.replace("\\", "\\\\").replace("\r", "\\r").replace("\n", "\\n").replace("\t", "\\t")
 
 
 def compact_json(data: Any) -> str:

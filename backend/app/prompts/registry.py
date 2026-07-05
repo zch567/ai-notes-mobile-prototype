@@ -21,6 +21,12 @@ FALLBACK_PROMPTS: dict[str, str] = {
     "M3": (
         "You are module M3_structured_notes. Return only JSON with: meta, notes, "
         "global_summary, possible_risks. Use the semantic note contract exactly. "
+        "The response must be one non-empty JSON object and must start with { and end with }. "
+        "Use this minimum shape: "
+        "{\"meta\":{\"module\":\"M3\"},\"global_summary\":\"...\",\"possible_risks\":[],\"notes\":[...]}. "
+        "If evidence is weak, still return the same JSON shape with an empty notes array and a risk message. "
+        "Never return an empty string, Markdown, prose, or partial JSON. "
+        "Escape newlines inside every JSON string as \\n. "
         "Each note must use note_id, title, content, summary, keyPoints, examples, "
         "relations, blocks, level, note_type, source_refs, children. "
         "Each outline block should include structuredItems: [{text, children}]. "

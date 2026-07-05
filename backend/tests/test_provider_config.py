@@ -117,3 +117,19 @@ def test_lanxin_provider_retries_transient_failure(monkeypatch):
     assert calls == [90, 90]
     assert log.status == "success"
     assert log.fallbackUsed is False
+
+
+def test_parse_model_json_repairs_raw_newline_inside_string():
+    payload = '{"notes":[{"id":"n1","content":"first line\nsecond line","citationIds":["s1"]}]}'
+
+    result = model_provider.parse_model_json(payload)
+
+    assert result["notes"][0]["content"] == "first line\nsecond line"
+
+
+def test_parse_model_json_extracts_fenced_object_with_raw_newline():
+    payload = '```json\n{"topic":"RAG","summary":"line one\nline two"}\n```'
+
+    result = model_provider.parse_model_json(payload)
+
+    assert result == {"topic": "RAG", "summary": "line one\nline two"}
