@@ -95,7 +95,7 @@ export async function getAgentJob(jobId) {
 async function runFileAgent(input, options = {}) {
   const formData = new FormData();
   formData.append("file", input.file);
-  formData.append("pipeline", input.pipeline || "hybrid");
+  formData.append("pipeline", input.pipeline || "rag-only");
   if (input.provider) formData.append("provider", input.provider);
   formData.append("strictProvider", String(input.strictProvider ?? true));
   formData.append("topK", String(input.topK || DEFAULT_GENERATION_TOP_K));

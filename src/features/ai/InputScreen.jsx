@@ -7,7 +7,7 @@ const defaultDraft = {
   inputType: "text",
   sourceText: sampleInputText,
   sourceTitle: "Logistic Regression 公开样例",
-  pipeline: "hybrid",
+  pipeline: "rag-only",
   provider: "configured",
   strictProvider: true,
   topK: DEFAULT_GENERATION_TOP_K,

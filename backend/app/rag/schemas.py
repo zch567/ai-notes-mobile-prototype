@@ -15,6 +15,7 @@ class RawBlock:
     paragraph: int | None = None
     heading: str = ""
     source_ref: str = ""
+    ocrRegions: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -56,6 +57,7 @@ class SourceChunk:
     charEnd: int = 0
     parentId: str = ""
     keywords: list[str] = field(default_factory=list)
+    ocrRegions: list[dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -89,6 +91,7 @@ class SourceChunk:
             charEnd=_as_int(item.get("charEnd")) or len(text),
             parentId=str(item.get("parentId") or ""),
             keywords=list(item.get("keywords") or []),
+            ocrRegions=list(item.get("ocrRegions") or item.get("ocr_regions") or []),
         )
 
 

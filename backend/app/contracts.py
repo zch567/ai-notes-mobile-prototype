@@ -120,17 +120,22 @@ class RunAgentRequest(ExtensibleModel):
     filePath: str | None = None
     sourceText: str | None = None
     fileName: str = "pasted-text.md"
-    pipeline: str = "hybrid"
+    pipeline: str = "rag-only"
     provider: str | None = None
     strictProvider: bool = True
     ocrTextDir: str | None = None
     officeOcrDir: str | None = None
-    topK: int = Field(default=2, ge=1, le=8)
+    enableOcr: bool | None = None
+    enableQualityReview: bool = False
+    qualityReviewThreshold: float = Field(default=85, ge=0, le=100)
+    topK: int = Field(default=5, ge=1, le=8)
 
     @model_validator(mode="after")
     def require_input(self) -> "RunAgentRequest":
         if not self.filePath and not (self.sourceText and self.sourceText.strip()):
             raise ValueError("filePath or sourceText is required")
+        if self.provider == "configured":
+            self.provider = None
         if self.provider and self.provider != "lanxin":
             raise ValueError("provider must be 'lanxin'")
         return self
@@ -140,6 +145,7 @@ class RagQueryRequest(ExtensibleModel):
     query: str
     chunksPath: str | None = None
     resultId: str | None = None
+    provider: str | None = None
     topK: int = Field(default=5, ge=1, le=20)
 
 
@@ -154,6 +160,8 @@ class ChatAgentRequest(ExtensibleModel):
     def validate_chat_request(self) -> "ChatAgentRequest":
         if not self.question.strip():
             raise ValueError("question is required")
+        if self.provider == "configured":
+            self.provider = None
         if self.provider and self.provider != "lanxin":
             raise ValueError("provider must be 'lanxin'")
         return self
@@ -170,7 +178,7 @@ class ChatAgentResponse(ExtensibleModel):
 
 class ReviewAnswerItem(ExtensibleModel):
     questionId: str
-    answer: str
+    answer: str | list[str]
 
 
 class ReviewSubmitRequest(ExtensibleModel):
@@ -185,6 +193,8 @@ class ReviewSubmitRequest(ExtensibleModel):
             raise ValueError("resultId is required")
         if not self.answers:
             raise ValueError("answers is required")
+        if self.provider == "configured":
+            self.provider = None
         if self.provider and self.provider != "lanxin":
             raise ValueError("provider must be 'lanxin'")
         return self

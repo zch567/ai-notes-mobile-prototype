@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from .parsers import parse_with_sidecars
+from .ocr import LanxinOcrClient
 from .provider_config import create_provider
 from .providers import ProviderChunk
 from .rag.chunking import build_chunks
@@ -16,8 +17,8 @@ from .rag.schemas import SourceChunk
 class RagPipelineAdapter:
     name = "rag-pipeline"
 
-    def parse(self, input_path: Path) -> list[SourceChunk]:
-        return build_chunks(parse_document(input_path))
+    def parse(self, input_path: Path, *, ocr_client: LanxinOcrClient | None = None) -> list[SourceChunk]:
+        return build_chunks(parse_document(input_path, ocr_client=ocr_client))
 
     def build_deterministic_result(self, chunks: list[SourceChunk], input_path: Path) -> dict[str, Any]:
         return build_agent_result(chunks, input_path=input_path)
