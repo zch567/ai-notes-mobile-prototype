@@ -90,6 +90,7 @@ def _chunk_section(
         heading = normalize_learning_text(first.heading or next((b.heading for b in buffer if b.heading), ""))
         title = _title(first.file_name, source_ref, heading)
         parent_id = f"{source_id}-{source_ref}"
+        ocr_regions = [region for block in buffer for region in block.ocrRegions]
 
         chunks.append(
             SourceChunk(
@@ -112,6 +113,7 @@ def _chunk_section(
                 charEnd=len(text),
                 parentId=parent_id,
                 keywords=extract_keywords(f"{heading} {text}", limit=8),
+                ocrRegions=ocr_regions,
             )
         )
         chunk_index += 1

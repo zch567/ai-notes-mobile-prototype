@@ -61,10 +61,13 @@ def run_agent(request: RunAgentRequest) -> dict:
 @app.post("/api/agent/run-file", response_model=AgentResult, response_model_by_alias=True)
 async def run_agent_file(
     file: UploadFile = File(...),
-    pipeline: str = Form("hybrid"),
+    pipeline: str = Form("rag-only"),
     provider: str | None = Form(None),
     strictProvider: bool = Form(True),
-    topK: int = Form(2),
+    enableOcr: bool | None = Form(None),
+    enableQualityReview: bool = Form(False),
+    qualityReviewThreshold: float = Form(85),
+    topK: int = Form(5),
     sourceTitle: str | None = Form(None),
 ) -> dict:
     try:
@@ -75,6 +78,9 @@ async def run_agent_file(
             pipeline=pipeline,
             provider=provider or None,
             strictProvider=strictProvider,
+            enableOcr=enableOcr,
+            enableQualityReview=enableQualityReview,
+            qualityReviewThreshold=qualityReviewThreshold,
             topK=topK,
         )
         return service.run(request)
@@ -93,10 +99,13 @@ def start_agent_job(request: RunAgentRequest) -> dict:
 @app.post("/api/agent/jobs-file")
 async def start_agent_file_job(
     file: UploadFile = File(...),
-    pipeline: str = Form("hybrid"),
+    pipeline: str = Form("rag-only"),
     provider: str | None = Form(None),
     strictProvider: bool = Form(True),
-    topK: int = Form(2),
+    enableOcr: bool | None = Form(None),
+    enableQualityReview: bool = Form(False),
+    qualityReviewThreshold: float = Form(85),
+    topK: int = Form(5),
     sourceTitle: str | None = Form(None),
 ) -> dict:
     try:
@@ -107,6 +116,9 @@ async def start_agent_file_job(
             pipeline=pipeline,
             provider=provider or None,
             strictProvider=strictProvider,
+            enableOcr=enableOcr,
+            enableQualityReview=enableQualityReview,
+            qualityReviewThreshold=qualityReviewThreshold,
             topK=topK,
         )
         return job_store.start(request)
@@ -145,6 +157,7 @@ def rag_query(request: RagQueryRequest) -> dict:
             query=request.query,
             chunks_path=request.chunksPath,
             result_id=request.resultId,
+            provider_name=request.provider,
             top_k=request.topK,
         )
     except Exception as exc:

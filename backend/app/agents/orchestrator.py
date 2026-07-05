@@ -845,6 +845,10 @@ def fallback_questions(notes: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "options": options,
                 "answer": answer,
                 "explanation": "先判断场景或错误原因，再用关联笔记和来源证据选择匹配选项。",
+                "question": f"Which statements match the review points for \"{note['title']}\"?" if question_type == "multiple-choice" else f"Which option best summarizes \"{note['title']}\"?",
+                "options": options,
+                "answer": answer,
+                "explanation": "Use the related note summary and source evidence to choose the matching option(s).",
                 "relatedNoteId": note["id"],
                 "citationIds": [],
             }

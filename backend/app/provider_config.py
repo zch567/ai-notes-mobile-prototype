@@ -33,6 +33,13 @@ class ProviderConfig:
     lanxin_model: str
     model_timeout_seconds: int
     lanxin_retries: int
+    lanxin_ocr_app_id: str
+    lanxin_ocr_app_key: str
+    lanxin_ocr_business_id: str
+    lanxin_ocr_url: str
+    lanxin_ocr_timeout_seconds: int
+    lanxin_ocr_pos: str
+    lanxin_ocr_retries: int
     secrets_file: Path
 
     @classmethod
@@ -60,6 +67,13 @@ class ProviderConfig:
             lanxin_model=value("LANXIN_MODEL", "Doubao-Seed-2.0-mini"),
             model_timeout_seconds=int(value("MODEL_TIMEOUT_MS", "90")),
             lanxin_retries=int(value("LANXIN_RETRIES", "1")),
+            lanxin_ocr_app_id=value("LANXIN_OCR_APP_ID"),
+            lanxin_ocr_app_key=value("LANXIN_OCR_APP_KEY") or value("LANXIN_API_KEY"),
+            lanxin_ocr_business_id=value("LANXIN_OCR_BUSINESS_ID") or value("LANXIN_OCR_APP_ID"),
+            lanxin_ocr_url=value("LANXIN_OCR_URL", "https://api-ai.vivo.com.cn/ocr/general_recognition"),
+            lanxin_ocr_timeout_seconds=int(value("LANXIN_OCR_TIMEOUT_SECONDS", "30")),
+            lanxin_ocr_pos=value("LANXIN_OCR_POS", "2"),
+            lanxin_ocr_retries=int(value("LANXIN_OCR_RETRIES", "1")),
             secrets_file=secrets_file,
         )
 
@@ -72,6 +86,12 @@ class ProviderConfig:
                 "model": self.lanxin_model,
                 "timeoutSeconds": self.model_timeout_seconds,
                 "retries": self.lanxin_retries,
+            },
+            "lanxinOcr": {
+                "configured": bool(self.lanxin_ocr_app_key and self.lanxin_ocr_business_id),
+                "url": self.lanxin_ocr_url,
+                "timeoutSeconds": self.lanxin_ocr_timeout_seconds,
+                "retries": self.lanxin_ocr_retries,
             },
             "secretsFilePresent": self.secrets_file.exists(),
         }

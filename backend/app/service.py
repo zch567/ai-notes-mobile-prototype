@@ -13,10 +13,13 @@ from .config import settings
 from .contracts import ReviewAnswerItem, RunAgentRequest
 from .errors import BadRequestError, NotFoundError, ProviderError, ValidationError
 from .normalization import normalize_agent_result, raw_contract_report
+from .ocr import create_lanxin_ocr_client
 from .provider_config import create_provider
 from .rag.fingerprint import corpus_hash
 from .rag.io_utils import load_chunks
 from .rag.llm_polish import polish_result_with_provider
+from .rag.llm_quality_review import quality_improvement_loop
+from .rag.parsing import detect_ocr_need
 from .rag.quality_diagnostics import attach_quality_diagnostics
 
 ProgressCallback = Callable[[dict[str, Any]], None]
@@ -41,6 +44,13 @@ class AgentService:
         pipeline = request.pipeline or settings.default_pipeline
         ocr_text_dir = self._optional_safe_path(request.ocrTextDir)
         office_ocr_dir = self._optional_safe_path(request.officeOcrDir)
+        ocr_client = None
+        ocr_error = ""
+        ocr_decision: dict[str, Any] = {
+            "enabled": False,
+            "reason": "sidecar-ocr-mode" if (ocr_text_dir or office_ocr_dir) else "not-evaluated",
+            "signals": [],
+        }
 
         _report_progress(
             progress,
@@ -57,7 +67,16 @@ class AgentService:
             )
             parser_name = "week2-sidecar-parser"
         else:
-            chunks = self.rag.parse(input_path)
+            ocr_decision = self._resolve_ocr_decision(input_path, request.enableOcr)
+            if ocr_decision.get("enabled"):
+                try:
+                    ocr_client = create_lanxin_ocr_client()
+                except Exception as exc:
+                    ocr_error = str(exc)
+                    if request.enableOcr is True and request.strictProvider:
+                        raise ProviderError(f"Lanxin OCR failed to initialize: {exc}") from exc
+                    ocr_decision = {**ocr_decision, "enabled": False, "error": ocr_error}
+            chunks = self.rag.parse(input_path, ocr_client=ocr_client)
             parser_name = "structure-aware-parser"
         if not chunks:
             raise BadRequestError(f"No text extracted from {input_path}")
@@ -135,6 +154,14 @@ class AgentService:
                 "contractVersion": "1.0",
                 "generatedAt": datetime.now(timezone.utc).isoformat(),
                 "requestedProvider": request.provider or "configured",
+                "ocr": {
+                    "enabled": bool(ocr_client),
+                    "mode": "auto" if request.enableOcr is None else ("forced" if request.enableOcr else "disabled"),
+                    "provider": "lanxin-ocr" if ocr_client else "",
+                    "decision": ocr_decision,
+                    "stats": ocr_client.stats.to_dict() if ocr_client else {},
+                    "error": ocr_error,
+                },
             }
         )
         result["_meta"].update({key: value for key, value in agent_meta.items() if value is not None})
@@ -142,6 +169,27 @@ class AgentService:
             result["_meta"]["modelLog"] = model_log
 
         attach_quality_diagnostics(result)
+        if request.enableQualityReview:
+            try:
+                result, review_meta = quality_improvement_loop(
+                    result,
+                    chunks,
+                    provider_name=request.provider,
+                    threshold=request.qualityReviewThreshold,
+                    top_k=request.topK,
+                    max_rounds=3,
+                )
+                result.setdefault("_meta", {})["qualityReview"] = review_meta
+                result["_meta"]["qualityReview"]["finalGroundingApplied"] = not review_meta.get("skipped")
+            except Exception as exc:
+                if request.strictProvider:
+                    raise ProviderError(f"Lanxin quality review failed: {exc}") from exc
+                result.setdefault("warnings", []).append(f"Lanxin quality review fallback used: {exc}")
+                result.setdefault("_meta", {})["qualityReview"] = {
+                    "skipped": True,
+                    "reason": "provider-error",
+                    "error": str(exc),
+                }
         normalized = normalize_agent_result(result)
         result_id = normalized["id"] or f"agent-{uuid.uuid4().hex[:8]}"
         normalized["id"] = result_id
@@ -161,7 +209,15 @@ class AgentService:
         except Exception as exc:
             raise ValidationError(str(exc)) from exc
 
-    def query(self, *, query: str, chunks_path: str | None, result_id: str | None, top_k: int) -> dict[str, Any]:
+    def query(
+        self,
+        *,
+        query: str,
+        chunks_path: str | None,
+        result_id: str | None,
+        top_k: int,
+        provider_name: str | None = None,
+    ) -> dict[str, Any]:
         if chunks_path:
             path = self._safe_input_path(chunks_path)
         elif result_id:
@@ -343,6 +399,13 @@ class AgentService:
             self._retriever_cache.pop(oldest, None)
         return retriever
 
+    def _resolve_ocr_decision(self, input_path: Path, requested: bool | None) -> dict[str, Any]:
+        if requested is False:
+            return {"enabled": False, "reason": "disabled-by-request", "signals": []}
+        if requested is True:
+            return {"enabled": True, "reason": "forced-by-request", "signals": []}
+        return detect_ocr_need(input_path)
+
     def _cleanup_runtime_outputs(self, *, keep: int = 80) -> None:
         output_root = settings.output_dir
         if not output_root.exists():
@@ -392,16 +455,8 @@ def _evaluate_review_answers(result: dict[str, Any], answers: list[ReviewAnswerI
         if question_type not in {"single-choice", "multiple-choice"}:
             raise BadRequestError(f"Only choice answers are supported: {question_id}")
         options = [str(item) for item in question.get("options") or []]
-        if question_type == "multiple-choice":
-            correct_items = _normalize_multi_choice_answer(question.get("answer"), options)
-            user_items = _normalize_multi_choice_answer(answer.answer, options)
-            correct_answer = "; ".join(correct_items)
-            user_answer = "; ".join(user_items)
-            is_correct = _choice_set_equal(user_items, correct_items)
-        else:
-            correct_answer = _normalize_choice_answer(str(question.get("answer") or ""), options)
-            user_answer = _normalize_choice_answer(str(answer.answer or ""), options)
-            is_correct = _choice_equal(user_answer, correct_answer)
+        correct_answer = _normalize_review_answer(question.get("answer"), options, question_type)
+        user_answer = _normalize_review_answer(answer.answer, options, question_type)
         related_note_id = str(question.get("relatedNoteId") or question.get("related_note_id") or "")
         note = note_by_id.get(related_note_id, {})
         answer_items.append(
@@ -412,7 +467,7 @@ def _evaluate_review_answers(result: dict[str, Any], answers: list[ReviewAnswerI
                 "userAnswer": user_answer,
                 "rawUserAnswer": str(answer.answer or ""),
                 "correctAnswer": correct_answer,
-                "isCorrect": is_correct,
+                "isCorrect": _review_answer_equal(user_answer, correct_answer, question_type),
                 "explanation": str(question.get("explanation") or ""),
                 "relatedNoteId": related_note_id,
                 "relatedNoteTitle": str(note.get("title") or ""),
@@ -606,6 +661,41 @@ def _choice_key(value: str) -> str:
         return "".join(ch.lower() for ch in str(value or "") if ch.isalnum() or "\u4e00" <= ch <= "\u9fff")
 
     return clean(value)
+def _normalize_review_answer(raw: Any, options: list[str], question_type: str) -> str:
+    if question_type == "multiple-choice":
+        raw_values = raw if isinstance(raw, list) else str(raw or "").replace("；", ";").replace("，", ",").split(",")
+        answers: list[str] = []
+        seen: set[str] = set()
+        for item in raw_values:
+            normalized = _normalize_choice_answer(str(item), options)
+            key = _clean_answer_key(normalized)
+            if key and key not in seen:
+                seen.add(key)
+                answers.append(normalized)
+        return "; ".join(answers)
+    return _normalize_choice_answer(str(raw or ""), options)
+
+
+def _review_answer_equal(left: str, right: str, question_type: str) -> bool:
+    if question_type == "multiple-choice":
+        return _answer_set(left) == _answer_set(right) and bool(_answer_set(right))
+    return _choice_equal(left, right)
+
+
+def _answer_set(value: str) -> set[str]:
+    return {
+        _clean_answer_key(item)
+        for item in str(value or "").replace("；", ";").replace("，", ",").split(";")
+        if _clean_answer_key(item)
+    }
+
+
+def _choice_equal(left: str, right: str) -> bool:
+    return bool(_clean_answer_key(left)) and _clean_answer_key(left) == _clean_answer_key(right)
+
+
+def _clean_answer_key(value: str) -> str:
+    return "".join(ch.lower() for ch in str(value or "") if ch.isalnum() or "\u4e00" <= ch <= "\u9fff")
 
 
 def _list_of_dicts(value: Any) -> list[dict[str, Any]]:
@@ -624,3 +714,11 @@ def _string_list(value: Any) -> list[str]:
         if str(text or "").strip():
             result.append(str(text).strip())
     return result
+
+
+def _diagnostic_score(result: dict[str, Any]) -> float:
+    diagnostics = result.get("qualityDiagnostics") if isinstance(result.get("qualityDiagnostics"), dict) else {}
+    try:
+        return float(diagnostics.get("overallScore") or 0)
+    except (TypeError, ValueError):
+        return 0.0

@@ -94,6 +94,10 @@ GET  /api/agent/result/{result_id}
 POST /api/agent/chat
 POST /api/agent/validate
 POST /api/rag/query
+POST /api/lanxin/query-rewrite
+POST /api/lanxin/embedding
+POST /api/lanxin/rerank
+POST /api/lanxin/translation
 ```
 
 推荐前端和 demo 使用文件上传接口，不需要关心后端电脑上的文件路径：
@@ -151,6 +155,57 @@ curl -X POST http://127.0.0.1:8000/api/agent/run-file `
   "ocrTextDir": "C:/path/to/your/ocr_outputs/text"
 }
 ```
+
+## Lanxin OCR
+
+后端也支持直接调用蓝心通用 OCR。默认关闭，避免普通解析消耗外部额度；需要在请求中显式传入 `enableOcr: true`。
+
+```json
+{
+  "filePath": "C:/path/to/your/input.pptx",
+  "pipeline": "rag-only",
+  "enableOcr": true
+}
+```
+
+配置项可写入 `BACKEND_SECRETS_FILE` 指向的文件或环境变量：
+
+```text
+LANXIN_OCR_APP_ID=your_AppId
+LANXIN_OCR_APP_KEY=your_AppKey
+LANXIN_OCR_BUSINESS_ID=aigcyour_AppId
+LANXIN_OCR_URL=http://api-ai.vivo.com.cn/ocr/general_recognition
+```
+
+PPTX 会抽取幻灯片中的嵌入图片进行 OCR，并保留 `slide`、图片框位置和 OCR 返回的文字区域；PDF 会抽取页面内嵌图片进行 OCR，并保留 `page` 和 OCR 返回的文字区域。生成结果仍使用原有 chunk/citation 回链，新增区域信息位于 `sources[].ocrRegions` 和持久化的 `chunks.json` 中。
+
+## LLM quality review
+
+生成后可显式开启大模型质量审查。后端会先计算本地 `qualityDiagnostics`；当分数低于阈值时，再调用模型从用户学习效果角度审查 NOTE，并用通用语义规则重写笔记。重写不会新增事实或来源，引用仍由后端重新 grounding。
+
+质量提升会形成最多三轮闭环：每轮执行“语义审查 → 定向修复 → 引用回链 → 重新评分”。如果某一轮达到阈值，立即采用该版本；如果三轮后仍未达标，后端会自动采用得分最高的版本，并在 `_meta.qualityReview` 中记录每轮分数和最终选择。
+
+定向修复会根据低分维度选择回退层级：
+
+- `M2`：主题、概要、关键词和核心问题规划不足时重跑。
+- `M3`：NOTE 数量不足、要点弱、概要拼接、内容重复或层级混乱时重跑。
+- `M4`：NOTE 结构变化后重建思维导图。
+- `M5`：每轮都由后端重新 grounding；引用覆盖、quote 命中或原文摘录不足时会提高检索范围并补强回链。
+- `M6`：复习题、薄弱点或学习建议不足时重跑。
+
+这些动作由质量维度和语义审查共同驱动，提示词明确要求不要迎合评分字段，不针对单一样本文本硬编码。
+
+```json
+{
+  "filePath": "C:/path/to/your/input.pdf",
+  "pipeline": "hybrid",
+  "provider": "lanxin",
+  "enableQualityReview": true,
+  "qualityReviewThreshold": 85
+}
+```
+
+该机制不会按具体评分项做硬编码补丁；审查提示词明确要求关注理解、复习、答题和查证价值，避免为了通过某个指标而牺牲泛化能力。
 
 ## 测试
 

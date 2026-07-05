@@ -15,7 +15,7 @@ class Settings:
     host: str = get_backend_env("BACKEND_HOST", "127.0.0.1")
     port: int = int(get_backend_env("BACKEND_PORT", "8000"))
     output_dir: Path = _path_env("BACKEND_OUTPUT_DIR", BACKEND_ROOT / "runtime")
-    default_pipeline: str = get_backend_env("BACKEND_DEFAULT_PIPELINE", "hybrid")
+    default_pipeline: str = get_backend_env("BACKEND_DEFAULT_PIPELINE", "rag-only")
     allowed_input_root: Path = _path_env("BACKEND_ALLOWED_INPUT_ROOT", WORKSPACE_ROOT)
     cors_origins: tuple[str, ...] = tuple(
         item.strip()
