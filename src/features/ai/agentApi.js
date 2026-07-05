@@ -115,7 +115,7 @@ function reportLegacyProgress(options) {
     status: "running",
     progress: 45,
     stageId: "generate",
-    label: "兼容模式生成中",
+    label: "正在调用大模型生成笔记",
     text: "当前后端还没有加载进度接口，前端已切换到旧版生成接口；生成期间仍可以离开此界面。",
     stages: [],
   });

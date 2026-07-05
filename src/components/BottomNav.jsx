@@ -6,7 +6,7 @@ export function BottomNav({ active, onChange, isWebView = false, compact = false
       className={`border-t border-slate-200 bg-white/95 px-2 backdrop-blur ${compact ? "pt-2" : "pt-3"}`}
       style={{ paddingBottom: isWebView ? "max(10px, env(safe-area-inset-bottom))" : "12px" }}
     >
-      <div className="grid grid-cols-6 items-end gap-1">
+      <div className="grid grid-cols-5 items-end gap-1">
         {NAV_ITEMS.map((tab) => {
           const isActive = active === tab.id;
           const isPrimary = tab.id === "ai";

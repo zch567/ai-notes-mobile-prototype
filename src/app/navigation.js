@@ -2,7 +2,6 @@ export const NAV_ITEMS = [
   { id: "home", label: "首页", icon: "⌂" },
   { id: "notes", label: "笔记", icon: "≡" },
   { id: "ai", label: "AI", icon: "+" },
-  { id: "showcase", label: "展示", icon: "◇" },
   { id: "mindmap", label: "导图", icon: "◌" },
   { id: "profile", label: "我的", icon: "◎" },
 ];
