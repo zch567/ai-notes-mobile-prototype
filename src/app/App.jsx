@@ -63,7 +63,6 @@ export default function App() {
   const initialAgentResult = useMemo(() => readActiveAgentResult(), []);
   const [nav, setNav] = useState("home");
   const [detailView, setDetailView] = useState(null);
-  const [focusedNoteId, setFocusedNoteId] = useState("");
   const [agentStatus, setAgentStatus] = useState(AGENT_STATUS.IDLE);
   const [agentResult, setAgentResult] = useState(initialAgentResult);
   const [inputDraft, setInputDraft] = useState(() => readInputDraft());
@@ -119,14 +118,12 @@ export default function App() {
   function handleNav(next) {
     setNav(next);
     setDetailView(null);
-    setFocusedNoteId("");
     if (next === "ai" && agentStatus !== AGENT_STATUS.LOADING && agentStatus !== AGENT_STATUS.SUCCESS && agentStatus !== AGENT_STATUS.ERROR) {
       setAgentStatus(AGENT_STATUS.IDLE);
     }
   }
 
-  function openNote(noteId = "") {
-    setFocusedNoteId(noteId || "");
+  function openNote() {
     setDetailView(DETAIL_VIEWS.NOTE);
     setNav("notes");
   }
@@ -154,7 +151,6 @@ export default function App() {
     noteSettings,
     setNoteSettings,
     updateAgentResult,
-    focusedNoteId,
   });
 
   const isLandscapeMindMap = nav === "mindmap" && detailView === DETAIL_VIEWS.MINDMAP;
@@ -341,7 +337,6 @@ function getScreen({
   noteSettings,
   setNoteSettings,
   updateAgentResult,
-  focusedNoteId,
 }) {
   if (detailView === DETAIL_VIEWS.NOTE) {
     return (
@@ -349,7 +344,6 @@ function getScreen({
         result={agentResult}
         settings={noteSettings}
         setSettings={setNoteSettings}
-        focusNoteId={focusedNoteId}
         onResultChange={updateAgentResult}
         onBack={() => setDetailView(null)}
         onOpenReview={openReview}
@@ -362,7 +356,7 @@ function getScreen({
   }
 
   if (detailView === DETAIL_VIEWS.MINDMAP) {
-    return <MindMapScreen result={agentResult} onResultChange={updateAgentResult} onOpenNote={openNote} onBack={() => setDetailView(null)} />;
+    return <MindMapScreen result={agentResult} onResultChange={updateAgentResult} onBack={() => setDetailView(null)} />;
   }
 
   if (nav === "home") {
