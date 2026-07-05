@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Card } from "../../components/Card";
 import { TopBar } from "../../components/TopBar";
 import { isWebViewShell } from "../../services/appShellMode";
@@ -66,6 +66,13 @@ export function MindMapScreen({ result, onResultChange = () => {}, onBack }) {
   const [selectedNodeId, setSelectedNodeId] = useState(null);
   const [zoom, setZoom] = useState(1);
   const [collapsedNodeIds, setCollapsedNodeIds] = useState(() => new Set());
+  const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
+  const [interactionMode, setInteractionMode] = useState(null);
+  const canvasRef = useRef(null);
+  const viewportRef = useRef(null);
+  const interactionRef = useRef(null);
+  const panOffsetRef = useRef(panOffset);
+  const suppressClickRef = useRef(false);
   const isWebView = isWebViewShell();
   const presentableMap = useMemo(() => createPresentableMindMap(nodes, edges, result.topic, collapsedNodeIds), [nodes, edges, result.topic, collapsedNodeIds]);
   const displayNodes = presentableMap.nodes;
@@ -76,6 +83,7 @@ export function MindMapScreen({ result, onResultChange = () => {}, onBack }) {
   const centerNode = nodeById.get("root") || nodeById.get("center") || nodes[0];
   const displayCenterNode = displayNodeById.get(centerNode?.id) || displayNodes[0];
   const displaySelectedNode = selectedNodeId ? displayNodeById.get(selectedNodeId) : null;
+  const stableSelectedNode = selectedNodeId ? presentableMap.nodes.find((node) => node.id === selectedNodeId) : null;
   const detailNode = displaySelectedNode || displayCenterNode;
   const selectedRelations = useMemo(
     () =>
@@ -87,12 +95,16 @@ export function MindMapScreen({ result, onResultChange = () => {}, onBack }) {
       ),
     [displayEdges, selectedNodeId],
   );
-  const focusX = displaySelectedNode ? 50 - displaySelectedNode.x : 0;
-  const focusY = displaySelectedNode ? 50 - displaySelectedNode.y : 0;
+  const focusNode = interactionMode ? stableSelectedNode || displaySelectedNode : displaySelectedNode;
+  const focusX = focusNode ? 50 - focusNode.x : 0;
+  const focusY = focusNode ? 50 - focusNode.y : 0;
+  const focusOffsetX = focusX * 0.06;
+  const focusOffsetY = focusY * 0.08;
   const toolboxSide = displaySelectedNode?.x > 58 ? "left" : "right";
   const toolboxVertical = displaySelectedNode?.y > 56 ? "top" : "bottom";
   const zoomDockSide = displaySelectedNode && toolboxSide === "left" ? "right" : "left";
   const zoomDockVertical = displaySelectedNode && toolboxVertical === "bottom" ? "top" : "bottom";
+  const showNodePanel = displaySelectedNode;
   const hasMap = nodes.length > 0;
   const selectedHasChildren = selectedNode ? edges.some((edge) => edge.from === selectedNode.id) : false;
   const selectedCollapsed = selectedNode ? collapsedNodeIds.has(selectedNode.id) : false;
@@ -111,6 +123,203 @@ export function MindMapScreen({ result, onResultChange = () => {}, onBack }) {
     androidShell.setMindMapLandscape(true);
     return () => androidShell.setMindMapLandscape(false);
   }, [isWebView]);
+
+  useEffect(() => {
+    panOffsetRef.current = panOffset;
+  }, [panOffset]);
+
+  useEffect(() => {
+    applyViewportTransform(panOffsetRef.current);
+  }, [focusOffsetX, focusOffsetY, zoom]);
+
+  function applyViewportTransform(nextPanOffset) {
+    if (!viewportRef.current) return;
+    viewportRef.current.style.transform = `translate3d(calc(${focusOffsetX}% + ${nextPanOffset.x}px), calc(${focusOffsetY}% + ${nextPanOffset.y}px), 0) scale(${zoom})`;
+  }
+
+  function schedulePanFrame(interaction) {
+    if (interaction.frameId) return;
+    interaction.frameId = window.requestAnimationFrame(() => {
+      interaction.frameId = 0;
+      applyViewportTransform(interaction.latestPan || interaction.panStart);
+    });
+  }
+
+  function scheduleNodeFrame(interaction) {
+    if (interaction.frameId) return;
+    interaction.frameId = window.requestAnimationFrame(() => {
+      interaction.frameId = 0;
+      applyNodeLayout(interaction.workingPositions);
+    });
+  }
+
+  function cancelInteractionFrame(interaction) {
+    if (!interaction?.frameId) return;
+    window.cancelAnimationFrame(interaction.frameId);
+    interaction.frameId = 0;
+  }
+
+  function applyNodeLayout(positionById) {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    displayNodes.forEach((node) => {
+      const position = positionById[node.id];
+      if (!position) return;
+      const element = canvas.querySelector(`[data-mindmap-node-id="${escapeSelectorValue(node.id)}"]`);
+      if (!element) return;
+      element.style.left = `${position.x}%`;
+      element.style.top = `${position.y}%`;
+    });
+
+    displayEdges.forEach((edge, index) => {
+      const from = nodeWithPosition(displayNodeById.get(edge.from), positionById);
+      const to = nodeWithPosition(displayNodeById.get(edge.to), positionById);
+      if (!from || !to) return;
+
+      const curve = getEdgeCurve(from, to);
+      const path = canvas.querySelector(`[data-mindmap-edge-index="${index}"]`);
+      path?.setAttribute("d", curve.path);
+
+      const label = canvas.querySelector(`[data-mindmap-edge-label-index="${index}"]`);
+      if (label) {
+        label.style.left = `${curve.label.x}%`;
+        label.style.top = `${curve.label.y}%`;
+      }
+    });
+  }
+
+  function nodeWithPosition(node, positionById) {
+    const position = node ? positionById[node.id] : null;
+    return node && position ? { ...node, x: position.x, y: position.y } : node;
+  }
+
+  function handleCanvasPointerDown(event) {
+    if (event.button !== undefined && event.button !== 0) return;
+    if (event.target.closest?.("button, aside")) return;
+
+    interactionRef.current = {
+      type: "pan",
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      panStart: panOffsetRef.current,
+      latestPan: panOffsetRef.current,
+      frameId: 0,
+    };
+    setInteractionMode("pan");
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    event.preventDefault();
+  }
+
+  function handleNodePointerDown(event, node) {
+    if (selectedNodeId !== node.id) return;
+
+    const canvasRect = canvasRef.current?.getBoundingClientRect();
+    if (!canvasRect) return;
+
+    interactionRef.current = {
+      type: "node",
+      pointerId: event.pointerId,
+      nodeId: node.id,
+      startX: event.clientX,
+      startY: event.clientY,
+      startNode: { x: node.x, y: node.y },
+      canvasRect,
+      positionsAtStart: Object.fromEntries(displayNodes.map((item) => [item.id, { x: item.x, y: item.y }])),
+      workingPositions: Object.fromEntries(displayNodes.map((item) => [item.id, { x: item.x, y: item.y }])),
+      latestNode: { x: node.x, y: node.y },
+      frameId: 0,
+      moved: false,
+    };
+    suppressClickRef.current = false;
+    setInteractionMode("node");
+    canvasRef.current.setPointerCapture?.(event.pointerId);
+    event.stopPropagation();
+    event.preventDefault();
+  }
+
+  function handleCanvasPointerMove(event) {
+    const interaction = interactionRef.current;
+    if (!interaction || interaction.pointerId !== event.pointerId) return;
+
+    const deltaX = event.clientX - interaction.startX;
+    const deltaY = event.clientY - interaction.startY;
+
+    if (interaction.type === "pan") {
+      interaction.latestPan = {
+        x: interaction.panStart.x + deltaX,
+        y: interaction.panStart.y + deltaY,
+      };
+      schedulePanFrame(interaction);
+      event.preventDefault();
+      return;
+    }
+
+    if (interaction.type === "node") {
+      const moved = Math.hypot(deltaX, deltaY) > 3;
+      interaction.moved = interaction.moved || moved;
+      suppressClickRef.current = interaction.moved;
+
+      const nextPosition = {
+        x: clampNodeX(interaction.startNode.x + (deltaX / (interaction.canvasRect.width * zoom)) * 100),
+        y: clampNodeY(interaction.startNode.y + (deltaY / (interaction.canvasRect.height * zoom)) * 100),
+      };
+      interaction.latestNode = nextPosition;
+      interaction.workingPositions[interaction.nodeId] = nextPosition;
+      scheduleNodeFrame(interaction);
+      event.preventDefault();
+    }
+  }
+
+  function handleCanvasPointerUp(event) {
+    const interaction = interactionRef.current;
+    if (!interaction || interaction.pointerId !== event.pointerId) return;
+
+    cancelInteractionFrame(interaction);
+
+    if (interaction.type === "pan") {
+      panOffsetRef.current = interaction.latestPan || interaction.panStart;
+      applyViewportTransform(panOffsetRef.current);
+      setPanOffset(panOffsetRef.current);
+    }
+
+    if (interaction.type === "node" && interaction.moved) {
+      applyNodeLayout(interaction.workingPositions);
+      const nextPositions = {
+        ...interaction.positionsAtStart,
+        [interaction.nodeId]: interaction.latestNode,
+      };
+      updateMindMap({
+        nodes: nodes.map((node) => {
+          const nextPosition = nextPositions[node.id];
+          return nextPosition ? { ...node, x: nextPosition.x, y: nextPosition.y } : node;
+        }),
+      }, interaction.nodeId);
+    }
+
+    event.currentTarget.releasePointerCapture?.(event.pointerId);
+    interactionRef.current = null;
+    setInteractionMode(null);
+  }
+
+  function handleCanvasPointerCancel(event) {
+    const interaction = interactionRef.current;
+    if (interaction?.pointerId !== event.pointerId) return;
+    cancelInteractionFrame(interaction);
+    if (interaction.type === "pan") applyViewportTransform(panOffsetRef.current);
+    if (interaction.type === "node") applyNodeLayout(interaction.positionsAtStart);
+    interactionRef.current = null;
+    setInteractionMode(null);
+  }
+
+  function handleNodeClick(nodeId) {
+    if (suppressClickRef.current) {
+      suppressClickRef.current = false;
+      return;
+    }
+    setSelectedNodeId((current) => (current === nodeId ? null : nodeId));
+  }
 
   function updateMindMap(nextMindMap, nextSelectedNodeId = selectedNodeId) {
     onResultChange((current) => ({
@@ -254,18 +463,30 @@ export function MindMapScreen({ result, onResultChange = () => {}, onBack }) {
         </header>
 
         <div className="relative z-10 min-h-0 flex-1 p-3">
-        <section className="relative h-full min-w-0 overflow-hidden rounded-[24px] border border-white/80 bg-white/64 shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_20px_50px_rgba(15,23,42,0.12)] backdrop-blur-xl">
+        <section
+          ref={canvasRef}
+          onPointerDown={handleCanvasPointerDown}
+          onPointerMove={handleCanvasPointerMove}
+          onPointerUp={handleCanvasPointerUp}
+          onPointerCancel={handleCanvasPointerCancel}
+          className="relative h-full min-w-0 cursor-grab overflow-hidden rounded-[24px] border border-white/80 bg-white/64 shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_20px_50px_rgba(15,23,42,0.12)] backdrop-blur-xl active:cursor-grabbing"
+          style={{ touchAction: "none" }}
+        >
           <div className={`absolute left-3 top-3 z-20 flex items-center gap-2 rounded-full border border-slate-200 bg-white/86 px-2.5 py-1 shadow-sm transition-opacity ${displaySelectedNode ? "pointer-events-none opacity-0" : "opacity-100"}`}>
             <span className="text-[10px] font-semibold text-slate-500">点击节点查看详情</span>
           </div>
 
           <div
-            className="absolute inset-0 origin-center transition-transform duration-500 ease-out"
+            ref={viewportRef}
+            className={`absolute inset-0 origin-center ${interactionMode ? "" : "transition-transform duration-500 ease-out"}`}
             style={{
-              transform: `translate3d(${displaySelectedNode ? focusX * 0.06 : 0}%, ${displaySelectedNode ? focusY * 0.08 : 0}%, 0) scale(${zoom})`,
+              transform: `translate3d(calc(${focusOffsetX}% + ${panOffset.x}px), calc(${focusOffsetY}% + ${panOffset.y}px), 0) scale(${zoom})`,
+              backfaceVisibility: "hidden",
+              contain: "layout paint style",
+              willChange: "transform",
             }}
           >
-            <svg className="absolute inset-0 h-full w-full" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+            <svg className="absolute inset-0 h-full w-full overflow-visible" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
               <defs>
                 <filter id="softShadow" x="-20%" y="-20%" width="140%" height="140%">
                   <feDropShadow dx="0" dy="1" stdDeviation="1.2" floodColor="#0f172a" floodOpacity="0.16" />
@@ -275,41 +496,42 @@ export function MindMapScreen({ result, onResultChange = () => {}, onBack }) {
                 const from = displayNodeById.get(edge.from);
                 const to = displayNodeById.get(edge.to);
                 if (!from || !to) return null;
-                const midX = Math.round(((from.x + to.x) / 2) * 10) / 10;
-                const path = `M ${from.x} ${from.y} C ${midX} ${from.y}, ${midX} ${to.y}, ${to.x} ${to.y}`;
-                const midY = Math.round(((from.y + to.y) / 2) * 10) / 10;
-                const relationLabel = edge.label || edgeTypeLabel(edge.type);
-                const stroke = edgeTypeColor(edge.type, to.line || "#93c5fd");
+                const curve = getEdgeCurve(from, to);
                 return (
-                  <g key={`${edge.from}-${edge.to}-${index}`}>
-                    <path
-                      d={path}
-                      fill="none"
-                      stroke={stroke}
-                      strokeLinecap="round"
-                      strokeWidth={edge.type === "hierarchy" ? "1.8" : "2.4"}
-                      strokeDasharray={edge.type === "contrast" ? "2 2" : undefined}
-                      filter="url(#softShadow)"
-                      opacity={edge.type === "hierarchy" ? "0.62" : "0.9"}
-                    />
-                    {relationLabel ? (
-                      <text
-                        x={midX}
-                        y={midY - 1.2}
-                        textAnchor="middle"
-                        dominantBaseline="middle"
-                        className="select-none fill-slate-600 text-[2.6px] font-semibold"
-                        paintOrder="stroke"
-                        stroke="white"
-                        strokeWidth="0.9"
-                      >
-                        {relationLabel}
-                      </text>
-                    ) : null}
-                  </g>
+                  <path
+                    key={`${edge.from}-${edge.to}-${index}`}
+                    data-mindmap-edge-index={index}
+                    d={curve.path}
+                    fill="none"
+                    stroke={to.line || "#93c5fd"}
+                    strokeLinecap="round"
+                    strokeWidth="2.2"
+                    filter="url(#softShadow)"
+                    opacity="0.88"
+                  />
                 );
               })}
             </svg>
+
+            {displayEdges.map((edge, index) => {
+              const from = displayNodeById.get(edge.from);
+              const to = displayNodeById.get(edge.to);
+              if (!from || !to || !hasRelationMetadata(edge)) return null;
+              const curve = getEdgeCurve(from, to);
+              return (
+                <div
+                  key={`label-${edge.from}-${edge.to}-${index}`}
+                  data-mindmap-edge-label-index={index}
+                  className="pointer-events-none absolute z-[5] -translate-x-1/2 -translate-y-1/2 rounded-full border border-white/90 bg-white/90 px-2 py-0.5 text-[8px] font-semibold tracking-wide text-slate-500 shadow-sm backdrop-blur"
+                  style={{
+                    left: `${curve.label.x}%`,
+                    top: `${curve.label.y}%`,
+                  }}
+                >
+                  {edge.label || edgeTypeLabel(edge.type)}
+                </div>
+              );
+            })}
 
             {displayNodes.map((node) => {
               const isCenter = node.id === displayCenterNode?.id;
@@ -317,15 +539,20 @@ export function MindMapScreen({ result, onResultChange = () => {}, onBack }) {
               return (
                 <button
                   key={node.id}
-                  onClick={() => setSelectedNodeId((current) => (current === node.id ? null : node.id))}
-                  className={`absolute z-10 -translate-x-1/2 -translate-y-1/2 overflow-hidden border text-left shadow-[0_16px_30px_rgba(15,23,42,0.12)] transition duration-200 hover:-translate-y-[52%] hover:shadow-[0_20px_38px_rgba(15,23,42,0.16)] ${
+                  data-mindmap-node-id={node.id}
+                  onClick={() => handleNodeClick(node.id)}
+                  onPointerDown={(event) => handleNodePointerDown(event, node)}
+                  className={`absolute z-10 -translate-x-1/2 -translate-y-1/2 overflow-hidden border text-left shadow-[0_16px_30px_rgba(15,23,42,0.12)] ${
+                    interactionMode === "node" && isSelected ? "transition-none" : "transition duration-200 hover:-translate-y-[52%] hover:shadow-[0_20px_38px_rgba(15,23,42,0.16)]"
+                  } ${
                     isSelected ? "scale-[1.05] ring-2 ring-slate-900/10" : ""
-                  } ${isCenter ? "w-[180px] rounded-[24px] border-blue-200 bg-white px-4 py-4 text-center" : "w-[150px] rounded-[18px] px-3 py-2.5"}`}
+                  } ${isSelected ? "cursor-move" : "cursor-pointer"} ${isCenter ? "w-[170px] rounded-[26px] border-blue-200 bg-white px-4 py-4 text-center" : "w-[160px] rounded-[20px] px-3 py-3"}`}
                   style={{
                     left: `${node.x}%`,
                     top: `${node.y}%`,
                     borderColor: isCenter ? "#bfdbfe" : node.line || "#cbd5e1",
                     backgroundColor: isCenter ? "#ffffff" : node.fill || "#ffffff",
+                    willChange: isSelected ? "left, top" : "auto",
                   }}
                 >
                   {isCenter ? (
@@ -336,11 +563,11 @@ export function MindMapScreen({ result, onResultChange = () => {}, onBack }) {
                   ) : (
                     <>
                       <p className="line-clamp-2 break-words text-[12px] font-semibold leading-tight text-slate-950">{node.label}</p>
-                      <div className="mt-1.5 flex items-center justify-between gap-2">
-                        <p className="min-w-0 flex-1 truncate text-[10px] leading-4 text-slate-500">{node.desc}</p>
+                      <div className="mt-2 flex items-start justify-between gap-2">
+                        <p className="min-w-0 flex-1 line-clamp-2 break-words text-[11px] leading-4 text-slate-600">{node.desc}</p>
                         {node.childCount ? (
                           <span className="shrink-0 rounded-full bg-white/70 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500">
-                            {node.collapsed ? `+${node.childCount}` : "?"}
+                            {node.collapsed ? `+${node.childCount}` : `子${node.childCount}`}
                           </span>
                         ) : null}
                       </div>
@@ -369,7 +596,7 @@ export function MindMapScreen({ result, onResultChange = () => {}, onBack }) {
           >
             <button
               type="button"
-              onClick={() => setZoom((current) => Math.max(0.72, Math.round((current - 0.12) * 100) / 100))}
+              onClick={() => setZoom((current) => clampZoom(current - zoomBounds.step))}
               className="grid h-7 w-7 place-items-center rounded-full border border-slate-200 bg-white text-[15px] font-semibold text-slate-700 shadow-sm"
               aria-label="缩小导图"
             >
@@ -385,7 +612,7 @@ export function MindMapScreen({ result, onResultChange = () => {}, onBack }) {
             </button>
             <button
               type="button"
-              onClick={() => setZoom((current) => Math.min(1.42, Math.round((current + 0.12) * 100) / 100))}
+              onClick={() => setZoom((current) => clampZoom(current + zoomBounds.step))}
               className="grid h-7 w-7 place-items-center rounded-full border border-slate-200 bg-white text-[15px] font-semibold text-slate-700 shadow-sm"
               aria-label="放大导图"
             >
@@ -393,7 +620,7 @@ export function MindMapScreen({ result, onResultChange = () => {}, onBack }) {
             </button>
           </div>
 
-          {displaySelectedNode ? (
+          {showNodePanel ? (
             <aside
               className={`absolute z-40 flex max-h-[calc(100%-1.5rem)] w-[300px] max-w-[34%] flex-col rounded-[22px] border border-white/80 bg-white/88 p-3 shadow-[0_18px_44px_rgba(15,23,42,0.16)] backdrop-blur-xl ${
                 toolboxSide === "left" ? "left-3" : "right-3"
@@ -474,12 +701,7 @@ export function MindMapScreen({ result, onResultChange = () => {}, onBack }) {
                 </div>
               ) : null}
             </aside>
-          ) : (
-            <div className="absolute right-5 top-5 z-30 rounded-[24px] border border-white/80 bg-white/80 px-4 py-3 shadow-[0_14px_36px_rgba(15,23,42,0.12)] backdrop-blur-xl">
-              <p className="text-[10px] font-semibold uppercase text-slate-400">导图概览</p>
-              <p className="mt-1 text-[14px] font-semibold text-slate-900">{displayNodes.length} 节点 · {displayEdges.length} 连线</p>
-            </div>
-          )}
+          ) : null}
         </section>
         </div>
       </div>
@@ -519,6 +741,92 @@ const mindMapPalette = [
   { fill: "#e2e8f0", line: "#64748b" },
 ];
 
+const nodeCoordinateBounds = {
+  minX: -800,
+  maxX: 900,
+  minY: -600,
+  maxY: 700,
+};
+
+const zoomBounds = {
+  min: 0.45,
+  max: 2.2,
+  step: 0.15,
+};
+
+function getEdgeCurve(from, to) {
+  const start = edgeAnchorPoint(from, to);
+  const end = edgeAnchorPoint(to, from);
+  const deltaX = end.x - start.x;
+  const deltaY = end.y - start.y;
+  const distance = Math.max(Math.hypot(deltaX, deltaY), 1);
+  const bend = clamp(distance * 0.08, 2.4, 7);
+  const normal = {
+    x: -deltaY / distance,
+    y: deltaX / distance,
+  };
+  const controlA = {
+    x: start.x + deltaX * 0.42 + normal.x * bend,
+    y: start.y + deltaY * 0.42 + normal.y * bend,
+  };
+  const controlB = {
+    x: start.x + deltaX * 0.58 + normal.x * bend,
+    y: start.y + deltaY * 0.58 + normal.y * bend,
+  };
+
+  return {
+    path: `M ${roundPoint(start.x)} ${roundPoint(start.y)} C ${roundPoint(controlA.x)} ${roundPoint(controlA.y)}, ${roundPoint(controlB.x)} ${roundPoint(controlB.y)}, ${roundPoint(end.x)} ${roundPoint(end.y)}`,
+    label: cubicBezierPoint(
+      start,
+      controlA,
+      controlB,
+      end,
+      0.5,
+    ),
+  };
+}
+
+function edgeAnchorPoint(node, toward) {
+  const halfWidth = node.depth === 0 ? 9.5 : 8.9;
+  const halfHeight = node.depth === 0 ? 7.2 : 6.2;
+  const deltaX = toward.x - node.x;
+  const deltaY = toward.y - node.y;
+
+  if (!deltaX && !deltaY) return { x: node.x, y: node.y };
+
+  const scaleX = deltaX ? halfWidth / Math.abs(deltaX) : Number.POSITIVE_INFINITY;
+  const scaleY = deltaY ? halfHeight / Math.abs(deltaY) : Number.POSITIVE_INFINITY;
+  const scale = Math.min(scaleX, scaleY);
+
+  return {
+    x: node.x + deltaX * scale,
+    y: node.y + deltaY * scale,
+  };
+}
+
+function cubicBezierPoint(start, controlA, controlB, end, t) {
+  const oneMinusT = 1 - t;
+  const x =
+    oneMinusT ** 3 * start.x +
+    3 * oneMinusT ** 2 * t * controlA.x +
+    3 * oneMinusT * t ** 2 * controlB.x +
+    t ** 3 * end.x;
+  const y =
+    oneMinusT ** 3 * start.y +
+    3 * oneMinusT ** 2 * t * controlA.y +
+    3 * oneMinusT * t ** 2 * controlB.y +
+    t ** 3 * end.y;
+
+  return {
+    x: roundPoint(x),
+    y: roundPoint(y),
+  };
+}
+
+function roundPoint(value) {
+  return Math.round(value * 10) / 10;
+}
+
 function createPresentableMindMap(nodes, edges, topic, collapsedNodeIds = new Set()) {
   if (!nodes.length) {
     return { nodes: [], edges: [] };
@@ -531,115 +839,113 @@ function createPresentableMindMap(nodes, edges, topic, collapsedNodeIds = new Se
     .filter((edge) => validNodeIds.has(edge.from) && validNodeIds.has(edge.to) && edge.from !== edge.to)
     .map((edge) => ({ ...edge, from: edge.from, to: edge.to }));
 
-  if (normalizedEdges.length) {
-    return createMarkmapLayout(center, sourceNodeById, normalizedEdges, topic, collapsedNodeIds);
-  }
+  return createCoordinateLayout(center, nodes, normalizedEdges, topic, collapsedNodeIds);
+}
 
+function createCoordinateLayout(center, nodes, edges, topic, collapsedNodeIds) {
   const nonCenterNodes = nodes.filter((node) => node.id !== center.id);
+  const useNodeCoordinates = hasUsableNodeCoordinates(nodes);
+  const childrenByParent = buildChildrenByParent(edges);
+  const hiddenNodeIds = collectCollapsedDescendantIds(collapsedNodeIds, childrenByParent);
   const centerNode = normalizeDisplayNode(center, 0, {
     topic,
     isCenter: true,
-    x: 12,
-    y: 50,
+    x: useNodeCoordinates ? numberOrFallback(center.x, 50) : 50,
+    y: useNodeCoordinates ? numberOrFallback(center.y, 50) : 50,
     depth: 0,
-    childCount: nonCenterNodes.length,
-    collapsed: false,
+    childCount: (childrenByParent.get(center.id) || []).length || nonCenterNodes.length,
+    collapsed: collapsedNodeIds.has(center.id),
   });
   const placed = [centerNode];
-  const childNodes = nonCenterNodes.map((node, index) => {
+  const childNodes = nonCenterNodes
+    .filter((node) => !hiddenNodeIds.has(node.id))
+    .map((node, index) => {
       const slot = pickNodeSlot(index, nonCenterNodes.length, placed);
+      const childIds = childrenByParent.get(node.id) || [];
       const nextNode = normalizeDisplayNode(node, index + 1, {
         topic,
-        x: slot.x,
-        y: slot.y,
-        depth: 1,
-        childCount: 0,
-        collapsed: false,
+        x: useNodeCoordinates ? numberOrFallback(node.x, slot.x) : slot.x,
+        y: useNodeCoordinates ? numberOrFallback(node.y, slot.y) : slot.y,
+        depth: inferNodeDepth(node.id, edges, center.id),
+        childCount: childIds.length,
+        collapsed: collapsedNodeIds.has(node.id),
       });
       placed.push(nextNode);
       return nextNode;
     });
   const presentableNodes = [centerNode, ...childNodes];
+  const presentableNodeIds = new Set(presentableNodes.map((node) => node.id));
+  const presentableEdges = edges.filter((edge) => presentableNodeIds.has(edge.from) && presentableNodeIds.has(edge.to));
 
   return {
     nodes: presentableNodes,
-    edges: childNodes.map((node) => ({ from: center.id, to: node.id })),
+    edges: presentableEdges.length
+      ? presentableEdges
+      : childNodes.map((node) => ({ from: center.id, to: node.id })),
   };
 }
 
-function createMarkmapLayout(center, nodeById, edges, topic, collapsedNodeIds) {
-  const childrenByParent = new Map();
+function hasUsableNodeCoordinates(nodes) {
+  const coordinateKeys = nodes
+    .map((node) => {
+      const x = Number(node.x);
+      const y = Number(node.y);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return "";
+      return `${Math.round(x * 10) / 10},${Math.round(y * 10) / 10}`;
+    })
+    .filter(Boolean);
+
+  if (coordinateKeys.length < Math.min(nodes.length, 2)) return false;
+
+  const distinctCoordinates = new Set(coordinateKeys);
+  if (distinctCoordinates.size >= Math.min(nodes.length, 3)) return true;
+
+  return distinctCoordinates.size > 1 && !coordinateKeys.every((key) => key === "50,50");
+}
+
+function buildChildrenByParent(edges) {
+  return edges.reduce((map, edge) => {
+    if (!map.has(edge.from)) map.set(edge.from, []);
+    if (!map.get(edge.from).includes(edge.to)) map.get(edge.from).push(edge.to);
+    return map;
+  }, new Map());
+}
+
+function collectCollapsedDescendantIds(collapsedNodeIds, childrenByParent) {
+  const hiddenNodeIds = new Set();
+  collapsedNodeIds.forEach((nodeId) => {
+    const queue = [...(childrenByParent.get(nodeId) || [])];
+    while (queue.length) {
+      const childId = queue.shift();
+      if (hiddenNodeIds.has(childId)) continue;
+      hiddenNodeIds.add(childId);
+      queue.push(...(childrenByParent.get(childId) || []));
+    }
+  });
+  return hiddenNodeIds;
+}
+
+function inferNodeDepth(nodeId, edges, centerId) {
+  if (nodeId === centerId) return 0;
+
+  const parentByChild = new Map();
   edges.forEach((edge) => {
-    if (!childrenByParent.has(edge.from)) childrenByParent.set(edge.from, []);
-    childrenByParent.get(edge.from).push(edge.to);
+    if (!parentByChild.has(edge.to)) parentByChild.set(edge.to, edge.from);
   });
 
-  const visibleIds = [];
-  const visibleEdges = [];
-  const metaById = new Map();
-  const visited = new Set();
-
-  function leafWeight(nodeId) {
-    const children = childrenByParent.get(nodeId) || [];
-    if (!children.length || collapsedNodeIds.has(nodeId)) return 1;
-    return children.reduce((sum, childId) => sum + leafWeight(childId), 0);
+  let depth = 1;
+  let currentId = nodeId;
+  const seen = new Set([nodeId]);
+  while (parentByChild.has(currentId)) {
+    const parentId = parentByChild.get(currentId);
+    if (!parentId || seen.has(parentId)) break;
+    if (parentId === centerId) return depth;
+    seen.add(parentId);
+    currentId = parentId;
+    depth += 1;
   }
 
-  const totalWeight = Math.max(leafWeight(center.id), 1);
-  const verticalStart = 12;
-  const verticalEnd = 88;
-  const unit = totalWeight > 1 ? (verticalEnd - verticalStart) / (totalWeight - 1) : 0;
-  let cursor = 0;
-  const maxDepth = Math.max(1, maxTreeDepth(center.id, childrenByParent, collapsedNodeIds));
-
-  function visit(nodeId, depth = 0, parentId = null) {
-    if (visited.has(nodeId)) return metaById.get(nodeId)?.y || 50;
-    const node = nodeById.get(nodeId);
-    if (!node) return 50;
-    visited.add(nodeId);
-    visibleIds.push(nodeId);
-    if (parentId) {
-      const sourceEdge = edges.find((edge) => edge.from === parentId && edge.to === nodeId);
-      visibleEdges.push(sourceEdge ? { ...sourceEdge, from: parentId, to: nodeId } : { from: parentId, to: nodeId });
-    }
-
-    const childIds = childrenByParent.get(nodeId) || [];
-    const isCollapsed = collapsedNodeIds.has(nodeId);
-    const visibleChildren = isCollapsed ? [] : childIds.filter((childId) => nodeById.has(childId));
-    const childYs = visibleChildren.map((childId) => visit(childId, depth + 1, nodeId));
-    const y = childYs.length ? childYs.reduce((sum, next) => sum + next, 0) / childYs.length : verticalStart + cursor++ * unit;
-    const x = depth === 0 ? 10 : Math.min(90, 28 + (depth - 1) * (62 / Math.max(maxDepth - 1, 1)));
-    metaById.set(nodeId, {
-      x: Math.round(x * 10) / 10,
-      y: Math.round(y * 10) / 10,
-      depth,
-      childCount: childIds.length,
-      collapsed: isCollapsed,
-    });
-    return y;
-  }
-
-  visit(center.id);
-
-  return {
-    nodes: visibleIds.map((nodeId, index) => {
-      const meta = metaById.get(nodeId) || { x: 50, y: 50, depth: 0, childCount: 0, collapsed: false };
-      return normalizeDisplayNode(nodeById.get(nodeId), index, {
-        topic,
-        isCenter: nodeId === center.id,
-        ...meta,
-      });
-    }),
-    edges: visibleEdges,
-  };
-}
-
-function maxTreeDepth(nodeId, childrenByParent, collapsedNodeIds, seen = new Set()) {
-  if (seen.has(nodeId) || collapsedNodeIds.has(nodeId)) return 0;
-  seen.add(nodeId);
-  const children = childrenByParent.get(nodeId) || [];
-  if (!children.length) return 0;
-  return 1 + Math.max(...children.map((childId) => maxTreeDepth(childId, childrenByParent, collapsedNodeIds, new Set(seen))));
+  return depth;
 }
 
 function normalizeDisplayNode(node, index, options) {
@@ -649,13 +955,13 @@ function normalizeDisplayNode(node, index, options) {
     ...node,
     label: node.label || (isCenter ? options.topic || "中心主题" : "知识点"),
     desc: compactMapText(node.desc || detailSummary(node.detail) || (isCenter ? "中心主题" : "点击查看详情"), isCenter ? 20 : 18),
-    x: Math.max(6, Math.min(94, Number(options.x))),
-    y: Math.max(8, Math.min(92, Number(options.y))),
+    x: clampNodeX(options.x),
+    y: clampNodeY(options.y),
     depth: options.depth || 0,
     childCount: options.childCount || 0,
     collapsed: Boolean(options.collapsed),
-    fill: node.fill || color.fill,
-    line: node.line || color.line,
+    fill: isCenter ? node.fill || color.fill : color.fill,
+    line: isCenter ? node.line || color.line : color.line,
   };
 }
 
@@ -724,21 +1030,6 @@ function hasRelationMetadata(edge) {
       edge?.sourceRefs?.length ||
       edge?.confidence,
   );
-}
-
-function edgeTypeColor(type, fallback) {
-  return {
-    hierarchy: fallback || "#94a3b8",
-    prerequisite: "#2563eb",
-    component: "#0f766e",
-    mechanism: "#7c3aed",
-    "training-flow": "#ea580c",
-    evolution: "#be123c",
-    application: "#0284c7",
-    contrast: "#64748b",
-    evidence: "#16a34a",
-    solution: "#0891b2",
-  }[type] || fallback || "#93c5fd";
 }
 
 function edgeTypeLabel(type) {
@@ -817,4 +1108,25 @@ function collectDescendantNodeIds(rootId, edges) {
 
 function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
+}
+
+function clampNodeX(value) {
+  return clamp(numberOrFallback(value, 50), nodeCoordinateBounds.minX, nodeCoordinateBounds.maxX);
+}
+
+function clampNodeY(value) {
+  return clamp(numberOrFallback(value, 50), nodeCoordinateBounds.minY, nodeCoordinateBounds.maxY);
+}
+
+function clampZoom(value) {
+  return Math.round(clamp(value, zoomBounds.min, zoomBounds.max) * 100) / 100;
+}
+
+function numberOrFallback(value, fallback) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+}
+
+function escapeSelectorValue(value) {
+  return String(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
