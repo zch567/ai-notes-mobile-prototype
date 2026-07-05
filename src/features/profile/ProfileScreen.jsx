@@ -56,18 +56,6 @@ export function ProfileScreen() {
       <TopBar title="我的" subtitle="真实后端连接配置" />
 
       <div className="space-y-4 px-5">
-        <Card title="当前模式" subtitle="Runtime">
-          <div className="flex items-start justify-between gap-3 rounded-2xl bg-slate-50 p-4">
-            <div>
-              <p className="text-[14px] font-semibold text-slate-900">真实后端模式</p>
-              <p className="mt-2 text-[13px] leading-5 text-slate-500">
-                当前版本不再内置 mock 生成兜底。请启动电脑端 FastAPI 后端，并在下方填写局域网地址。
-              </p>
-            </div>
-            <span className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full bg-emerald-500" />
-          </div>
-        </Card>
-
         <Card title="后端连接" subtitle="Backend">
           <label className="block">
             <span className="mb-2 block text-[12px] font-semibold uppercase tracking-[0.18em] text-slate-400">API Base URL</span>

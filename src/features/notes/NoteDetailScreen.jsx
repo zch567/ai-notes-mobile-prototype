@@ -50,6 +50,7 @@ export function NoteDetailScreen({
   const activeAnchorRef = useRef(null);
   const noteScrollRef = useRef(null);
   const noteDocumentRef = useRef(null);
+  const pendingSourceScrollRef = useRef(null);
   const editDraftRef = useRef(editDraft);
 
   const sourceById = useMemo(() => new Map(result.sources.map((source) => [source.id, source])), [result.sources]);
@@ -101,11 +102,16 @@ export function NoteDetailScreen({
     messageListRef.current.scrollTop = messageListRef.current.scrollHeight;
   }, [messages, chatOpen]);
 
-  useEffect(() => {
-    if (!activeSource || !bubbleScrollRef.current) return;
-    const index = result.sources.findIndex((source) => source.id === activeSource.id);
-    bubbleScrollRef.current.scrollTop = Math.max(index, 0) * 72;
-  }, [activeSource, result.sources]);
+  const scrollActiveSourceIntoView = useCallback((behavior = "smooth") => {
+    const sourceId = pendingSourceScrollRef.current || activeSourceId;
+    if (!sourceId || !bubbleScrollRef.current) return;
+
+    const activeRow = bubbleScrollRef.current.querySelector(`[data-source-row-id="${cssEscape(sourceId)}"]`);
+    if (!activeRow) return;
+
+    activeRow.scrollIntoView({ block: "center", behavior });
+    pendingSourceScrollRef.current = null;
+  }, [activeSourceId]);
 
   const updateBubbleLayout = useCallback(() => {
     if (!activeSource || !shellRef.current) {
@@ -141,6 +147,18 @@ export function NoteDetailScreen({
   useEffect(() => {
     if (!activeSource) return undefined;
 
+    pendingSourceScrollRef.current = activeSource.id;
+    const layoutFrame = window.requestAnimationFrame(() => {
+      updateBubbleLayout();
+      window.requestAnimationFrame(() => scrollActiveSourceIntoView("auto"));
+    });
+
+    return () => window.cancelAnimationFrame(layoutFrame);
+  }, [activeSource, updateBubbleLayout, scrollActiveSourceIntoView]);
+
+  useEffect(() => {
+    if (!activeSource) return undefined;
+
     const scrollContainer = noteScrollRef.current;
     const handleLayoutChange = () => updateBubbleLayout();
     scrollContainer?.addEventListener("scroll", handleLayoutChange, { passive: true });
@@ -168,9 +186,13 @@ export function NoteDetailScreen({
     anchor.scrollIntoView({ block: "center", behavior: "smooth" });
     activeAnchorRef.current = anchor;
     setActiveSourceId(initialSourceId);
-    window.requestAnimationFrame(updateBubbleLayout);
+    pendingSourceScrollRef.current = initialSourceId;
+    window.requestAnimationFrame(() => {
+      updateBubbleLayout();
+      scrollActiveSourceIntoView();
+    });
     onSourceLocated();
-  }, [initialSourceId, settings.showCitations, updateBubbleLayout, onSourceLocated]);
+  }, [initialSourceId, settings.showCitations, updateBubbleLayout, scrollActiveSourceIntoView, onSourceLocated]);
 
   function toggleSource(sourceId, anchor) {
     const isSameAnchor = activeSourceId === sourceId && activeAnchorRef.current === anchor;
@@ -182,11 +204,13 @@ export function NoteDetailScreen({
     }
 
     activeAnchorRef.current = anchor;
+    pendingSourceScrollRef.current = sourceId;
     setActiveSourceId(sourceId);
 
-    if (activeSourceId === sourceId) {
-      window.requestAnimationFrame(updateBubbleLayout);
-    }
+    window.requestAnimationFrame(() => {
+      updateBubbleLayout();
+      scrollActiveSourceIntoView();
+    });
   }
 
   function commitNoteSnapshot(nextSnapshot) {
@@ -430,7 +454,11 @@ export function NoteDetailScreen({
       activeAnchorRef.current = anchor;
     }
     setActiveSourceId(sourceId);
-    window.requestAnimationFrame(updateBubbleLayout);
+    pendingSourceScrollRef.current = sourceId;
+    window.requestAnimationFrame(() => {
+      updateBubbleLayout();
+      scrollActiveSourceIntoView();
+    });
   }
 
   const contentPaddingBottom = chatOpen ? "calc(40vh + 20px)" : "96px";
@@ -688,6 +716,7 @@ export function NoteDetailScreen({
                 return (
                   <p
                     key={source?.id || paragraph}
+                    data-source-row-id={source?.id || ""}
                     className={`mb-3 rounded-2xl px-3 py-2 ${
                       isActive ? "bg-amber-50 text-slate-900 ring-1 ring-amber-200" : "bg-transparent"
                     }`}
