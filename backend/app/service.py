@@ -5,7 +5,7 @@ import shutil
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from .adapters import RagPipelineAdapter, SidecarCapabilityAdapter
 from .agents import ModuleAgentOrchestrator
@@ -18,6 +18,8 @@ from .rag.io_utils import load_chunks
 from .rag.llm_polish import polish_result_with_provider
 from .rag.quality_diagnostics import attach_quality_diagnostics
 
+ProgressCallback = Callable[[dict[str, Any]], None]
+
 
 class AgentService:
     def __init__(self) -> None:
@@ -26,12 +28,26 @@ class AgentService:
         self.agent = ModuleAgentOrchestrator()
         self._retriever_cache: dict[str, Any] = {}
 
-    def run(self, request: RunAgentRequest) -> dict[str, Any]:
+    def run(self, request: RunAgentRequest, progress: ProgressCallback | None = None) -> dict[str, Any]:
+        _report_progress(
+            progress,
+            "prepare",
+            5,
+            "准备材料",
+            "正在整理输入内容和上传文件信息，准备交给后端处理。",
+        )
         input_path = self._resolve_input(request)
         pipeline = request.pipeline or settings.default_pipeline
         ocr_text_dir = self._optional_safe_path(request.ocrTextDir)
         office_ocr_dir = self._optional_safe_path(request.officeOcrDir)
 
+        _report_progress(
+            progress,
+            "parse",
+            18,
+            "解析资料",
+            "后端正在抽取文本、拆分片段，并保留可追溯的来源位置。",
+        )
         if ocr_text_dir or office_ocr_dir:
             chunks = self.legacy.parse_with_sidecars(
                 input_path,
@@ -44,15 +60,36 @@ class AgentService:
             parser_name = "structure-aware-parser"
         if not chunks:
             raise BadRequestError(f"No text extracted from {input_path}")
+        _report_progress(
+            progress,
+            "parse",
+            30,
+            "解析资料",
+            f"已解析出 {len(chunks)} 个来源片段，正在准备生成学习内容。",
+        )
 
         model_log: dict[str, Any] | None = None
         agent_meta: dict[str, Any] = {}
+        _report_progress(
+            progress,
+            "generate",
+            42,
+            "生成笔记",
+            "Agent 正在围绕主题、摘要和核心知识点生成结构化笔记。",
+        )
         if pipeline == "hybrid":
             draft, agent_meta = self.agent.generate(
                 chunks,
                 input_path=input_path,
                 provider_name=request.provider,
                 strict=request.strictProvider or request.provider == "lanxin",
+            )
+            _report_progress(
+                progress,
+                "ground",
+                68,
+                "绑定引用",
+                "正在把生成内容和来源片段对齐，重建引用关系。",
             )
             result = self.rag.ground(draft, chunks, request.topK)
             model_log = agent_meta.get("modelLog")
@@ -71,10 +108,24 @@ class AgentService:
                     if request.strictProvider:
                         raise ProviderError(f"Lanxin note polish failed: {exc}") from exc
                     result.setdefault("warnings", []).append(f"Lanxin note polish fallback used: {exc}")
+                _report_progress(
+                    progress,
+                    "ground",
+                    68,
+                    "绑定引用",
+                    "正在把生成内容和来源片段对齐，重建引用关系。",
+                )
                 result = self.rag.ground(result, chunks, request.topK)
         else:
             raise BadRequestError("pipeline must be 'hybrid' or 'rag-only'")
 
+        _report_progress(
+            progress,
+            "compose",
+            84,
+            "组织学习资产",
+            "正在组合笔记、导图、引用和复习题。",
+        )
         result.setdefault("_meta", {}).update(
             {
                 "pipeline": pipeline,
@@ -93,6 +144,13 @@ class AgentService:
         normalized = normalize_agent_result(result)
         result_id = normalized["id"] or f"agent-{uuid.uuid4().hex[:8]}"
         normalized["id"] = result_id
+        _report_progress(
+            progress,
+            "finalize",
+            94,
+            "保存结果",
+            "正在保存完整 AgentResult，完成后可回到 AI 页查看结果。",
+        )
         self._persist(result_id, normalized, chunks)
         return normalized
 
@@ -216,3 +274,25 @@ class AgentService:
         run_dirs.sort(key=lambda item: item.stat().st_mtime, reverse=True)
         for stale in run_dirs[keep:]:
             shutil.rmtree(stale, ignore_errors=True)
+
+
+def _report_progress(
+    progress: ProgressCallback | None,
+    stage_id: str,
+    percent: int,
+    label: str,
+    text: str,
+) -> None:
+    if not progress:
+        return
+    try:
+        progress(
+            {
+                "stageId": stage_id,
+                "progress": percent,
+                "label": label,
+                "text": text,
+            }
+        )
+    except Exception:
+        return

@@ -25,6 +25,39 @@ import {
   saveNoteSettings,
 } from "../services/localDemoFs";
 
+const RUNNING_AGENT_STAGES = [
+  {
+    id: "prepare",
+    label: "准备材料",
+    text: "正在整理输入内容和上传文件信息，准备交给后端处理。",
+  },
+  {
+    id: "parse",
+    label: "解析资料",
+    text: "后端会抽取文本、拆分片段，并保留可追溯的来源位置。",
+  },
+  {
+    id: "generate",
+    label: "生成笔记",
+    text: "Agent 正在围绕主题、摘要和核心知识点生成结构化笔记。",
+  },
+  {
+    id: "ground",
+    label: "绑定引用",
+    text: "系统会把笔记内容和来源片段对齐，生成可回看的证据链。",
+  },
+  {
+    id: "compose",
+    label: "组织学习资产",
+    text: "正在组合笔记、导图和复习题，形成统一的学习结果。",
+  },
+  {
+    id: "finalize",
+    label: "等待结果",
+    text: "前端正在等待后端返回完整 AgentResult，完成后可回到 AI 页查看结果。",
+  },
+];
+
 export default function App() {
   useMemo(() => initializeLocalDemoFs(), []);
   const initialAgentResult = useMemo(() => readActiveAgentResult(), []);
@@ -34,10 +67,8 @@ export default function App() {
   const [agentResult, setAgentResult] = useState(initialAgentResult);
   const [inputDraft, setInputDraft] = useState(() => readInputDraft());
   const [noteSettings, setNoteSettings] = useState(() => readNoteSettings(initialAgentResult.id));
-  const [phase, setPhase] = useState(0);
+  const [agentJob, setAgentJob] = useState(null);
   const [error, setError] = useState("");
-
-  const stages = useMemo(() => agentResult.agentStages?.length ? agentResult.agentStages : demoAgentResult.agentStages, [agentResult]);
 
   useEffect(() => {
     setNoteSettings(readNoteSettings(agentResult.id));
@@ -51,28 +82,24 @@ export default function App() {
     saveNoteSettings(agentResult.id, noteSettings);
   }, [agentResult.id, noteSettings]);
 
-  useEffect(() => {
-    if (agentStatus !== AGENT_STATUS.LOADING) return undefined;
-    setPhase(0);
-    const timers = stages.slice(1).map((_, index) => setTimeout(() => setPhase(index + 1), 700 * (index + 1)));
-    return () => timers.forEach(clearTimeout);
-  }, [agentStatus, stages]);
-
   async function handleRunAgent(input) {
     setError("");
+    setAgentJob(createInitialAgentJob());
     setAgentStatus(AGENT_STATUS.LOADING);
     setNav("ai");
     setDetailView(null);
 
     try {
-      const result = await runAgent(input);
+      const result = await runAgent(input, { onProgress: setAgentJob });
       setAgentResult(result);
       saveActiveAgentResult(result);
+      setAgentJob(null);
       setAgentStatus(AGENT_STATUS.SUCCESS);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Agent 调用失败");
       setAgentResult(demoAgentResult);
       saveActiveAgentResult(demoAgentResult, "fallback");
+      setAgentJob(null);
       setAgentStatus(AGENT_STATUS.ERROR);
     }
   }
@@ -111,8 +138,7 @@ export default function App() {
     detailView,
     agentStatus,
     agentResult,
-    stages,
-    phase,
+    agentJob,
     error,
     handleRunAgent,
     openNote,
@@ -168,6 +194,17 @@ export default function App() {
         >
           {screen}
         </main>
+        {agentStatus === AGENT_STATUS.LOADING ? (
+          <GenerationFloatingStatus
+            job={agentJob}
+            onOpen={() => {
+              setNav("ai");
+              setDetailView(null);
+            }}
+            showBottomNav={showBottomNav}
+            isWebView={isWebView}
+          />
+        ) : null}
         {showBottomNav ? (
           <div
             className="absolute left-0 right-0 z-20"
@@ -241,13 +278,53 @@ function getWebViewViewportMetrics() {
   };
 }
 
+function createInitialAgentJob() {
+  const stage = RUNNING_AGENT_STAGES[0];
+  return {
+    status: "running",
+    progress: 2,
+    stageId: stage.id,
+    label: stage.label,
+    text: stage.text,
+    stages: RUNNING_AGENT_STAGES,
+  };
+}
+
+function GenerationFloatingStatus({ job, onOpen, showBottomNav, isWebView }) {
+  const progress = Math.round(Math.min(Math.max(Number(job?.progress || 0), 0), 100));
+  const label = job?.label || "正在生成笔记";
+  const text = job?.text || "可以暂时离开此界面，完成后可回到 AI 页查看结果。";
+  const bottom = showBottomNav
+    ? isWebView
+      ? "calc(var(--bottom-nav-height) + var(--bottom-nav-offset) + 12px)"
+      : "104px"
+    : "16px";
+
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className="absolute left-4 right-4 z-30 rounded-2xl border border-blue-100 bg-white/95 px-4 py-3 text-left shadow-[0_18px_48px_rgba(37,99,235,0.20)] backdrop-blur"
+      style={{ bottom }}
+    >
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-[13px] font-semibold text-slate-900">笔记正在生成中</p>
+        <span className="shrink-0 rounded-full bg-blue-50 px-2.5 py-1 text-[11px] font-semibold text-blue-700">{progress}%</span>
+      </div>
+      <p className="mt-1 line-clamp-2 text-[12px] leading-5 text-slate-500">{label} · {text}</p>
+      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-blue-100">
+        <div className="h-full rounded-full bg-blue-600 transition-all duration-300" style={{ width: `${progress}%` }} />
+      </div>
+    </button>
+  );
+}
+
 function getScreen({
   nav,
   detailView,
   agentStatus,
   agentResult,
-  stages,
-  phase,
+  agentJob,
   error,
   handleRunAgent,
   openNote,
@@ -315,7 +392,7 @@ function getScreen({
   }
 
   if (agentStatus === AGENT_STATUS.LOADING) {
-    return <LoadingScreen stages={stages} phase={phase} />;
+    return <LoadingScreen stages={RUNNING_AGENT_STAGES} job={agentJob} />;
   }
 
   if (agentStatus === AGENT_STATUS.SUCCESS || agentStatus === AGENT_STATUS.ERROR) {

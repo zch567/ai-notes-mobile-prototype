@@ -1,5 +1,6 @@
 import asyncio
 import json
+import time
 from io import BytesIO
 from pathlib import Path
 
@@ -75,6 +76,34 @@ def test_file_upload_request_is_supported(tmp_path: Path):
     assert result["topic"]
     assert result["notes"]
     assert result["sources"][0]["fileName"].endswith(".md")
+
+
+def test_agent_job_progress_endpoint_returns_result(tmp_path: Path):
+    object.__setattr__(settings, "allowed_input_root", tmp_path.resolve())
+    object.__setattr__(settings, "output_dir", (tmp_path / "runtime").resolve())
+    response = client.post(
+        "/api/agent/jobs",
+        json={"sourceText": "# RAG\n\nRAG 使用检索结果约束生成。", "pipeline": "rag-only"},
+    )
+    assert response.status_code == 200, response.text
+    job = response.json()
+    assert job["jobId"].startswith("job-")
+    assert job["status"] in {"queued", "running", "succeeded"}
+    assert job["stages"]
+
+    for _ in range(80):
+        status_response = client.get(f"/api/agent/jobs/{job['jobId']}")
+        assert status_response.status_code == 200, status_response.text
+        job = status_response.json()
+        if job["status"] in {"succeeded", "failed"}:
+            break
+        time.sleep(0.05)
+
+    assert job["status"] == "succeeded", job
+    assert job["progress"] == 100
+    assert job["resultId"]
+    assert job["result"]["id"] == job["resultId"]
+    assert job["result"]["notes"]
 
 
 def test_legacy_doc_upload_is_accepted(tmp_path: Path):

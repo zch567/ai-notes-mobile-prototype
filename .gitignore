@@ -1,8 +1,17 @@
 node_modules
+.npm-cache/
 dist
 dist-webview
 .vite
 .pytest_cache/
+.pytest-tmp/
+pytest-cache-files-*/
+pytest_run_cache*/
+pytest_run_temp*/
+backend/.pytest-run-temp/
+backend/pytest-cache-files-*/
+backend/pytest_run_cache*/
+backend/pytest_run_temp*/
 *.apk
 *.aab
 *.ap_

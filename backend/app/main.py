@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .config import settings
 from .contracts import AgentResult, ChatAgentRequest, RagQueryRequest, RunAgentRequest, ValidateRequest
 from .errors import BackendError, BadRequestError, NotFoundError, ProviderError, ValidationError
+from .jobs import AgentJobStore
 from .provider_config import ProviderConfig
 from .service import AgentService
 
@@ -26,6 +27,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 service = AgentService()
+job_store = AgentJobStore(service)
 
 
 @app.get("/health")
@@ -68,6 +70,46 @@ async def run_agent_file(
         return service.run(request)
     except Exception as exc:
         raise_http_error(exc)
+
+
+@app.post("/api/agent/jobs")
+def start_agent_job(request: RunAgentRequest) -> dict:
+    try:
+        return job_store.start(request)
+    except Exception as exc:
+        raise_http_error(exc)
+
+
+@app.post("/api/agent/jobs-file")
+async def start_agent_file_job(
+    file: UploadFile = File(...),
+    pipeline: str = Form("hybrid"),
+    provider: str | None = Form(None),
+    strictProvider: bool = Form(True),
+    topK: int = Form(2),
+    sourceTitle: str | None = Form(None),
+) -> dict:
+    try:
+        file_path = await save_upload_file(file, sourceTitle=sourceTitle)
+        request = RunAgentRequest(
+            filePath=str(file_path),
+            fileName=file.filename or file_path.name,
+            pipeline=pipeline,
+            provider=provider or None,
+            strictProvider=strictProvider,
+            topK=topK,
+        )
+        return job_store.start(request)
+    except Exception as exc:
+        raise_http_error(exc)
+
+
+@app.get("/api/agent/jobs/{job_id}")
+def get_agent_job(job_id: str) -> dict:
+    try:
+        return job_store.get(job_id)
+    except Exception as exc:
+        raise_http_error(exc, not_found_detail=f"Unknown job: {job_id}")
 
 
 @app.get("/api/agent/result/{result_id}", response_model=AgentResult, response_model_by_alias=True)
