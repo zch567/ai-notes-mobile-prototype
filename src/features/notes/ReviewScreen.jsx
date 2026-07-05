@@ -136,6 +136,7 @@ function EmptyState({ text }) {
 function questionTypeLabel(type) {
   const labels = {
     "single-choice": "单选题",
+    "multiple-choice": "\u591a\u9009\u9898",
     judgement: "判断题",
     "short-answer": "简答题",
     "concept-explanation": "概念解释",
