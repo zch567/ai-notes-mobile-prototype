@@ -1,10 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { chatAgent } from "../ai/agentApi";
 
 const defaultSettings = {
   reviewMode: false,
   showCitations: true,
   autoSave: true,
 };
+
+const initialChatMessages = [
+  {
+    role: "assistant",
+    text: "你可以直接问我这篇笔记的重点、帮你压缩成提纲，或者让它更适合复习。",
+  },
+];
 
 export function NoteDetailScreen({
   result,
@@ -32,12 +40,9 @@ export function NoteDetailScreen({
     past: [],
     future: [],
   }));
-  const [messages, setMessages] = useState([
-    {
-      role: "assistant",
-      text: "你可以直接问我这篇笔记的重点、帮你压缩成提纲，或者让它更适合复习。",
-    },
-  ]);
+  const [messages, setMessages] = useState(initialChatMessages);
+  const [isChatSending, setIsChatSending] = useState(false);
+  const [chatError, setChatError] = useState("");
   const shellRef = useRef(null);
   const resultIdRef = useRef(result.id);
   const messageListRef = useRef(null);
@@ -79,6 +84,10 @@ export function NoteDetailScreen({
     setEditDraft(nextDraft);
     setDraftHistory({ past: [], future: [] });
     setIsEditing(false);
+    setMessages(initialChatMessages);
+    setChatInput("");
+    setChatError("");
+    setIsChatSending(false);
   }, [result]);
 
   useEffect(() => {
@@ -378,20 +387,50 @@ export function NoteDetailScreen({
     });
   }
 
-  function sendMessage() {
+  async function sendMessage() {
     const text = chatInput.trim();
-    if (!text) return;
+    if (!text || isChatSending) return;
 
     setMessages((prev) => [
       ...prev,
       { role: "user", text },
-      {
-        role: "assistant",
-        text: `收到。你想让我围绕“${text}”继续整理，我可以帮你改成重点列表、复习提纲或者更口语化的版本。`,
-      },
     ]);
     setChatInput("");
     setChatOpen(true);
+    setChatError("");
+    setIsChatSending(true);
+
+    try {
+      const response = await chatAgent({
+        resultId: result.id,
+        question: text,
+        topK: 3,
+      });
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          text: response.answer || "当前资料没有足够证据回答这个问题。",
+          citations: normalizeChatCitations(response.used_citations),
+          suggestions: normalizeChatSuggestions(response.follow_up_suggestions),
+        },
+      ]);
+    } catch (err) {
+      setChatError(err instanceof Error ? err.message : "AI 对话请求失败，请检查后端连接。");
+    } finally {
+      setIsChatSending(false);
+    }
+  }
+
+  function openChatCitation(sourceId) {
+    if (!sourceById.has(sourceId)) return;
+    const anchor = noteDocumentRef.current?.querySelector(`[data-source-id="${cssEscape(sourceId)}"]`);
+    if (anchor && !anchor.disabled) {
+      anchor.scrollIntoView({ block: "center", behavior: "smooth" });
+      activeAnchorRef.current = anchor;
+    }
+    setActiveSourceId(sourceId);
+    window.requestAnimationFrame(updateBubbleLayout);
   }
 
   const contentPaddingBottom = chatOpen ? "calc(40vh + 20px)" : "96px";
@@ -700,8 +739,12 @@ export function NoteDetailScreen({
         chatInput={chatInput}
         setChatInput={setChatInput}
         messages={messages}
+        isChatSending={isChatSending}
+        chatError={chatError}
         messageListRef={messageListRef}
         sendMessage={sendMessage}
+        onCitationClick={openChatCitation}
+        sourceById={sourceById}
       />
     </div>
   );
@@ -861,6 +904,26 @@ function NoteStructureBlock({ block }) {
 function structuredItemText(item) {
   if (typeof item === "string") return item;
   return item?.text || item?.title || item?.label || item?.description || "";
+}
+
+function normalizeChatCitations(value) {
+  const items = Array.isArray(value) ? value : [];
+  const citations = items
+    .map((item) => {
+      if (typeof item === "string" || typeof item === "number") return String(item);
+      return String(item?.sourceId || item?.source_id || item?.id || item?.chunkId || item?.chunk_id || "");
+    })
+    .map((item) => item.trim())
+    .filter(Boolean);
+  return [...new Set(citations)].slice(0, 6);
+}
+
+function normalizeChatSuggestions(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => String(item || "").trim())
+    .filter(Boolean)
+    .slice(0, 3);
 }
 
 function noteBlockLabel(type) {
@@ -1107,7 +1170,19 @@ function Toggle({ checked, onChange }) {
   );
 }
 
-function ChatDock({ chatOpen, setChatOpen, chatInput, setChatInput, messages, messageListRef, sendMessage }) {
+function ChatDock({
+  chatOpen,
+  setChatOpen,
+  chatInput,
+  setChatInput,
+  messages,
+  isChatSending,
+  chatError,
+  messageListRef,
+  sendMessage,
+  onCitationClick,
+  sourceById,
+}) {
   return (
     <div
       className={`absolute bottom-0 left-0 right-0 z-20 overflow-hidden border-t border-slate-200 bg-white/95 backdrop-blur transition-[height] duration-300 ease-out ${
@@ -1134,10 +1209,47 @@ function ChatDock({ chatOpen, setChatOpen, chatInput, setChatInput, messages, me
                     message.role === "user" ? "bg-slate-900 text-white" : "border border-slate-200 bg-slate-50 text-slate-700"
                   }`}
                 >
-                  {message.text}
+                  <p className="whitespace-pre-wrap">{message.text}</p>
+                  {message.citations?.length ? (
+                    <div className="mt-3 flex flex-wrap gap-1.5">
+                      {message.citations.map((sourceId) => {
+                        const source = sourceById.get(sourceId);
+                        return (
+                          <button
+                            key={sourceId}
+                            type="button"
+                            disabled={!source}
+                            onClick={() => onCitationClick(sourceId)}
+                            className="rounded-full border border-blue-100 bg-white px-2 py-1 text-[11px] font-semibold text-blue-700 disabled:border-slate-200 disabled:text-slate-300"
+                          >
+                            {source ? getReadableSourceTitle(source) : sourceId}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : null}
+                  {message.suggestions?.length ? (
+                    <div className="mt-3 space-y-1.5 border-t border-slate-200 pt-2 text-[12px] leading-5 text-slate-500">
+                      {message.suggestions.map((suggestion, suggestionIndex) => (
+                        <p key={`${suggestion}-${suggestionIndex}`}>{suggestion}</p>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
               </div>
             ))}
+            {isChatSending ? (
+              <div className="flex justify-start">
+                <div className="rounded-[20px] border border-blue-100 bg-blue-50 px-4 py-3 text-[13px] leading-6 text-blue-900">
+                  后端 M7 正在检索来源并生成回答...
+                </div>
+              </div>
+            ) : null}
+            {chatError ? (
+              <div className="rounded-[18px] bg-rose-50 px-3 py-2 text-[12px] leading-5 text-rose-700">
+                {chatError}
+              </div>
+            ) : null}
           </div>
 
           <div className="border-t border-slate-100 px-4 py-3">
@@ -1152,11 +1264,16 @@ function ChatDock({ chatOpen, setChatOpen, chatInput, setChatInput, messages, me
                 value={chatInput}
                 onChange={(event) => setChatInput(event.target.value)}
                 placeholder="问 AI：帮我总结重点、扩写这一段..."
+                disabled={isChatSending}
                 className="max-h-24 flex-1 resize-none border-0 bg-transparent py-2 text-[14px] leading-6 text-slate-700 outline-none placeholder:text-slate-300"
                 rows={1}
               />
-              <button onClick={sendMessage} className="rounded-full bg-slate-900 px-4 py-2 text-[13px] font-medium text-white">
-                发送
+              <button
+                onClick={sendMessage}
+                disabled={isChatSending || !chatInput.trim()}
+                className="rounded-full bg-slate-900 px-4 py-2 text-[13px] font-medium text-white disabled:bg-slate-200 disabled:text-slate-400"
+              >
+                {isChatSending ? "等待" : "发送"}
               </button>
             </div>
           </div>
