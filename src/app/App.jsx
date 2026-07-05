@@ -67,6 +67,7 @@ export default function App() {
   const [agentResult, setAgentResult] = useState(initialAgentResult);
   const [inputDraft, setInputDraft] = useState(() => readInputDraft());
   const [noteSettings, setNoteSettings] = useState(() => readNoteSettings(initialAgentResult.id));
+  const [pendingSourceId, setPendingSourceId] = useState(null);
   const [agentJob, setAgentJob] = useState(null);
   const [error, setError] = useState("");
 
@@ -123,7 +124,8 @@ export default function App() {
     }
   }
 
-  function openNote() {
+  function openNote(target) {
+    setPendingSourceId(getPrimarySourceId(target));
     setDetailView(DETAIL_VIEWS.NOTE);
     setNav("notes");
   }
@@ -150,6 +152,8 @@ export default function App() {
     setInputDraft,
     noteSettings,
     setNoteSettings,
+    pendingSourceId,
+    setPendingSourceId,
     updateAgentResult,
   });
 
@@ -336,6 +340,8 @@ function getScreen({
   setInputDraft,
   noteSettings,
   setNoteSettings,
+  pendingSourceId,
+  setPendingSourceId,
   updateAgentResult,
 }) {
   if (detailView === DETAIL_VIEWS.NOTE) {
@@ -347,6 +353,8 @@ function getScreen({
         onResultChange={updateAgentResult}
         onBack={() => setDetailView(null)}
         onOpenReview={openReview}
+        initialSourceId={pendingSourceId}
+        onSourceLocated={() => setPendingSourceId(null)}
       />
     );
   }
@@ -356,7 +364,7 @@ function getScreen({
   }
 
   if (detailView === DETAIL_VIEWS.MINDMAP) {
-    return <MindMapScreen result={agentResult} onResultChange={updateAgentResult} onBack={() => setDetailView(null)} />;
+    return <MindMapScreen result={agentResult} onResultChange={updateAgentResult} onBack={() => setDetailView(null)} onLocateSource={openNote} />;
   }
 
   if (nav === "home") {
@@ -423,4 +431,13 @@ function getScreen({
       onDraftChange={setInputDraft}
     />
   );
+}
+
+function getPrimarySourceId(target) {
+  if (!target || typeof target !== "object") return null;
+
+  const sourceRefs = target.sourceRefs || target.source_refs || target.citationIds || target.citation_ids;
+  if (!Array.isArray(sourceRefs) || !sourceRefs.length) return null;
+
+  return String(sourceRefs[0]);
 }

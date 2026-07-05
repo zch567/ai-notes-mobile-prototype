@@ -13,6 +13,8 @@ export function NoteDetailScreen({
   onResultChange = () => {},
   onBack,
   onOpenReview,
+  initialSourceId = null,
+  onSourceLocated = () => {},
 }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
@@ -126,6 +128,26 @@ export function NoteDetailScreen({
       window.removeEventListener("resize", handleLayoutChange);
     };
   }, [activeSource, updateBubbleLayout]);
+
+  useEffect(() => {
+    if (!initialSourceId) return;
+    if (!settings.showCitations) {
+      onSourceLocated();
+      return;
+    }
+
+    const anchor = noteDocumentRef.current?.querySelector(`[data-source-id="${cssEscape(initialSourceId)}"]`);
+    if (!anchor || anchor.disabled) {
+      onSourceLocated();
+      return;
+    }
+
+    anchor.scrollIntoView({ block: "center", behavior: "smooth" });
+    activeAnchorRef.current = anchor;
+    setActiveSourceId(initialSourceId);
+    window.requestAnimationFrame(updateBubbleLayout);
+    onSourceLocated();
+  }, [initialSourceId, settings.showCitations, updateBubbleLayout, onSourceLocated]);
 
   function toggleSource(sourceId, anchor) {
     const isSameAnchor = activeSourceId === sourceId && activeAnchorRef.current === anchor;
@@ -362,6 +384,7 @@ export function NoteDetailScreen({
                                 <button
                                   key={sourceId}
                                   type="button"
+                                  data-source-id={sourceId}
                                   disabled={!hasSource}
                                   onClick={(event) => toggleSource(sourceId, event.currentTarget)}
                                   className={`inline-flex h-6 min-w-6 items-center justify-center rounded-full border px-1.5 text-[11px] font-semibold leading-none transition ${
