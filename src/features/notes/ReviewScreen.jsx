@@ -128,58 +128,6 @@ export function ReviewScreen({ result, onBack }) {
 
       <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
         <div className="space-y-4">
-          <Card title="掌握度" subtitle="Evaluation">
-            <div className="flex items-end justify-between">
-              <span className="text-[42px] font-semibold tracking-tight text-blue-600">{displayedMasteryScore}%</span>
-              <span className="mb-2 text-[13px] font-semibold text-slate-400">Mastery score</span>
-            </div>
-            <div className="mt-3 h-2 overflow-hidden rounded-full bg-blue-100">
-              <div className="h-full rounded-full bg-blue-600" style={{ width: `${displayedMasteryScore}%` }} />
-            </div>
-            <button
-              onClick={completeReview}
-              disabled={!canSubmit}
-              className={`mt-4 w-full rounded-2xl px-4 py-3 text-[13px] font-semibold transition ${
-                canSubmit ? "bg-slate-900 text-white active:scale-[0.99]" : "bg-slate-200 text-slate-400"
-              }`}
-            >
-              {isSubmitting ? "正在提交做题情况" : "完成本次复习"}
-            </button>
-            <div className={`mt-3 rounded-2xl px-3 py-3 text-[12px] leading-5 ${
-              isReviewComplete ? "bg-emerald-50 text-emerald-800" : "bg-slate-50 text-slate-500"
-            }`}>
-              {feedbackText}
-            </div>
-            {submitError ? (
-              <p className="mt-3 rounded-2xl bg-rose-50 px-3 py-2 text-[12px] leading-5 text-rose-700">
-                {submitError}
-              </p>
-            ) : null}
-            {progress.lastReviewedAt ? (
-              <p className="mt-3 text-[12px] leading-5 text-slate-500">
-                最近复习：{new Date(progress.lastReviewedAt).toLocaleString()}
-              </p>
-            ) : null}
-            {isReviewComplete ? (
-              <div className="mt-3 grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => setShowReviewSet(true)}
-                  className="rounded-2xl bg-white px-3 py-2 text-[12px] font-semibold text-slate-700 ring-1 ring-slate-200 active:bg-slate-50"
-                >
-                  查看复习题集
-                </button>
-                <button
-                  type="button"
-                  disabled
-                  className="rounded-2xl bg-slate-100 px-3 py-2 text-[12px] font-semibold text-slate-400"
-                >
-                  重新出题待接入
-                </button>
-              </div>
-            ) : null}
-          </Card>
-
           <Card title="复习题" subtitle="Questions">
             <div className="space-y-3">
               {hasQuestions ? review.questions.map((item, index) => (
@@ -237,6 +185,58 @@ export function ReviewScreen({ result, onBack }) {
                 <EmptyState text="当前结果没有返回复习题。请检查真实后端的 review.questions 字段。" />
               )}
             </div>
+          </Card>
+
+          <Card title="掌握度" subtitle="Evaluation">
+            <div className="flex items-end justify-between">
+              <span className="text-[42px] font-semibold tracking-tight text-blue-600">{displayedMasteryScore}%</span>
+              <span className="mb-2 text-[13px] font-semibold text-slate-400">Mastery score</span>
+            </div>
+            <div className="mt-3 h-2 overflow-hidden rounded-full bg-blue-100">
+              <div className="h-full rounded-full bg-blue-600" style={{ width: `${displayedMasteryScore}%` }} />
+            </div>
+            <button
+              onClick={completeReview}
+              disabled={!canSubmit}
+              className={`mt-4 w-full rounded-2xl px-4 py-3 text-[13px] font-semibold transition ${
+                canSubmit ? "bg-slate-900 text-white active:scale-[0.99]" : "bg-slate-200 text-slate-400"
+              }`}
+            >
+              {isSubmitting ? "正在提交做题情况" : "完成本次复习"}
+            </button>
+            <div className={`mt-3 rounded-2xl px-3 py-3 text-[12px] leading-5 ${
+              isReviewComplete ? "bg-emerald-50 text-emerald-800" : "bg-slate-50 text-slate-500"
+            }`}>
+              {feedbackText}
+            </div>
+            {submitError ? (
+              <p className="mt-3 rounded-2xl bg-rose-50 px-3 py-2 text-[12px] leading-5 text-rose-700">
+                {submitError}
+              </p>
+            ) : null}
+            {progress.lastReviewedAt ? (
+              <p className="mt-3 text-[12px] leading-5 text-slate-500">
+                最近复习：{new Date(progress.lastReviewedAt).toLocaleString()}
+              </p>
+            ) : null}
+            {isReviewComplete ? (
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowReviewSet(true)}
+                  className="rounded-2xl bg-white px-3 py-2 text-[12px] font-semibold text-slate-700 ring-1 ring-slate-200 active:bg-slate-50"
+                >
+                  查看复习题集
+                </button>
+                <button
+                  type="button"
+                  disabled
+                  className="rounded-2xl bg-slate-100 px-3 py-2 text-[12px] font-semibold text-slate-400"
+                >
+                  重新出题待接入
+                </button>
+              </div>
+            ) : null}
           </Card>
 
           <Card
