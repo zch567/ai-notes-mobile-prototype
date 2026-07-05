@@ -1,11 +1,20 @@
 from pathlib import Path
+from dataclasses import dataclass
 
 from app.agents.orchestrator import (
+    ModuleAgentOrchestrator,
     build_agent_result_from_modules,
     convert_mindmap,
     normalize_chunks_for_prompt,
 )
-from app.prompts.registry import PromptRegistry, extract_module_prompts
+from app.prompts.registry import (
+    PREFERRED_WEEK2_PROMPT_NAME,
+    PromptRegistry,
+    _candidate_prompt_files,
+    build_runtime_prompts,
+    extract_module_prompts,
+)
+from app.prompts import registry as prompt_registry
 from app.rag.grounding import ground_result
 from app.rag.schemas import SourceChunk
 
@@ -45,6 +54,33 @@ def test_extract_module_prompts_from_minimal_file(tmp_path: Path):
 
     assert prompts["M2"] == "Return M2 JSON."
     assert prompts["M3"] == "Return M3 JSON."
+
+def test_preferred_week2_prompt_is_selected_before_other_week2_files(tmp_path: Path, monkeypatch):
+    prompt_dir = tmp_path / "prompt"
+    prompt_dir.mkdir()
+    other = prompt_dir / "another week2.md"
+    preferred = prompt_dir / PREFERRED_WEEK2_PROMPT_NAME
+    other.write_text("### **模块 M8：AI对话辅助**\n\n**Prompt**\n\nOther M8.\n", encoding="utf-8")
+    preferred.write_text("### **模块 M8：AI对话辅助**\n\n**Prompt**\n\nPreferred M8.\n", encoding="utf-8")
+    monkeypatch.setattr(prompt_registry, "PREFERRED_WEEK2_PROMPT_PATH", preferred)
+
+    candidates = _candidate_prompt_files(prompt_dir)
+
+    assert candidates[0] == preferred
+
+
+def test_week2_m8_prompt_maps_to_runtime_m7(tmp_path: Path):
+    prompt = tmp_path / PREFERRED_WEEK2_PROMPT_NAME
+    prompt.write_text("### **模块 M8：AI对话辅助**\n\n**Prompt**\n\nReturn chat_response JSON.\n", encoding="utf-8")
+
+    raw = extract_module_prompts(prompt)
+    registry = PromptRegistry(prompts={**PromptRegistry.load_default().prompts, **{"M7": "fallback"}}, source="test")
+    runtime_prompts = build_runtime_prompts(raw)
+
+    assert "M8" in raw
+    assert "chat_response" in runtime_prompts["M7"]
+    assert "answer, used_citations" in runtime_prompts["M7"]
+    assert registry.get("M7")
 
 
 def test_prompt_chunk_normalization_keeps_source_id():
@@ -123,3 +159,42 @@ def test_modular_outputs_are_grounded_into_agent_contract():
     assert grounded["notes"][0]["citationIds"] == [source_chunk.id]
     assert grounded["review"]["questions"][0]["citationIds"] == [source_chunk.id]
     assert grounded["citations"][0]["noteId"] == "n1"
+
+@dataclass
+class FakeLog:
+    requestId: str = "req-1"
+    provider: str = "test"
+    model: str = "fake"
+    taskType: str = "M7"
+    inputChars: int = 0
+    outputChars: int = 0
+    latencyMs: int = 0
+    status: str = "success"
+    fallbackUsed: bool = False
+    error: str | None = None
+
+
+class FakeChatProvider:
+    def __init__(self):
+        self.payload = None
+
+    def generate_module_json(self, module, prompt, payload, *, max_tokens=4096):
+        self.payload = payload
+        return {"chat_response": "RAG 通过检索证据约束生成内容。"}, FakeLog()
+
+
+def test_chat_accepts_week2_m8_chat_response(monkeypatch):
+    fake_provider = FakeChatProvider()
+    monkeypatch.setattr("app.agents.orchestrator.create_provider", lambda _name=None: fake_provider)
+    orchestrator = ModuleAgentOrchestrator()
+
+    response = orchestrator.chat(
+        question="RAG 如何降低幻觉？",
+        result={"topic": "RAG", "summary": "检索增强生成", "notes": [{"id": "n1", "title": "RAG", "content": "RAG uses retrieval evidence."}]},
+        chunks=[chunk()],
+        top_k=1,
+    )
+
+    assert fake_provider.payload["user_query"] == "RAG 如何降低幻觉？"
+    assert fake_provider.payload["current_structured_notes"]["notes"][0]["note_id"] == "n1"
+    assert response["answer"] == "RAG 通过检索证据约束生成内容。"

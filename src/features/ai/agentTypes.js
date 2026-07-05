@@ -559,6 +559,7 @@ function normalizeQuestionType(value) {
   const type = stringOrFallback(value, "single-choice");
   const typeMap = {
     single_choice: "single-choice",
+    multiple_choice: "multiple-choice",
     judgement: "judgement",
     short_answer: "short-answer",
     concept_explanation: "concept-explanation",

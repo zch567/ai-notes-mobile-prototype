@@ -108,3 +108,49 @@ def test_review_submit_calls_lanxin_for_wrong_choice_analysis(tmp_path: Path, mo
     assert body["weakPoints"] == ["RAG grounding"]
     assert body["reviewSuggestions"]
     assert fake_provider.payload["wrong_questions"][0]["sources"][0]["source_id"] == "c1"
+
+
+def test_review_submit_scores_multiple_choice_answers(tmp_path: Path, monkeypatch):
+    result_id = "rag-review-multi-test"
+    run_dir = tmp_path / "runtime" / result_id
+    run_dir.mkdir(parents=True)
+    object.__setattr__(settings, "output_dir", (tmp_path / "runtime").resolve())
+
+    result = {
+        "id": result_id,
+        "topic": "RAG",
+        "summary": "RAG uses retrieval evidence.",
+        "notes": [{"id": "n1", "title": "RAG grounding", "summary": "Use retrieved evidence."}],
+        "review": {
+            "questions": [
+                {
+                    "id": "q1",
+                    "type": "multiple-choice",
+                    "question": "Which statements describe RAG grounding?",
+                    "options": ["A. Use evidence", "B. Cite sources", "C. Hide notes", "D. Skip retrieval"],
+                    "answer": ["A", "B"],
+                    "explanation": "RAG grounds generation in retrieved evidence and citations.",
+                    "relatedNoteId": "n1",
+                    "citationIds": [],
+                }
+            ]
+        },
+    }
+    (run_dir / "result.json").write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
+    (run_dir / "chunks.json").write_text("[]", encoding="utf-8")
+    monkeypatch.setattr("app.service.create_provider", lambda _name=None: FakeReviewProvider())
+
+    response = client.post(
+        "/api/agent/review/submit",
+        json={
+            "resultId": result_id,
+            "answers": [{"questionId": "q1", "answer": "B,A"}],
+            "provider": "lanxin",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["masteryScore"] == 100
+    assert body["questionResults"][0]["isCorrect"] is True
+    assert body["questionResults"][0]["userAnswer"] == "B. Cite sources; A. Use evidence"

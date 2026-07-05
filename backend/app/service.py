@@ -344,11 +344,20 @@ def _evaluate_review_answers(result: dict[str, Any], answers: list[ReviewAnswerI
         question = by_id.get(question_id)
         if not question:
             raise BadRequestError(f"Unknown review questionId: {question_id}")
-        if str(question.get("type") or "") not in {"single-choice", "single_choice"}:
-            raise BadRequestError(f"Only single-choice answers are supported: {question_id}")
+        question_type = str(question.get("type") or "").replace("_", "-")
+        if question_type not in {"single-choice", "multiple-choice"}:
+            raise BadRequestError(f"Only choice answers are supported: {question_id}")
         options = [str(item) for item in question.get("options") or []]
-        correct_answer = _normalize_choice_answer(str(question.get("answer") or ""), options)
-        user_answer = _normalize_choice_answer(str(answer.answer or ""), options)
+        if question_type == "multiple-choice":
+            correct_items = _normalize_multi_choice_answer(question.get("answer"), options)
+            user_items = _normalize_multi_choice_answer(answer.answer, options)
+            correct_answer = "; ".join(correct_items)
+            user_answer = "; ".join(user_items)
+            is_correct = _choice_set_equal(user_items, correct_items)
+        else:
+            correct_answer = _normalize_choice_answer(str(question.get("answer") or ""), options)
+            user_answer = _normalize_choice_answer(str(answer.answer or ""), options)
+            is_correct = _choice_equal(user_answer, correct_answer)
         related_note_id = str(question.get("relatedNoteId") or question.get("related_note_id") or "")
         note = note_by_id.get(related_note_id, {})
         answer_items.append(
@@ -359,7 +368,7 @@ def _evaluate_review_answers(result: dict[str, Any], answers: list[ReviewAnswerI
                 "userAnswer": user_answer,
                 "rawUserAnswer": str(answer.answer or ""),
                 "correctAnswer": correct_answer,
-                "isCorrect": _choice_equal(user_answer, correct_answer),
+                "isCorrect": is_correct,
                 "explanation": str(question.get("explanation") or ""),
                 "relatedNoteId": related_note_id,
                 "relatedNoteTitle": str(note.get("title") or ""),
@@ -507,11 +516,35 @@ def _normalize_choice_answer(answer: str, options: list[str]) -> str:
     return value
 
 
+def _normalize_multi_choice_answer(answer: Any, options: list[str]) -> list[str]:
+    raw_values = answer if isinstance(answer, list) else [answer]
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for value in raw_values:
+        for part in str(value or "").replace("；", ";").replace("，", ",").replace(";", ",").split(","):
+            item = _normalize_choice_answer(part, options)
+            key = _choice_key(item)
+            if item and key and key not in seen:
+                seen.add(key)
+                normalized.append(item)
+    return normalized
+
+
 def _choice_equal(left: str, right: str) -> bool:
+    return bool(_choice_key(left)) and _choice_key(left) == _choice_key(right)
+
+
+def _choice_set_equal(left: list[str], right: list[str]) -> bool:
+    left_keys = {_choice_key(item) for item in left if _choice_key(item)}
+    right_keys = {_choice_key(item) for item in right if _choice_key(item)}
+    return bool(left_keys) and left_keys == right_keys
+
+
+def _choice_key(value: str) -> str:
     def clean(value: str) -> str:
         return "".join(ch.lower() for ch in str(value or "") if ch.isalnum() or "\u4e00" <= ch <= "\u9fff")
 
-    return bool(clean(left)) and clean(left) == clean(right)
+    return clean(value)
 
 
 def _list_of_dicts(value: Any) -> list[dict[str, Any]]:

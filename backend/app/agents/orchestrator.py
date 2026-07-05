@@ -93,16 +93,20 @@ class ModuleAgentOrchestrator:
         retriever = HybridRetriever(chunks)
         hits = retriever.retrieve(question, top_k=top_k)
         payload = {
+            "user_query": question,
             "question": question,
             "topic": result.get("topic"),
             "summary": result.get("summary"),
             "notes": _compact_notes_for_prompt(result.get("notes", [])),
+            "current_structured_notes": {"notes": _compact_notes_for_prompt(result.get("notes", []))},
             "mindmap": result.get("mindMap") or {},
             "citations": result.get("citations", [])[:20],
             "retrieved_sources": [hit.to_dict() for hit in hits],
         }
         output, log = provider.generate_module_json("M7", self.registry.get("M7"), payload, max_tokens=2048)
         response = output if isinstance(output, dict) else {}
+        if not response.get("answer") and response.get("chat_response"):
+            response["answer"] = str(response.get("chat_response") or "")
         response.setdefault("answer", "Current material does not contain enough evidence.")
         response.setdefault("used_citations", [])
         response.setdefault("related_notes", [])
@@ -227,19 +231,21 @@ def build_payload(
             **language_policy,
             "notes": _compact_notes_for_prompt(outputs.get("M3", {}).get("notes", [])),
             "user_requirement": (
-                "生成 5 道复习题，必须包含至少 2 道 single_choice 单选题；"
-                "每道单选题必须提供 4 个选项且只有一个正确答案。"
+                "Generate exactly 5 choice questions: 3 single_choice and 2 multiple_choice. "
+                "Each question must have 4 options. single_choice has exactly 1 correct answer; "
+                "multiple_choice has at least 2 correct answers. "
+                "If the material is insufficient for multiple_choice, generate all 5 as single_choice."
             ),
             "review_schema": {
                 "quiz": [
                     {
                         "question_id": "1",
-                        "question_type": "single_choice|judgement|short_answer|concept_explanation|application",
-                        "question": "题干",
-                        "options": ["A. 选项", "B. 选项", "C. 选项", "D. 选项"],
-                        "answer": "正确选项全文或选项字母",
-                        "explanation": "解析",
-                        "related_note_id": "对应 notes 中的 note_id",
+                        "question_type": "single_choice|multiple_choice",
+                        "question": "question stem",
+                        "options": ["A. option", "B. option", "C. option", "D. option"],
+                        "answer": "single: correct option letter/text; multiple: array or comma-separated letters/text",
+                        "explanation": "explanation",
+                        "related_note_id": "matching note_id from notes",
                     }
                 ]
             },
@@ -615,16 +621,25 @@ def normalize_review(raw: dict[str, Any], notes: list[dict[str, Any]]) -> dict[s
             related_note_id = ""
         question_type = _normalize_question_type(item.get("type") or item.get("question_type"))
         options = _review_options(item.get("options"))
-        if question_type == "single-choice":
+        if question_type in {"single-choice", "multiple-choice"}:
             options = _ensure_single_choice_options(options, notes, index)
-        answer = _normalize_single_choice_answer(item.get("answer"), options) if question_type == "single-choice" else _string(item.get("answer"), "")
+        if question_type == "multiple-choice":
+            answer_items = _normalize_multiple_choice_answer(item.get("answer"), options)
+            if len(answer_items) >= 2:
+                answer = "; ".join(answer_items)
+            else:
+                question_type = "single-choice"
+                answer = _normalize_single_choice_answer(item.get("answer"), options)
+        else:
+            question_type = "single-choice"
+            answer = _normalize_single_choice_answer(item.get("answer"), options)
         questions.append(
             {
                 "id": _string(item.get("id") or item.get("question_id"), f"q{index}"),
                 "type": question_type,
                 "difficulty": item.get("difficulty") or "medium",
                 "question": _string(item.get("question"), f"Review note {index}."),
-                "options": options if question_type == "single-choice" else _review_options(item.get("options")),
+                "options": options,
                 "answer": answer,
                 "explanation": _string(item.get("explanation"), ""),
                 "relatedNoteId": related_note_id or (notes[min(index - 1, len(notes) - 1)]["id"] if notes else ""),
@@ -653,32 +668,27 @@ def normalize_review(raw: dict[str, Any], notes: list[dict[str, Any]]) -> dict[s
 
 def fallback_questions(notes: list[dict[str, Any]]) -> list[dict[str, Any]]:
     questions = []
-    for index, note in enumerate(notes[:5], start=1):
-        if index in {1, 3}:
-            options, answer = _fallback_single_choice_options(note, notes, index)
-            questions.append(
-                {
-                    "id": f"q{index}",
-                    "type": "single-choice",
-                    "difficulty": "medium",
-                    "question": f"下列哪一项最能概括“{note['title']}”的核心内容？",
-                    "options": options,
-                    "answer": answer,
-                    "explanation": "答案应依据关联笔记的概要和来源片段判断，排除与该知识点不匹配的选项。",
-                    "relatedNoteId": note["id"],
-                    "citationIds": [],
-                }
-            )
-            continue
+    usable_notes = notes[:5] or [{"id": "n1", "title": "Core concept", "summary": "Core content from the review material"}]
+    supports_multiple_choice = len(notes) >= 4
+    for index in range(1, 6):
+        note = usable_notes[(index - 1) % len(usable_notes)]
+        options, answer = _fallback_single_choice_options(note, notes or usable_notes, index)
+        question_type = "multiple-choice" if supports_multiple_choice and index in {4, 5} else "single-choice"
+        if question_type == "multiple-choice":
+            multi_answers = _fallback_multiple_choice_answers(options)
+            if len(multi_answers) >= 2:
+                answer = "; ".join(multi_answers)
+            else:
+                question_type = "single-choice"
         questions.append(
             {
                 "id": f"q{index}",
-                "type": "short-answer",
+                "type": question_type,
                 "difficulty": "medium",
-                "question": f"Explain the key idea of {note['title']}.",
-                "options": [],
-                "answer": compact(note.get("content", ""), 140),
-                "explanation": "Answer using the related note and its grounded citation.",
+                "question": f"Which statements match the review points for \"{note['title']}\"?" if question_type == "multiple-choice" else f"Which option best summarizes \"{note['title']}\"?",
+                "options": options,
+                "answer": answer,
+                "explanation": "Use the related note summary and source evidence to choose the matching option(s).",
                 "relatedNoteId": note["id"],
                 "citationIds": [],
             }
@@ -692,6 +702,9 @@ def _normalize_question_type(value: Any) -> str:
         "single-choice": "single-choice",
         "singlechoice": "single-choice",
         "choice": "single-choice",
+        "multiple-choice": "multiple-choice",
+        "multiplechoice": "multiple-choice",
+        "multi-choice": "multiple-choice",
         "judgement": "judgement",
         "judgment": "judgement",
         "true-false": "judgement",
@@ -752,6 +765,24 @@ def _normalize_single_choice_answer(raw: Any, options: list[str]) -> str:
         if answer == option or answer in option or option in answer:
             return option
     return answer
+
+
+def _normalize_multiple_choice_answer(raw: Any, options: list[str]) -> list[str]:
+    raw_values = raw if isinstance(raw, list) else [raw]
+    answers: list[str] = []
+    seen: set[str] = set()
+    for value in raw_values:
+        for part in str(value or "").replace("；", ";").replace("，", ",").replace(";", ",").split(","):
+            normalized = _normalize_single_choice_answer(part, options)
+            key = normalized.strip().lower()
+            if normalized and key not in seen:
+                seen.add(key)
+                answers.append(normalized)
+    return answers
+
+
+def _fallback_multiple_choice_answers(options: list[str]) -> list[str]:
+    return options[:2] if len(options) >= 2 else []
 
 
 def _fallback_single_choice_options(note: dict[str, Any], notes: list[dict[str, Any]], index: int) -> tuple[list[str], str]:

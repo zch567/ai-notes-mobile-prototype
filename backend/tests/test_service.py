@@ -12,7 +12,7 @@ from pydantic import ValidationError
 from app.config import settings
 from app.contracts import RunAgentRequest
 from app.errors import BadRequestError
-from app.main import app, save_upload_file
+from app.main import app, save_upload_file, service as app_service
 from app.service import AgentService
 
 
@@ -50,6 +50,60 @@ def test_validate_endpoint_accepts_persisted_result(tmp_path: Path):
     response = client.post("/api/agent/validate", json={"result": result})
     assert response.status_code == 200
     assert response.json()["valid"] is True
+
+
+def test_chat_endpoint_answers_against_persisted_result(tmp_path: Path, monkeypatch):
+    source = tmp_path / "sample.md"
+    source.write_text("# RAG\n\nRAG 使用检索结果约束生成，并提供可回看引用。", encoding="utf-8")
+    object.__setattr__(settings, "allowed_input_root", tmp_path.resolve())
+    object.__setattr__(settings, "output_dir", (tmp_path / "runtime").resolve())
+    result = client.post("/api/agent/run", json={"filePath": str(source), "pipeline": "rag-only"}).json()
+    observed = {}
+
+    def fake_chat(*, question, result, chunks, provider_name=None, strict=False, top_k=3):
+        observed.update(
+            question=question,
+            result_id=result["id"],
+            chunk_count=len(chunks),
+            provider_name=provider_name,
+            strict=strict,
+            top_k=top_k,
+        )
+        return {
+            "answer": "RAG 通过检索到的来源片段约束回答范围。",
+            "used_citations": [chunks[0].id],
+            "related_notes": [result["notes"][0]["id"]],
+            "is_fully_supported_by_sources": True,
+            "unsupported_parts": [],
+            "follow_up_suggestions": ["还可以追问引用如何回看。"],
+            "_meta": {"retrievedSourceIds": [chunks[0].id]},
+        }
+
+    monkeypatch.setattr(app_service.agent, "chat", fake_chat)
+
+    response = client.post(
+        "/api/agent/chat",
+        json={
+            "resultId": result["id"],
+            "question": "RAG 如何降低生成幻觉？",
+            "provider": "lanxin",
+            "topK": 2,
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["answer"].startswith("RAG")
+    assert body["used_citations"]
+    assert body["is_fully_supported_by_sources"] is True
+    assert observed == {
+        "question": "RAG 如何降低生成幻觉？",
+        "result_id": result["id"],
+        "chunk_count": 1,
+        "provider_name": "lanxin",
+        "strict": True,
+        "top_k": 2,
+    }
 
 
 def test_source_text_request_is_supported(tmp_path: Path):

@@ -47,8 +47,8 @@ export function MindMapLibraryScreen({
               清除
             </button>
           ) : null}
-        </div>
-      </div>
+     </div>
+   </div>
 
       <LibraryFolderBar
         folders={folders}

@@ -2,6 +2,7 @@ import { requestJSON } from "../../services/apiClient";
 import { normalizeAgentResult } from "./agentTypes";
 
 const POLL_INTERVAL_MS = 900;
+export const DEFAULT_GENERATION_TOP_K = 5;
 
 export async function runAgent(input, options = {}) {
   if (input?.file instanceof File) {
@@ -83,7 +84,7 @@ async function runFileAgent(input, options = {}) {
   formData.append("pipeline", input.pipeline || "hybrid");
   if (input.provider) formData.append("provider", input.provider);
   formData.append("strictProvider", String(input.strictProvider ?? true));
-  formData.append("topK", String(input.topK || 2));
+  formData.append("topK", String(input.topK || DEFAULT_GENERATION_TOP_K));
   formData.append("sourceTitle", input.sourceMeta?.title || input.file.name);
 
   try {

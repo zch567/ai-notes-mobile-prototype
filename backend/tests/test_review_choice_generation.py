@@ -38,7 +38,7 @@ class FakeLog:
     error: str | None = None
 
 
-def test_week2_quiz_output_normalizes_single_choice_questions():
+def test_week2_quiz_output_normalizes_choice_questions():
     source_chunk = chunk()
     outputs = {
         "M2": {"topic": "RAG", "summary": "summary"},
@@ -68,6 +68,20 @@ def test_week2_quiz_output_normalizes_single_choice_questions():
                     "answer": "A",
                     "explanation": "RAG is grounded by retrieved evidence.",
                     "related_note_id": "n1",
+                },
+                {
+                    "question_id": "2",
+                    "question_type": "multiple_choice",
+                    "question": "Which statements describe RAG grounding?",
+                    "options": [
+                        "A. It uses retrieved evidence.",
+                        "B. It cites source material.",
+                        "C. It only changes UI layout.",
+                        "D. It removes citations.",
+                    ],
+                    "answer": ["A", "B"],
+                    "explanation": "Grounding uses evidence and citations.",
+                    "related_note_id": "n1",
                 }
             ]
         },
@@ -80,9 +94,29 @@ def test_week2_quiz_output_normalizes_single_choice_questions():
     assert len(question["options"]) == 4
     assert question["answer"] == "A. It uses retrieved evidence."
     assert question["relatedNoteId"] == "n1"
+    multi = draft["review"]["questions"][1]
+    assert multi["type"] == "multiple-choice"
+    assert multi["answer"] == "A. It uses retrieved evidence.; B. It cites source material."
 
 
-def test_fallback_review_questions_include_single_choice_items():
+def test_fallback_review_questions_are_all_choice_with_three_single_two_multiple():
+    notes = [
+        {"id": "n1", "title": "Concept A", "summary": "Concept A explains grounding."},
+        {"id": "n2", "title": "Concept B", "summary": "Concept B explains retrieval."},
+        {"id": "n3", "title": "Concept C", "summary": "Concept C explains citations."},
+        {"id": "n4", "title": "Concept D", "summary": "Concept D explains ranking."},
+    ]
+
+    questions = fallback_questions(notes)
+
+    assert len(questions) == 5
+    assert [item["type"] for item in questions].count("single-choice") == 3
+    assert [item["type"] for item in questions].count("multiple-choice") == 2
+    assert all(len(item["options"]) == 4 for item in questions)
+    assert all(item["answer"] for item in questions)
+
+
+def test_fallback_review_questions_downgrade_to_single_choice_when_material_is_limited():
     notes = [
         {"id": "n1", "title": "Concept A", "summary": "Concept A explains grounding."},
         {"id": "n2", "title": "Concept B", "summary": "Concept B explains retrieval."},
@@ -91,10 +125,10 @@ def test_fallback_review_questions_include_single_choice_items():
 
     questions = fallback_questions(notes)
 
-    single_choice = [item for item in questions if item["type"] == "single-choice"]
-    assert len(single_choice) >= 2
-    assert all(len(item["options"]) == 4 for item in single_choice)
-    assert all(item["answer"] in item["options"] for item in single_choice)
+    assert len(questions) == 5
+    assert all(item["type"] == "single-choice" for item in questions)
+    assert all(len(item["options"]) == 4 for item in questions)
+    assert all(item["answer"] in item["options"] for item in questions)
 
 
 class FakeModuleProvider:
@@ -141,5 +175,6 @@ def test_modular_generation_uses_lanxin_provider_for_m6(monkeypatch):
     assert providers_by_module["M6"] == "lanxin"
     assert providers_by_module["M2"] == "default"
     m6_payload = next(payload for module, _provider, payload in calls if module == "M6")
-    assert "single_choice" in m6_payload["review_schema"]["quiz"][0]["question_type"]
-    assert "至少 2 道 single_choice" in m6_payload["user_requirement"]
+    assert m6_payload["review_schema"]["quiz"][0]["question_type"] == "single_choice|multiple_choice"
+    assert "single_choice" in m6_payload["user_requirement"]
+    assert "multiple_choice" in m6_payload["user_requirement"]
