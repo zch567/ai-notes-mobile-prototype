@@ -179,7 +179,7 @@ public class MainActivity extends Activity {
             mainHandler.post(() -> setRequestedOrientation(
                     enabled
                             ? ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-                            : ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                            : ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
             ));
         }
     }

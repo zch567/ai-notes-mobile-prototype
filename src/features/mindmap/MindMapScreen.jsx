@@ -228,6 +228,7 @@ function EmptyMapSearch({ query, onClear }) {
 export function MindMapScreen({ result, onResultChange = () => {}, onBack, onLocateSource = () => {} }) {
   const { nodes, edges } = result.mindMap;
   const [selectedNodeId, setSelectedNodeId] = useState(null);
+  const [panelAnchor, setPanelAnchor] = useState(null);
   const [collapsedNodeIds, setCollapsedNodeIds] = useState(() => new Set());
   const [interactionMode, setInteractionMode] = useState(null);
   const [renderRevision, setRenderRevision] = useState(0);
@@ -237,6 +238,7 @@ export function MindMapScreen({ result, onResultChange = () => {}, onBack, onLoc
   const interactionRef = useRef(null);
   const panOffsetRef = useRef({ x: 0, y: 0 });
   const zoomLabelRef = useRef(null);
+  const selectedNodeIdRef = useRef(selectedNodeId);
   const suppressClickRef = useRef(false);
   const isWebView = isWebViewShell();
   const presentableMap = useMemo(() => createPresentableMindMap(nodes, edges, result.topic, collapsedNodeIds), [nodes, edges, result.topic, collapsedNodeIds]);
@@ -248,7 +250,6 @@ export function MindMapScreen({ result, onResultChange = () => {}, onBack, onLoc
   const centerNode = nodeById.get("root") || nodeById.get("center") || nodes[0];
   const displayCenterNode = displayNodeById.get(centerNode?.id) || displayNodes[0];
   const displaySelectedNode = selectedNodeId ? displayNodeById.get(selectedNodeId) : null;
-  const stableSelectedNode = selectedNodeId ? presentableMap.nodes.find((node) => node.id === selectedNodeId) : null;
   const detailNode = displaySelectedNode || displayCenterNode;
   const draggedNodeId = interactionMode === "node" ? interactionRef.current?.nodeId : null;
   const selectedRelations = useMemo(
@@ -261,13 +262,10 @@ export function MindMapScreen({ result, onResultChange = () => {}, onBack, onLoc
       ),
     [displayEdges, selectedNodeId],
   );
-  const focusNode = interactionMode ? stableSelectedNode || displaySelectedNode : displaySelectedNode;
-  const focusX = focusNode ? 50 - focusNode.x : 0;
-  const focusY = focusNode ? 50 - focusNode.y : 0;
-  const focusOffsetX = focusX * 0.06;
-  const focusOffsetY = focusY * 0.08;
-  const toolboxSide = displaySelectedNode?.x > 58 ? "left" : "right";
-  const toolboxVertical = displaySelectedNode?.y > 56 ? "top" : "bottom";
+  const focusOffsetX = 0;
+  const focusOffsetY = 0;
+  const toolboxSide = (panelAnchor?.x ?? displaySelectedNode?.x) > 58 ? "left" : "right";
+  const toolboxVertical = (panelAnchor?.y ?? displaySelectedNode?.y) > 56 ? "top" : "bottom";
   const zoomDockSide = displaySelectedNode && toolboxSide === "left" ? "right" : "left";
   const zoomDockVertical = displaySelectedNode && toolboxVertical === "bottom" ? "top" : "bottom";
   const showNodePanel = displaySelectedNode;
@@ -282,6 +280,107 @@ export function MindMapScreen({ result, onResultChange = () => {}, onBack, onLoc
     { key: "toggle", label: selectedCollapsed ? "展开分支" : "折叠分支", onClick: toggleBranch, disabled: !selectedNode || !selectedHasChildren },
     { key: "hide", label: "隐藏分支", onClick: hideBranch, disabled: !selectedNode || selectedNode.id === centerNode?.id },
   ];
+  const mapLayer = useMemo(() => (
+    <>
+      <svg className="absolute inset-0 h-full w-full overflow-visible" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+        <defs>
+          <filter id="softShadow" x="-20%" y="-20%" width="140%" height="140%">
+            <feDropShadow dx="0" dy="1" stdDeviation="1.2" floodColor="#0f172a" floodOpacity="0.16" />
+          </filter>
+        </defs>
+        {displayEdges.map((edge, index) => {
+          if (isEdgeConnectedToNode(edge, draggedNodeId)) return null;
+          const from = displayNodeById.get(edge.from);
+          const to = displayNodeById.get(edge.to);
+          if (!from || !to) return null;
+          const curve = getEdgeCurve(from, to);
+          return (
+            <path
+              key={`${edge.from}-${edge.to}-${index}`}
+              data-mindmap-edge-index={index}
+              d={curve.path}
+              fill="none"
+              stroke={to.line || "#93c5fd"}
+              strokeLinecap="round"
+              strokeWidth="2.2"
+              filter="url(#softShadow)"
+              opacity="0.88"
+            />
+          );
+        })}
+      </svg>
+
+      {displayEdges.map((edge, index) => {
+        if (isEdgeConnectedToNode(edge, draggedNodeId)) return null;
+        const from = displayNodeById.get(edge.from);
+        const to = displayNodeById.get(edge.to);
+        if (!from || !to || !hasRelationMetadata(edge)) return null;
+        const curve = getEdgeCurve(from, to);
+        return (
+          <div
+            key={`label-${edge.from}-${edge.to}-${index}`}
+            data-mindmap-edge-label-index={index}
+            className="pointer-events-none absolute z-[5] -translate-x-1/2 -translate-y-1/2 rounded-full border border-white/90 bg-white/90 px-2 py-0.5 text-[8px] font-semibold tracking-wide text-slate-500 shadow-sm backdrop-blur"
+            style={{
+              left: `${curve.label.x}%`,
+              top: `${curve.label.y}%`,
+            }}
+          >
+            {edge.label || edgeTypeLabel(edge.type)}
+          </div>
+        );
+      })}
+
+      {displayNodes.map((node) => {
+        const isCenter = node.id === displayCenterNode?.id;
+        return (
+          <button
+            key={node.id}
+            data-mindmap-node-id={node.id}
+            onClick={(event) => handleNodeClick(node.id, event)}
+            onPointerDown={(event) => handleNodePointerDown(event, node)}
+            className={`absolute z-10 -translate-x-1/2 -translate-y-1/2 overflow-hidden border text-left shadow-[0_16px_30px_rgba(15,23,42,0.12)] transition duration-200 hover:-translate-y-[52%] hover:shadow-[0_20px_38px_rgba(15,23,42,0.16)] cursor-pointer ${isCenter ? "w-[170px] rounded-[26px] border-blue-200 bg-white px-4 py-4 text-center" : "w-[160px] rounded-[20px] px-3 py-3"}`}
+            style={{
+              left: `${node.x}%`,
+              top: `${node.y}%`,
+              borderColor: isCenter ? "#bfdbfe" : node.line || "#cbd5e1",
+              backgroundColor: isCenter ? "#ffffff" : node.fill || "#ffffff",
+            }}
+          >
+            {isCenter ? (
+              <>
+                <p className="text-[10px] font-semibold uppercase text-blue-500">中心主题</p>
+                <h3 className="mt-2 line-clamp-2 break-words text-[17px] font-semibold leading-tight tracking-tight text-slate-900">{node.label}</h3>
+              </>
+            ) : (
+              <>
+                <p className="line-clamp-2 break-words text-[12px] font-semibold leading-tight text-slate-950">{node.label}</p>
+                <div className="mt-2 flex items-start justify-between gap-2">
+                  <p className="min-w-0 flex-1 line-clamp-2 break-words text-[11px] leading-4 text-slate-600">{node.desc}</p>
+                  {node.childCount ? (
+                    <span className="shrink-0 rounded-full bg-white/70 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500">
+                      {node.collapsed ? `+${node.childCount}` : `子${node.childCount}`}
+                    </span>
+                  ) : null}
+                </div>
+              </>
+            )}
+          </button>
+        );
+      })}
+
+      {!hasMap ? (
+        <div className="absolute inset-0 grid place-items-center px-8 text-center">
+          <div className="max-w-[360px] rounded-[28px] border border-dashed border-slate-300 bg-white/86 px-6 py-5 shadow-sm">
+            <p className="text-[15px] font-semibold text-slate-900">暂无导图节点</p>
+            <p className="mt-2 text-[13px] leading-6 text-slate-500">
+              请检查后端 JSON 中的 mindMap.nodes 和 mindMap.edges。第二周可先返回少量节点，后续再完善布局。
+            </p>
+          </div>
+        </div>
+      ) : null}
+    </>
+  ), [displayCenterNode?.id, displayEdges, displayNodeById, displayNodes, draggedNodeId, hasMap]);
 
   useEffect(() => {
     const androidShell = window.AndroidShell;
@@ -294,6 +393,10 @@ export function MindMapScreen({ result, onResultChange = () => {}, onBack, onLoc
   useEffect(() => {
     applyViewportTransform(panOffsetRef.current);
   }, [focusOffsetX, focusOffsetY]);
+
+  useEffect(() => {
+    selectedNodeIdRef.current = selectedNodeId;
+  }, [selectedNodeId]);
 
   function applyViewportTransform(nextPanOffset) {
     if (!viewportRef.current) return;
@@ -392,7 +495,7 @@ export function MindMapScreen({ result, onResultChange = () => {}, onBack, onLoc
   }
 
   function handleNodePointerDown(event, node) {
-    if (selectedNodeId !== node.id) return;
+    if (selectedNodeIdRef.current !== node.id) return;
 
     const canvasRect = canvasRef.current?.getBoundingClientRect();
     if (!canvasRect) return;
@@ -495,12 +598,25 @@ export function MindMapScreen({ result, onResultChange = () => {}, onBack, onLoc
     if (interaction.type === "node") setInteractionMode(null);
   }
 
-  function handleNodeClick(nodeId) {
+  function handleNodeClick(nodeId, event) {
     if (suppressClickRef.current) {
       suppressClickRef.current = false;
       return;
     }
-    setSelectedNodeId((current) => (current === nodeId ? null : nodeId));
+    const canvasRect = canvasRef.current?.getBoundingClientRect();
+    const nodeRect = event?.currentTarget?.getBoundingClientRect();
+    const nextAnchor = canvasRect && nodeRect
+      ? {
+          x: ((nodeRect.left + nodeRect.width / 2 - canvasRect.left) / canvasRect.width) * 100,
+          y: ((nodeRect.top + nodeRect.height / 2 - canvasRect.top) / canvasRect.height) * 100,
+        }
+      : null;
+    setSelectedNodeId((current) => {
+      const next = current === nodeId ? null : nodeId;
+      selectedNodeIdRef.current = next;
+      setPanelAnchor(next ? nextAnchor : null);
+      return next;
+    });
   }
 
   function updateMindMap(nextMindMap, nextSelectedNodeId = selectedNodeId) {
@@ -511,7 +627,9 @@ export function MindMapScreen({ result, onResultChange = () => {}, onBack, onLoc
         ...nextMindMap,
       },
     }));
+    selectedNodeIdRef.current = nextSelectedNodeId;
     setSelectedNodeId(nextSelectedNodeId);
+    if (!nextSelectedNodeId) setPanelAnchor(null);
   }
 
   function addChildNode() {
@@ -580,6 +698,7 @@ export function MindMapScreen({ result, onResultChange = () => {}, onBack, onLoc
 
   function locateSource() {
     if (!detailNode) return;
+    window.AndroidShell?.setMindMapLandscape?.(false);
     onLocateSource(detailNode);
   }
 
@@ -679,6 +798,8 @@ export function MindMapScreen({ result, onResultChange = () => {}, onBack, onLoc
               willChange: "transform",
             }}
           >
+            {false ? (
+            <>
             <svg className="absolute inset-0 h-full w-full overflow-visible" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
               <defs>
                 <filter id="softShadow" x="-20%" y="-20%" width="140%" height="140%">
@@ -782,6 +903,8 @@ export function MindMapScreen({ result, onResultChange = () => {}, onBack, onLoc
                 </div>
               </div>
             ) : null}
+            </>
+            ) : mapLayer}
           </div>
 
           <div
@@ -835,7 +958,14 @@ export function MindMapScreen({ result, onResultChange = () => {}, onBack, onLoc
                     {detailNode?.desc || "查看来源说明、编辑操作和复习线索。"}
                   </p>
                 </div>
-                <button onClick={() => setSelectedNodeId(null)} className="shrink-0 rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold text-slate-500">
+                <button
+                  onClick={() => {
+                    selectedNodeIdRef.current = null;
+                    setPanelAnchor(null);
+                    setSelectedNodeId(null);
+                  }}
+                  className="shrink-0 rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold text-slate-500"
+                >
                   收起
                 </button>
               </div>
