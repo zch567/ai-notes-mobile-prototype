@@ -63,14 +63,6 @@ export function MindMapLibraryScreen({
         </Card>
       </div>
 
-      <div className="px-5">
-        <Card title="导图说明" subtitle="Usage">
-          <div className="space-y-3 text-[13px] leading-6 text-slate-600">
-            <p>导图目录现在会读取本地历史资产，同一批资料可在笔记库和导图目录中同步置顶或删除。</p>
-            <p>点击具体导图后进入横屏画布，适合录屏展示节点关系和知识点详情。</p>
-          </div>
-        </Card>
-      </div>
     </div>
   );
 }
