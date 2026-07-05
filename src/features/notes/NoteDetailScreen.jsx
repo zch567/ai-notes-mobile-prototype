@@ -26,6 +26,12 @@ export function NoteDetailScreen({
     present: createNoteSnapshot(result),
     future: [],
   }));
+  const [isEditing, setIsEditing] = useState(false);
+  const [editDraft, setEditDraft] = useState(() => createNoteSnapshot(result));
+  const [draftHistory, setDraftHistory] = useState(() => ({
+    past: [],
+    future: [],
+  }));
   const [messages, setMessages] = useState([
     {
       role: "assistant",
@@ -39,6 +45,7 @@ export function NoteDetailScreen({
   const activeAnchorRef = useRef(null);
   const noteScrollRef = useRef(null);
   const noteDocumentRef = useRef(null);
+  const editDraftRef = useRef(editDraft);
 
   const sourceById = useMemo(() => new Map(result.sources.map((source) => [source.id, source])), [result.sources]);
   const citationBySourceId = useMemo(() => {
@@ -55,6 +62,8 @@ export function NoteDetailScreen({
   const missingCitationCount = citationIds.filter((sourceId) => !sourceById.has(sourceId)).length;
   const canUndo = editHistory.past.length > 0;
   const canRedo = editHistory.future.length > 0;
+  const canUndoCurrentEdit = isEditing ? draftHistory.past.length > 0 : canUndo;
+  const canRedoCurrentEdit = isEditing ? draftHistory.future.length > 0 : canRedo;
 
   useEffect(() => {
     if (resultIdRef.current === result.id) return;
@@ -65,6 +74,11 @@ export function NoteDetailScreen({
       present: createNoteSnapshot(result),
       future: [],
     });
+    const nextDraft = createNoteSnapshot(result);
+    editDraftRef.current = nextDraft;
+    setEditDraft(nextDraft);
+    setDraftHistory({ past: [], future: [] });
+    setIsEditing(false);
   }, [result]);
 
   useEffect(() => {
@@ -167,16 +181,17 @@ export function NoteDetailScreen({
   }
 
   function commitNoteSnapshot(nextSnapshot) {
+    const normalizedSnapshot = normalizeNoteSnapshot(nextSnapshot);
     setEditHistory((current) => {
-      if (isSameNoteSnapshot(current.present, nextSnapshot)) return current;
+      if (isSameNoteSnapshot(current.present, normalizedSnapshot)) return current;
 
       return {
         past: [...current.past, current.present].slice(-80),
-        present: nextSnapshot,
+        present: normalizedSnapshot,
         future: [],
       };
     });
-    onResultChange((current) => applyNoteSnapshotToResult(current, nextSnapshot));
+    onResultChange((current) => applyNoteSnapshotToResult(current, normalizedSnapshot));
   }
 
   function updateTopic(topic) {
@@ -239,6 +254,130 @@ export function NoteDetailScreen({
     onResultChange((current) => applyNoteSnapshotToResult(current, next));
   }
 
+  function updateEditDraft(updater) {
+    const current = editDraftRef.current;
+    const nextSnapshot = typeof updater === "function" ? updater(current) : updater;
+    const normalizedSnapshot = normalizeNoteSnapshot(nextSnapshot);
+    if (isSameNoteSnapshot(current, normalizedSnapshot)) return;
+
+    setDraftHistory((history) => ({
+      past: [...history.past, current].slice(-80),
+      future: [],
+    }));
+    editDraftRef.current = normalizedSnapshot;
+    setEditDraft(normalizedSnapshot);
+  }
+
+  function undoDraftEdit() {
+    if (!draftHistory.past.length) return;
+
+    const previous = draftHistory.past[draftHistory.past.length - 1];
+    const currentDraft = editDraftRef.current;
+    setDraftHistory((current) => ({
+      past: current.past.slice(0, -1),
+      future: [currentDraft, ...current.future].slice(0, 80),
+    }));
+    editDraftRef.current = previous;
+    setEditDraft(previous);
+  }
+
+  function redoDraftEdit() {
+    if (!draftHistory.future.length) return;
+
+    const next = draftHistory.future[0];
+    const currentDraft = editDraftRef.current;
+    setDraftHistory((current) => ({
+      past: [...current.past, currentDraft].slice(-80),
+      future: current.future.slice(1),
+    }));
+    editDraftRef.current = next;
+    setEditDraft(next);
+  }
+
+  function undoCurrentEdit() {
+    if (isEditing) {
+      undoDraftEdit();
+      return;
+    }
+    undoNoteEdit();
+  }
+
+  function redoCurrentEdit() {
+    if (isEditing) {
+      redoDraftEdit();
+      return;
+    }
+    redoNoteEdit();
+  }
+
+  function startFreeEdit() {
+    setActiveSourceId(null);
+    const nextDraft = createNoteSnapshot(result);
+    editDraftRef.current = nextDraft;
+    setEditDraft(nextDraft);
+    setDraftHistory({ past: [], future: [] });
+    setIsEditing(true);
+  }
+
+  function cancelFreeEdit() {
+    const nextDraft = createNoteSnapshot(result);
+    editDraftRef.current = nextDraft;
+    setEditDraft(nextDraft);
+    setDraftHistory({ past: [], future: [] });
+    setIsEditing(false);
+  }
+
+  function saveFreeEdit() {
+    commitNoteSnapshot(editDraftRef.current);
+    setDraftHistory({ past: [], future: [] });
+    setIsEditing(false);
+  }
+
+  function updateDraftTopic(topic) {
+    updateEditDraft((current) => ({
+      ...current,
+      topic,
+    }));
+  }
+
+  function updateDraftNote(noteId, patch) {
+    updateEditDraft((current) => ({
+      ...current,
+      notes: current.notes.map((note) => (note.id === noteId ? { ...note, ...patch } : note)),
+    }));
+  }
+
+  function addDraftNote() {
+    updateEditDraft((current) => ({
+      ...current,
+      notes: [
+        ...current.notes,
+        {
+          id: createLocalNoteId(current.notes),
+          title: "新笔记小节",
+          summary: "",
+          content: "",
+          keyPoints: [],
+          blocks: [],
+          citationIds: [],
+          sourceRefs: [],
+          level: 1,
+          parentId: "",
+        },
+      ],
+    }));
+  }
+
+  function deleteDraftNote(noteId) {
+    updateEditDraft((current) => {
+      if (current.notes.length <= 1) return current;
+      return {
+        ...current,
+        notes: current.notes.filter((note) => note.id !== noteId),
+      };
+    });
+  }
+
   function sendMessage() {
     const text = chatInput.trim();
     if (!text) return;
@@ -279,10 +418,10 @@ export function NoteDetailScreen({
             <div className="relative flex items-center justify-start gap-3 pl-12">
               <button
                 type="button"
-                onClick={undoNoteEdit}
-                disabled={!canUndo}
+                onClick={undoCurrentEdit}
+                disabled={!canUndoCurrentEdit}
                 className={`pointer-events-auto flex h-[26px] w-[26px] items-center justify-center rounded-full border text-[13px] leading-none shadow-sm transition ${
-                  canUndo ? "border-slate-300 bg-white text-slate-700" : "border-slate-200 bg-white text-slate-300"
+                  canUndoCurrentEdit ? "border-slate-300 bg-white text-slate-700" : "border-slate-200 bg-white text-slate-300"
                 }`}
                 aria-label="撤销笔记修改"
                 title="撤销"
@@ -291,10 +430,10 @@ export function NoteDetailScreen({
               </button>
               <button
                 type="button"
-                onClick={redoNoteEdit}
-                disabled={!canRedo}
+                onClick={redoCurrentEdit}
+                disabled={!canRedoCurrentEdit}
                 className={`pointer-events-auto flex h-[26px] w-[26px] items-center justify-center rounded-full border text-[13px] leading-none shadow-sm transition ${
-                  canRedo ? "border-slate-300 bg-white text-slate-700" : "border-slate-200 bg-white text-slate-300"
+                  canRedoCurrentEdit ? "border-slate-300 bg-white text-slate-700" : "border-slate-200 bg-white text-slate-300"
                 }`}
                 aria-label="重做笔记修改"
                 title="重做"
@@ -332,14 +471,20 @@ export function NoteDetailScreen({
         <article className="space-y-6">
           <section className="space-y-3">
             <p className="text-[12px] uppercase tracking-[0.24em] text-slate-400">Agent 生成笔记</p>
-            <input
-              value={result.topic}
-              onChange={(event) => updateTopic(event.target.value)}
-              className="w-full border-0 bg-transparent p-0 text-[34px] font-normal tracking-tight text-slate-900 outline-none placeholder:text-slate-300"
-              aria-label="标题"
-            />
+            {isEditing ? (
+              <input
+                value={editDraft.topic}
+                onChange={(event) => updateDraftTopic(event.target.value)}
+                className="w-full rounded-[22px] border border-blue-100 bg-white px-4 py-3 text-[28px] font-semibold tracking-tight text-slate-900 outline-none transition focus:border-blue-300 focus:ring-4 focus:ring-blue-50"
+                aria-label="编辑笔记标题"
+              />
+            ) : (
+              <h1 className="text-[34px] font-normal tracking-tight text-slate-900">{result.topic}</h1>
+            )}
             <p className="text-[12px] text-slate-400">
-              {settings.reviewMode ? "复习模式已开启：优先关注标题、重点和引用证据" : "由 AgentResult.notes / sources / citations 渲染"}
+              {isEditing
+                ? "正在编辑：可自由修改标题、摘要、正文和知识点，保存后会同步到本地历史。"
+                : settings.reviewMode ? "复习模式已开启：优先关注标题、重点和引用证据" : "由 AgentResult.notes / sources / citations 渲染"}
             </p>
           </section>
 
@@ -352,14 +497,18 @@ export function NoteDetailScreen({
           <section className="space-y-4">
             <p className="text-[12px] uppercase tracking-[0.24em] text-slate-400">正文</p>
             <div className="text-[15px] leading-8 text-slate-700">
-              {result.notes.length ? (
+              {isEditing ? (
+                <NoteFreeEditor
+                  draft={editDraft}
+                  onUpdateNote={updateDraftNote}
+                  onAddNote={addDraftNote}
+                  onDeleteNote={deleteDraftNote}
+                />
+              ) : result.notes.length ? (
                 <div
                   key={result.id}
                   ref={noteDocumentRef}
-                  contentEditable
-                  suppressContentEditableWarning
-                  onBlur={commitNoteDocumentFromDom}
-                  className="min-h-[340px] rounded-[26px] border border-slate-200 bg-white/86 px-4 py-4 text-[15px] leading-8 text-slate-700 outline-none transition focus:border-blue-200 focus:bg-white focus:shadow-sm"
+                  className="min-h-[340px] rounded-[26px] border border-slate-200 bg-white/86 px-4 py-4 text-[15px] leading-8 text-slate-700"
                   aria-label="整篇笔记正文"
                 >
                   {result.notes.map((block) => (
@@ -430,6 +579,58 @@ export function NoteDetailScreen({
           ) : null}
         </article>
       </main>
+
+      {isEditing ? (
+        <div
+          className="absolute left-5 right-5 z-20 flex flex-wrap items-center justify-end gap-2"
+          style={{ bottom: chatOpen ? "calc(40vh + 16px)" : "92px" }}
+        >
+          <button
+            type="button"
+            onClick={undoDraftEdit}
+            disabled={!draftHistory.past.length}
+            className="rounded-full border border-slate-200 bg-white px-3 py-2 text-[12px] font-semibold leading-none text-slate-600 shadow-sm transition active:scale-95 disabled:text-slate-300 disabled:opacity-60"
+            aria-label="撤回当前编辑"
+          >
+            撤回
+          </button>
+          <button
+            type="button"
+            onClick={redoDraftEdit}
+            disabled={!draftHistory.future.length}
+            className="rounded-full border border-slate-200 bg-white px-3 py-2 text-[12px] font-semibold leading-none text-slate-600 shadow-sm transition active:scale-95 disabled:text-slate-300 disabled:opacity-60"
+            aria-label="取消撤回当前编辑"
+          >
+            取消撤回
+          </button>
+          <button
+            type="button"
+            onClick={cancelFreeEdit}
+            className="rounded-full border border-slate-200 bg-white px-3 py-2 text-[12px] font-semibold leading-none text-slate-600 shadow-sm transition active:scale-95"
+            aria-label="取消编辑"
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            onClick={saveFreeEdit}
+            className="rounded-full bg-blue-600 px-4 py-2.5 text-[13px] font-semibold leading-none text-white shadow-[0_16px_36px_rgba(37,99,235,0.32)] transition active:scale-95"
+            aria-label="保存当前笔记"
+          >
+            保存
+          </button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={startFreeEdit}
+          className="absolute right-5 z-20 rounded-full bg-blue-600 px-5 py-3 text-[14px] font-semibold leading-none text-white shadow-[0_16px_36px_rgba(37,99,235,0.32)] transition active:scale-95"
+          style={{ bottom: chatOpen ? "calc(40vh + 16px)" : "92px" }}
+          aria-label="编辑当前笔记"
+        >
+          编辑
+        </button>
+      )}
 
       {activeSource && bubbleLayout ? (
         <div
@@ -502,6 +703,80 @@ export function NoteDetailScreen({
         messageListRef={messageListRef}
         sendMessage={sendMessage}
       />
+    </div>
+  );
+}
+
+function NoteFreeEditor({ draft, onUpdateNote, onAddNote, onDeleteNote }) {
+  return (
+    <div className="space-y-4">
+      <div className="rounded-[24px] border border-blue-100 bg-blue-50 px-4 py-3 text-[13px] leading-6 text-blue-900">
+        自由编辑不会改动原文引用库；保存后，笔记标题、摘要、正文和知识点会进入当前学习资产。
+      </div>
+
+      {draft.notes.map((note, index) => (
+        <section key={note.id} className="rounded-[26px] border border-slate-200 bg-white px-4 py-4 shadow-sm">
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <p className="text-[12px] font-semibold uppercase tracking-[0.18em] text-slate-400">Note {index + 1}</p>
+            <button
+              type="button"
+              onClick={() => onDeleteNote(note.id)}
+              disabled={draft.notes.length <= 1}
+              className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[12px] font-semibold text-slate-500 disabled:text-slate-300"
+            >
+              删除小节
+            </button>
+          </div>
+
+          <label className="block">
+            <span className="text-[12px] font-semibold text-slate-500">小节标题</span>
+            <input
+              value={note.title}
+              onChange={(event) => onUpdateNote(note.id, { title: event.target.value })}
+              className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-[15px] font-semibold text-slate-900 outline-none transition focus:border-blue-300 focus:bg-white"
+              placeholder="输入小节标题"
+            />
+          </label>
+
+          <label className="mt-4 block">
+            <span className="text-[12px] font-semibold text-slate-500">本节摘要</span>
+            <textarea
+              value={note.summary || ""}
+              onChange={(event) => onUpdateNote(note.id, { summary: event.target.value })}
+              className="mt-2 min-h-[74px] w-full resize-none rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-[14px] leading-6 text-slate-700 outline-none transition focus:border-blue-300 focus:bg-white"
+              placeholder="可选：写下这一小节的核心摘要"
+            />
+          </label>
+
+          <label className="mt-4 block">
+            <span className="text-[12px] font-semibold text-slate-500">正文内容</span>
+            <textarea
+              value={note.content || ""}
+              onChange={(event) => onUpdateNote(note.id, { content: event.target.value })}
+              className="mt-2 min-h-[160px] w-full resize-y rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-[14px] leading-7 text-slate-700 outline-none transition focus:border-blue-300 focus:bg-white"
+              placeholder="自由编辑笔记正文"
+            />
+          </label>
+
+          <label className="mt-4 block">
+            <span className="text-[12px] font-semibold text-slate-500">核心知识点</span>
+            <textarea
+              value={(note.keyPoints || []).join("\n")}
+              onChange={(event) => onUpdateNote(note.id, { keyPoints: splitKeyPoints(event.target.value) })}
+              className="mt-2 min-h-[96px] w-full resize-none rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-[14px] leading-6 text-slate-700 outline-none transition focus:border-blue-300 focus:bg-white"
+              placeholder="一行一个知识点"
+            />
+          </label>
+        </section>
+      ))}
+
+      <button
+        type="button"
+        onClick={onAddNote}
+        className="w-full rounded-[24px] border border-dashed border-blue-200 bg-white px-4 py-4 text-[14px] font-semibold text-blue-700"
+      >
+        + 新增笔记小节
+      </button>
     </div>
   );
 }
@@ -658,7 +933,73 @@ function cloneNotes(notes) {
   return notes.map((note) => ({
     ...note,
     citationIds: [...(note.citationIds || [])],
+    sourceRefs: [...(note.sourceRefs || [])],
+    keyPoints: [...(note.keyPoints || [])],
+    blocks: (note.blocks || []).map((block) => ({
+      ...block,
+      items: [...(block.items || [])],
+      structuredItems: [...(block.structuredItems || [])],
+    })),
   }));
+}
+
+function normalizeNoteSnapshot(snapshot) {
+  const notes = (snapshot.notes || []).map((note, index) => {
+    const title = String(note.title || "").trim() || `笔记小节 ${index + 1}`;
+    const summary = String(note.summary || "").trim();
+    const content = String(note.content || "").trim();
+    const keyPoints = splitKeyPoints(note.keyPoints || []);
+
+    return {
+      ...note,
+      id: String(note.id || `note-${index + 1}`),
+      title,
+      summary,
+      content,
+      keyPoints,
+      blocks: (note.blocks || []).filter((block) => block?.type !== "summary"),
+      citationIds: (note.citationIds || []).map(String),
+      sourceRefs: (note.sourceRefs || []).map(String),
+      level: Number.isFinite(Number(note.level)) ? Number(note.level) : 1,
+      parentId: String(note.parentId || ""),
+    };
+  });
+
+  return {
+    topic: String(snapshot.topic || "").trim() || "未命名笔记",
+    notes: notes.length ? notes : [
+      {
+        id: "note-1",
+        title: "笔记小节 1",
+        summary: "",
+        content: "",
+        keyPoints: [],
+        blocks: [],
+        citationIds: [],
+        sourceRefs: [],
+        level: 1,
+        parentId: "",
+      },
+    ],
+  };
+}
+
+function splitKeyPoints(value) {
+  const items = Array.isArray(value) ? value : String(value || "").split(/\r?\n/);
+  return items
+    .map((item) => String(item || "").trim())
+    .filter(Boolean);
+}
+
+function createLocalNoteId(notes) {
+  const ids = new Set((notes || []).map((note) => String(note.id || "")));
+  let index = notes.length + 1;
+  let id = `local-note-${index}`;
+  while (ids.has(id)) {
+    index += 1;
+    id = `local-note-${index}`;
+  }
+  return id;
 }
 
 function applyNoteSnapshotToResult(result, snapshot) {
