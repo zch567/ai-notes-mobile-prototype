@@ -7,7 +7,7 @@ import { InputScreen } from "../features/ai/InputScreen";
 import { LoadingScreen } from "../features/ai/LoadingScreen";
 import { ResultScreen } from "../features/ai/ResultScreen";
 import { runAgent } from "../features/ai/agentApi";
-import { HomeScreen } from "../features/home/HomeScreen";
+import { HomeScreen } from "../features/home/HomeScreenCalendar";
 import { MindMapLibraryScreen, MindMapScreen } from "../features/mindmap/MindMapScreen";
 import { NoteDetailScreen } from "../features/notes/NoteDetailScreen";
 import { NotesScreen } from "../features/notes/NotesScreen";

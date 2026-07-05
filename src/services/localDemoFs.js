@@ -32,6 +32,7 @@ const defaultLearningLog = {
   readNotes: 0,
   reviewSessions: 0,
   totalStudySeconds: 0,
+  dailyRecords: {},
   lastAction: "",
   lastActionAt: null,
   updatedAt: null,
@@ -452,20 +453,33 @@ export function recordLearningAction(action, amount = 1) {
 
   const current = normalizeLearningLog(readJSON(STORAGE_KEYS.learningLog, defaultLearningLog));
   const increment = Math.max(1, Number(amount) || 1);
+  const timestamp = now();
+  const dayKey = toDateKey(new Date(timestamp));
+  const dailyRecord = normalizeDailyRecord(current.dailyRecords[dayKey]);
   const nextLog = {
     ...current,
-    updatedAt: now(),
-    lastActionAt: now(),
+    dailyRecords: {
+      ...current.dailyRecords,
+      [dayKey]: {
+        ...dailyRecord,
+        updatedAt: timestamp,
+      },
+    },
+    updatedAt: timestamp,
+    lastActionAt: timestamp,
   };
 
   if (action === "generate") {
     nextLog.generatedNotes += increment;
+    nextLog.dailyRecords[dayKey].generatedNotes += increment;
     nextLog.lastAction = "生成笔记";
   } else if (action === "read") {
     nextLog.readNotes += increment;
+    nextLog.dailyRecords[dayKey].readNotes += increment;
     nextLog.lastAction = "阅读笔记";
   } else if (action === "review") {
     nextLog.reviewSessions += increment;
+    nextLog.dailyRecords[dayKey].reviewSessions += increment;
     nextLog.lastAction = "进入复习";
   }
 
@@ -478,10 +492,21 @@ export function addLearningDuration(seconds) {
 
   const current = normalizeLearningLog(readJSON(STORAGE_KEYS.learningLog, defaultLearningLog));
   const duration = Math.max(0, Math.min(Number(seconds) || 0, 3600));
+  const timestamp = now();
+  const dayKey = toDateKey(new Date(timestamp));
+  const dailyRecord = normalizeDailyRecord(current.dailyRecords[dayKey]);
   const nextLog = {
     ...current,
     totalStudySeconds: current.totalStudySeconds + duration,
-    updatedAt: now(),
+    dailyRecords: {
+      ...current.dailyRecords,
+      [dayKey]: {
+        ...dailyRecord,
+        totalStudySeconds: dailyRecord.totalStudySeconds + duration,
+        updatedAt: timestamp,
+      },
+    },
+    updatedAt: timestamp,
   };
 
   writeJSON(STORAGE_KEYS.learningLog, nextLog);
@@ -500,6 +525,12 @@ function normalizeFolders(folders) {
 }
 
 function normalizeLearningLog(log) {
+  const dailyRecords = Object.fromEntries(
+    Object.entries(log?.dailyRecords && typeof log.dailyRecords === "object" ? log.dailyRecords : {})
+      .map(([key, record]) => [key, normalizeDailyRecord(record)])
+      .filter(([key]) => /^\d{4}-\d{2}-\d{2}$/.test(key))
+  );
+
   return {
     ...defaultLearningLog,
     ...(log || {}),
@@ -507,10 +538,29 @@ function normalizeLearningLog(log) {
     readNotes: Math.max(0, Number(log?.readNotes) || 0),
     reviewSessions: Math.max(0, Number(log?.reviewSessions) || 0),
     totalStudySeconds: Math.max(0, Number(log?.totalStudySeconds) || 0),
+    dailyRecords,
     lastAction: String(log?.lastAction || ""),
     lastActionAt: log?.lastActionAt || null,
     updatedAt: log?.updatedAt || null,
   };
+}
+
+function normalizeDailyRecord(record) {
+  return {
+    generatedNotes: Math.max(0, Number(record?.generatedNotes) || 0),
+    readNotes: Math.max(0, Number(record?.readNotes) || 0),
+    reviewSessions: Math.max(0, Number(record?.reviewSessions) || 0),
+    totalStudySeconds: Math.max(0, Number(record?.totalStudySeconds) || 0),
+    updatedAt: record?.updatedAt || null,
+  };
+}
+
+function toDateKey(date) {
+  const safeDate = Number.isNaN(date?.getTime?.()) ? new Date() : date;
+  const year = safeDate.getFullYear();
+  const month = String(safeDate.getMonth() + 1).padStart(2, "0");
+  const day = String(safeDate.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function sortFolders(folders) {
