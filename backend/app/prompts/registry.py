@@ -7,6 +7,10 @@ from pathlib import Path
 from ..bootstrap import WORKSPACE_ROOT
 
 
+PREFERRED_WEEK2_PROMPT_NAME = "\u667a\u5e8f\u77e5\u8bc6\u52a9\u624bprompt week 2.md"
+PREFERRED_WEEK2_PROMPT_PATH = WORKSPACE_ROOT.parent.parent / "prompt" / PREFERRED_WEEK2_PROMPT_NAME
+
+
 FALLBACK_PROMPTS: dict[str, str] = {
     "M2": (
         "You are module M2_topic_summary. Read the provided chunks and return only JSON "
@@ -191,17 +195,32 @@ def _candidate_prompt_files(prompt_dir: Path) -> list[Path]:
     files: list[Path] = []
     for root in roots:
         files.extend(sorted(root.glob("*.md")))
+    exact_path = PREFERRED_WEEK2_PROMPT_PATH.resolve()
+    exact = [
+        path
+        for path in files
+        if path.resolve() == exact_path
+    ]
+    same_name = [
+        path
+        for path in files
+        if path.name == PREFERRED_WEEK2_PROMPT_NAME and path not in exact
+    ]
     preferred = [
         path
         for path in files
-        if "week 2" in path.name.lower() or "week2" in path.name.lower()
+        if ("week 2" in path.name.lower() or "week2" in path.name.lower()) and path not in exact and path not in same_name
     ]
     secondary = [
         path
         for path in files
         if ("week 1" in path.name.lower() or "week1" in path.name.lower()) and path not in preferred
     ]
-    return preferred + secondary + [path for path in files if path not in preferred and path not in secondary]
+    return exact + same_name + preferred + secondary + [
+        path
+        for path in files
+        if path not in exact and path not in same_name and path not in preferred and path not in secondary
+    ]
 
 
 def _zh(codepoints: list[int]) -> str:

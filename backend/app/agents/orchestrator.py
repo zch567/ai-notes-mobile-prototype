@@ -93,16 +93,20 @@ class ModuleAgentOrchestrator:
         retriever = HybridRetriever(chunks)
         hits = retriever.retrieve(question, top_k=top_k)
         payload = {
+            "user_query": question,
             "question": question,
             "topic": result.get("topic"),
             "summary": result.get("summary"),
             "notes": _compact_notes_for_prompt(result.get("notes", [])),
+            "current_structured_notes": {"notes": _compact_notes_for_prompt(result.get("notes", []))},
             "mindmap": result.get("mindMap") or {},
             "citations": result.get("citations", [])[:20],
             "retrieved_sources": [hit.to_dict() for hit in hits],
         }
         output, log = provider.generate_module_json("M7", self.registry.get("M7"), payload, max_tokens=2048)
         response = output if isinstance(output, dict) else {}
+        if not response.get("answer") and response.get("chat_response"):
+            response["answer"] = str(response.get("chat_response") or "")
         response.setdefault("answer", "Current material does not contain enough evidence.")
         response.setdefault("used_citations", [])
         response.setdefault("related_notes", [])
