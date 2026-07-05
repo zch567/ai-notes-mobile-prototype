@@ -78,7 +78,7 @@ def apply_polish_result(
         if content:
             candidate["content"] = content
         if key_points:
-            candidate["keyPoints"] = _dedupe(key_points)[:8]
+            candidate["keyPoints"] = _dedupe(key_points)
 
         level = _int(patch.get("level"))
         if level is not None and 1 <= level <= 4:

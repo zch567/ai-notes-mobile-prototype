@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import { AGENT_STATUS, DETAIL_VIEWS } from "./navigation";
 import { BottomNav } from "../components/BottomNav";
 import { StatusBar } from "../components/StatusBar";
-import { demoAgentResult } from "../data/demoAgentResult";
 import { InputScreen } from "../features/ai/InputScreen";
 import { LoadingScreen } from "../features/ai/LoadingScreen";
 import { ResultScreen } from "../features/ai/ResultScreen";
@@ -127,9 +126,6 @@ export default function App() {
       setAgentStatus(AGENT_STATUS.SUCCESS);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Agent 调用失败");
-      setAgentResult(demoAgentResult);
-      saveActiveAgentResult(demoAgentResult, "fallback");
-      setResultHistory(readAgentResultHistory());
       setAgentJob(null);
       setAgentStatus(AGENT_STATUS.ERROR);
     }
@@ -215,9 +211,12 @@ export default function App() {
   }
 
   function openReview() {
-    setLearningLog(recordLearningAction("review"));
     setDetailView(DETAIL_VIEWS.REVIEW);
     setNav("notes");
+  }
+
+  function handleQuestionsAnswered(questionCount) {
+    setLearningLog(recordLearningAction("review", questionCount));
   }
 
   const screen = getScreen({
@@ -253,6 +252,7 @@ export default function App() {
     pendingSourceId,
     setPendingSourceId,
     updateAgentResult,
+    handleQuestionsAnswered,
   });
 
   const isLandscapeMindMap = nav === "mindmap" && detailView === DETAIL_VIEWS.MINDMAP;
@@ -454,6 +454,7 @@ function getScreen({
   pendingSourceId,
   setPendingSourceId,
   updateAgentResult,
+  handleQuestionsAnswered,
 }) {
   if (detailView === DETAIL_VIEWS.NOTE) {
     return (
@@ -471,7 +472,14 @@ function getScreen({
   }
 
   if (detailView === DETAIL_VIEWS.REVIEW) {
-    return <ReviewScreen result={agentResult} onResultChange={updateAgentResult} onBack={() => setDetailView(DETAIL_VIEWS.NOTE)} />;
+    return (
+      <ReviewScreen
+        result={agentResult}
+        onResultChange={updateAgentResult}
+        onQuestionsAnswered={handleQuestionsAnswered}
+        onBack={() => setDetailView(DETAIL_VIEWS.NOTE)}
+      />
+    );
   }
 
   if (detailView === DETAIL_VIEWS.MINDMAP) {

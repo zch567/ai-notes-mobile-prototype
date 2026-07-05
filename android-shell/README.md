@@ -1,6 +1,6 @@
 # Android WebView Shell
 
-This native Android shell packages the Vite frontend as local WebView assets for an offline demo.
+This native Android shell packages the Vite frontend as local WebView assets and connects to the configured real backend at runtime.
 
 ## Build Flow
 
@@ -27,7 +27,7 @@ APK/AAB files are build artifacts. They are ignored by git and should be rebuilt
 The Android Gradle build also runs `npm run build:webview` before merging assets, so the APK uses:
 
 ```text
-VITE_DEMO_MODE=true
+VITE_DEMO_MODE=false
 VITE_APP_SHELL_MODE=webview
 ```
 

@@ -55,9 +55,16 @@ export function normalizeAgentResult(rawResult) {
     },
   };
 
+  const topic = stringOrFallback(result.topic, emptyAgentResult.topic);
+  const mindMap = normalizeMindMapGraph(
+    normalizeArray(result.mindMap.nodes, emptyAgentResult.mindMap.nodes).map(normalizeMindMapNode),
+    normalizeArray(result.mindMap.edges, emptyAgentResult.mindMap.edges).map(normalizeMindMapEdge),
+    topic,
+  );
+
   return {
     id: stringOrFallback(result.id, emptyAgentResult.id),
-    topic: stringOrFallback(result.topic, emptyAgentResult.topic),
+    topic,
     summary: stringOrFallback(result.summary, emptyAgentResult.summary),
     keywords: normalizeArray(result.keywords, emptyAgentResult.keywords).map(String),
     outline: normalizeArray(result.outline, emptyAgentResult.outline).map(normalizeOutlineItem),
@@ -76,10 +83,7 @@ export function normalizeAgentResult(rawResult) {
       firstNonEmptyObject(result.qualityDiagnostics, result.quality_diagnostics, result.qualitySummary, result.quality_summary)
     ),
     _meta: normalizeObject(result._meta || result.meta),
-    mindMap: {
-      nodes: normalizeArray(result.mindMap.nodes, emptyAgentResult.mindMap.nodes).map(normalizeMindMapNode),
-      edges: normalizeArray(result.mindMap.edges, emptyAgentResult.mindMap.edges).map(normalizeMindMapEdge),
-    },
+    mindMap,
     review: {
       questions: normalizeArray(result.review.questions, emptyAgentResult.review.questions).map(normalizeQuestion),
       masteryScore: clamp(numberOrFallback(result.review.masteryScore, emptyAgentResult.review.masteryScore), 0, 100),
@@ -396,6 +400,93 @@ function normalizeMindMapEdge(edge) {
     confidence: clamp(numberOrFallback(edge?.confidence, 0), 0, 1),
     sourceRefs: normalizeArray(edge?.sourceRefs || edge?.source_refs, []).map(String),
   };
+}
+
+function normalizeMindMapGraph(nodes, edges, topic) {
+  if (!nodes.length) return { nodes, edges };
+
+  const rootId = findMindMapRootId(nodes);
+  const duplicateRootIds = new Set(
+    nodes
+      .filter((node) => node.id !== rootId && isCoreSummaryMindMapNode(node, topic))
+      .map((node) => node.id),
+  );
+  const nodesById = new Map(nodes.map((node) => [node.id, node]));
+  const normalizedNodes = nodes
+    .filter((node) => !duplicateRootIds.has(node.id))
+    .map((node) => {
+      if (node.id === rootId && isCoreSummaryMindMapNode(node, topic) && topic) {
+        return {
+          ...node,
+          label: topic,
+          desc: node.desc || "中心主题",
+          detail: node.detail || topic,
+        };
+      }
+      return node;
+    });
+  const edgeKeys = new Set();
+  const normalizedEdges = [];
+
+  edges.forEach((edge) => {
+    let from = edge.from;
+    const to = edge.to;
+
+    if (duplicateRootIds.has(to)) return;
+    if (duplicateRootIds.has(from)) from = rootId;
+    if (!from || !to || from === to) return;
+
+    const key = `${from}->${to}:${edge.type || "hierarchy"}:${edge.label || ""}`;
+    if (edgeKeys.has(key)) return;
+    edgeKeys.add(key);
+    normalizedEdges.push({ ...edge, from, to });
+  });
+
+  if (duplicateRootIds.size) {
+    duplicateRootIds.forEach((nodeId) => {
+      const duplicate = nodesById.get(nodeId);
+      if (!duplicate || !rootId || rootId === nodeId) return;
+      edges
+        .filter((edge) => edge.from === nodeId && edge.to !== rootId)
+        .forEach((edge) => {
+          const key = `${rootId}->${edge.to}:${edge.type || "hierarchy"}:${edge.label || ""}`;
+          if (edgeKeys.has(key)) return;
+          edgeKeys.add(key);
+          normalizedEdges.push({ ...edge, from: rootId });
+        });
+    });
+  }
+
+  return {
+    nodes: normalizedNodes,
+    edges: normalizedEdges,
+  };
+}
+
+function findMindMapRootId(nodes) {
+  const explicitRoot = nodes.find((node) => ["root", "center"].includes(String(node.id || "").toLowerCase()));
+  return explicitRoot?.id || nodes[0]?.id || "";
+}
+
+function isCoreSummaryMindMapNode(node, topic) {
+  if (node?.relatedNoteId) return false;
+
+  const label = normalizeMindMapSemanticText(node?.label);
+  const normalizedTopic = normalizeMindMapSemanticText(topic);
+  const coreSummaryLabels = new Set([
+    "中心主题",
+    "本章核心考点总结",
+    "本节核心考点总结",
+    "章节核心考点总结",
+    "核心考点总结",
+    "核心知识点总结",
+  ]);
+
+  return coreSummaryLabels.has(label) || Boolean(normalizedTopic && label === normalizedTopic);
+}
+
+function normalizeMindMapSemanticText(value) {
+  return String(value || "").replace(/\s+/g, "").replace(/[：:，,。.\-_\s]/g, "").trim();
 }
 
 function normalizeQuestion(question, index) {

@@ -480,7 +480,7 @@ export function recordLearningAction(action, amount = 1) {
   } else if (action === "review") {
     nextLog.reviewSessions += increment;
     nextLog.dailyRecords[dayKey].reviewSessions += increment;
-    nextLog.lastAction = "进入复习";
+    nextLog.lastAction = `完成 ${increment} 道题`;
   }
 
   writeJSON(STORAGE_KEYS.learningLog, nextLog);

@@ -8,7 +8,7 @@ export function HomeScreen({ result, learningLog = {}, onStart, onOpenNote }) {
     { label: "学习时长", value: formatDuration(log.totalStudySeconds), caption: "页面可见时自动累计" },
     { label: "生成笔记", value: `${log.generatedNotes} 次`, caption: "成功生成学习资产" },
     { label: "阅读笔记", value: `${log.readNotes} 次`, caption: "进入笔记详情" },
-    { label: "复习", value: `${log.reviewSessions} 次`, caption: "打开复习页面" },
+    { label: "做题数量", value: `${log.reviewSessions} 道`, caption: "完成复习题后累计" },
   ];
 
   return (

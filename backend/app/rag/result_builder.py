@@ -753,7 +753,7 @@ def _repair_existing_knowledge_fields(note: dict[str, Any]) -> None:
     profile = infer_learning_profile(title, str(note.get("summary") or ""), points, str(note.get("content") or ""))
     compacted = [_compact_source_knowledge_point(point, profile) for point in points]
     compacted = _relabel_repeated_definition_points(compacted)
-    compacted = _dedupe_learning_list([point for point in compacted if point], max_items=10 if profile["material"] in {"exam", "politics"} else 8)
+    compacted = _dedupe_learning_list([point for point in compacted if point], max_items=None)
     if compacted:
         note["keyPoints"] = compacted
         points = compacted
@@ -802,9 +802,8 @@ def _extract_source_knowledge_points(title: str, source_text: str, profile: dict
             points.append(_format_source_point(context, line, profile))
     if not points:
         points = _fallback_source_fact_points(title, lines, profile)
-    max_items = 10 if profile["material"] in {"exam", "politics"} else 8
     compacted = [_compact_source_knowledge_point(point, profile) for point in points if _is_source_fact_line(point)]
-    return _dedupe_learning_list([point for point in compacted if _is_source_fact_line(point)], max_items=max_items)
+    return _dedupe_learning_list([point for point in compacted if _is_source_fact_line(point)], max_items=None)
 
 
 def _source_knowledge_lines(source_text: str) -> list[str]:
@@ -1336,7 +1335,7 @@ def _merge_duplicate_title_notes(notes: list[dict[str, Any]]) -> list[dict[str, 
         if title_key and title_key in by_title:
             target = by_title[title_key]
             id_redirect[str(note.get("id") or "")] = str(target.get("id") or "")
-            target["keyPoints"] = _dedupe_learning_list([*(target.get("keyPoints") or []), *(note.get("keyPoints") or [])], max_items=6)
+            target["keyPoints"] = _dedupe_learning_list([*(target.get("keyPoints") or []), *(note.get("keyPoints") or [])], max_items=None)
             target["sourceRefs"] = _dedupe_learning_list([*(target.get("sourceRefs") or []), *(note.get("sourceRefs") or [])], max_items=20)
             target["source_refs"] = target["sourceRefs"]
             continue
@@ -1454,14 +1453,14 @@ def _is_colon_subtopic_title(title: str) -> bool:
 def _merge_note_into(target: dict[str, Any], source: dict[str, Any]) -> None:
     target["summary"] = _pick_better_summary(str(target.get("summary") or ""), str(source.get("summary") or ""), str(target.get("title") or ""))
     target["content"] = _merge_distinct_text(str(target.get("content") or ""), str(source.get("content") or ""), max_len=520)
-    target["keyPoints"] = _dedupe_learning_list([*(target.get("keyPoints") or []), *(source.get("keyPoints") or [])], max_items=6)
+    target["keyPoints"] = _dedupe_learning_list([*(target.get("keyPoints") or []), *(source.get("keyPoints") or [])], max_items=None)
     target["sourceRefs"] = _dedupe_learning_list([*(target.get("sourceRefs") or []), *(source.get("sourceRefs") or [])], max_items=20)
     target["source_refs"] = target["sourceRefs"]
 
 
 def _enforce_learning_field_roles(note: dict[str, Any]) -> None:
     title = str(note.get("title") or "")
-    key_points = _dedupe_learning_list([str(item) for item in note.get("keyPoints", []) or []], max_items=8)
+    key_points = _dedupe_learning_list([str(item) for item in note.get("keyPoints", []) or []], max_items=None)
     note["keyPoints"] = _normalize_key_points(title, key_points)
     note["summary"] = _rewrite_summary_for_role(title, str(note.get("summary") or ""), note["keyPoints"])
     note["content"] = _rewrite_content_for_role(title, str(note.get("content") or ""), note["summary"], note["keyPoints"])
@@ -1987,9 +1986,9 @@ def _key_points_for_profile(title: str, points: list[str], profile: dict[str, An
         if "component" in roles:
             return _component_points(subtype, [title, *points])
         if "comparison" in roles:
-            return _dedupe_learning_list(points or ["比较传送单位", "比较响应时机", "比较异常处理和控制开销"], max_items=5)
+            return _dedupe_learning_list(points or ["比较传送单位", "比较响应时机", "比较异常处理和控制开销"], max_items=None)
     fallback = points or _fallback_key_points_from_title(title, profile)
-    return _dedupe_learning_list(fallback, max_items=6 if _has_numbered_series(fallback, min_count=6) else 5)
+    return _dedupe_learning_list(fallback, max_items=None)
 
 
 def _fallback_key_points_from_title(title: str, profile: dict[str, Any]) -> list[str]:
@@ -1999,7 +1998,7 @@ def _fallback_key_points_from_title(title: str, profile: dict[str, Any]) -> list
         return []
     if profile["material"] == "politics" and "action" in profile["roles"]:
         parts = [part.strip(" 。；;，,") for part in re.split(r"[，、；;]", cleaned) if part.strip(" 。；;，,")]
-        return parts[:4] or [cleaned]
+        return parts or [cleaned]
     if profile["material"] in {"politics", "exam"}:
         return [cleaned]
     return []
@@ -2706,7 +2705,7 @@ def _merge_distinct_text(left: str, right: str, *, max_len: int) -> str:
     return compact(f"{left} {right}", max_len)
 
 
-def _dedupe_learning_list(values: list[Any], *, max_items: int) -> list[str]:
+def _dedupe_learning_list(values: list[Any], *, max_items: int | None) -> list[str]:
     result: list[str] = []
     seen: set[str] = set()
     for value in values:
@@ -2715,7 +2714,7 @@ def _dedupe_learning_list(values: list[Any], *, max_items: int) -> list[str]:
         if text and key and key not in seen:
             seen.add(key)
             result.append(text)
-        if len(result) >= max_items:
+        if max_items is not None and len(result) >= max_items:
             break
     return result
 

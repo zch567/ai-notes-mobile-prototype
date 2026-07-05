@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { TopBar } from "../../components/TopBar";
 import { sampleInputText } from "../../data/sampleInputText";
 import { DEFAULT_GENERATION_TOP_K } from "./agentApi";
@@ -6,7 +6,7 @@ import { DEFAULT_GENERATION_TOP_K } from "./agentApi";
 const defaultDraft = {
   inputType: "text",
   sourceText: sampleInputText,
-  sourceTitle: "Logistic Regression 公开样例",
+  sourceTitle: "",
   pipeline: "rag-only",
   provider: "configured",
   strictProvider: true,
@@ -16,9 +16,11 @@ const defaultDraft = {
 export function InputScreen({ onRun, status, draft = defaultDraft, onDraftChange }) {
   const [sourceText, setSourceText] = useState(draft.sourceText || sampleInputText);
   const [inputType, setInputType] = useState(normalizeInputType(draft.inputType));
-  const [sourceTitle, setSourceTitle] = useState(draft.sourceTitle || "Logistic Regression 公开样例");
+  const [sourceTitle, setSourceTitle] = useState(normalizeInitialTitle(draft.sourceTitle));
   const [selectedFile, setSelectedFile] = useState(null);
   const [fileError, setFileError] = useState("");
+  const [titleError, setTitleError] = useState("");
+  const titleInputRef = useRef(null);
   const inputTypes = [
     ["text", "文本"],
     ["pdf", "PDF"],
@@ -39,6 +41,13 @@ export function InputScreen({ onRun, status, draft = defaultDraft, onDraftChange
   }, [inputType, sourceText, sourceTitle, onDraftChange]);
 
   function runCurrentInput() {
+    const trimmedTitle = sourceTitle.trim();
+    if (!trimmedTitle) {
+      setTitleError("请先填写资料标题，再运行 Agent。");
+      titleInputRef.current?.focus();
+      return;
+    }
+
     if (inputType !== "text" && !selectedFile) {
       setFileError("请先选择要上传的文件");
       return;
@@ -48,12 +57,12 @@ export function InputScreen({ onRun, status, draft = defaultDraft, onDraftChange
       inputType,
       sourceText: inputType === "text" ? sourceText : "",
       file: inputType === "text" ? undefined : selectedFile,
-      fileName: inputType === "text" ? `${safeFileStem(sourceTitle)}.md` : selectedFile?.name,
+      fileName: inputType === "text" ? `${safeFileStem(trimmedTitle)}.md` : selectedFile?.name,
       pipeline: "hybrid",
       strictProvider: true,
       topK: DEFAULT_GENERATION_TOP_K,
       sourceMeta: {
-        title: sourceTitle,
+        title: trimmedTitle,
         fileName: inputType === "text" ? "" : selectedFile?.name || "",
         mimeType: inputType === "text" ? "text/plain" : selectedFile?.type || "",
       },
@@ -64,9 +73,6 @@ export function InputScreen({ onRun, status, draft = defaultDraft, onDraftChange
     const file = event.target.files?.[0] || null;
     setSelectedFile(file);
     setFileError("");
-    if (file && (!sourceTitle || sourceTitle === "Logistic Regression 公开样例")) {
-      setSourceTitle(file.name.replace(/\.[^.]+$/, ""));
-    }
   }
 
   function changeInputType(nextType) {
@@ -88,11 +94,24 @@ export function InputScreen({ onRun, status, draft = defaultDraft, onDraftChange
           <label className="mb-3 block">
             <span className="mb-2 block text-[12px] font-semibold uppercase tracking-[0.18em] text-slate-400">资料标题</span>
             <input
+              ref={titleInputRef}
               value={sourceTitle}
-              onChange={(event) => setSourceTitle(event.target.value)}
+              onChange={(event) => {
+                setSourceTitle(event.target.value);
+                if (event.target.value.trim()) setTitleError("");
+              }}
               placeholder="给这份资料起一个标题"
-              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-[14px] font-semibold text-slate-800 outline-none transition placeholder:text-slate-300 focus:border-blue-200 focus:shadow-sm"
+              aria-invalid={Boolean(titleError)}
+              aria-describedby={titleError ? "source-title-error" : undefined}
+              className={`w-full rounded-2xl border bg-white px-4 py-3 text-[14px] font-semibold text-slate-800 outline-none transition placeholder:text-slate-300 focus:shadow-sm ${
+                titleError ? "border-rose-300 focus:border-rose-300" : "border-slate-200 focus:border-blue-200"
+              }`}
             />
+            {titleError ? (
+              <p id="source-title-error" className="mt-2 text-[12px] font-medium text-rose-600">
+                {titleError}
+              </p>
+            ) : null}
           </label>
 
           <div className="mb-3">
@@ -160,6 +179,11 @@ function safeFileStem(value) {
     .replace(/[\\/:*?"<>|]+/g, "-")
     .replace(/\s+/g, "-");
   return stem || "学习资料";
+}
+
+function normalizeInitialTitle(value) {
+  const title = String(value || "").trim();
+  return title === "Logistic Regression 公开样例" ? "" : title;
 }
 
 function normalizeInputType(value) {

@@ -248,6 +248,8 @@ export function MindMapScreen({ result, onResultChange = () => {}, onBack, onLoc
   const [collapsedNodeIds, setCollapsedNodeIds] = useState(() => new Set());
   const [interactionMode, setInteractionMode] = useState(null);
   const [renderRevision, setRenderRevision] = useState(0);
+  const [editingEdgeKey, setEditingEdgeKey] = useState("");
+  const [edgeLabelDraft, setEdgeLabelDraft] = useState("");
   const zoomRef = useRef(1);
   const canvasRef = useRef(null);
   const viewportRef = useRef(null);
@@ -293,8 +295,8 @@ export function MindMapScreen({ result, onResultChange = () => {}, onBack, onLoc
     { key: "child", label: "新增子节点", onClick: addChildNode, disabled: !hasMap },
     { key: "sibling", label: "同级节点", onClick: addSiblingNode, disabled: !selectedNode || selectedNode.id === centerNode?.id },
     { key: "rename", label: "重命名", onClick: renameNode, disabled: !detailNode },
-    { key: "toggle", label: selectedCollapsed ? "展开分支" : "折叠分支", onClick: toggleBranch, disabled: !selectedNode || !selectedHasChildren },
-    { key: "hide", label: "隐藏分支", onClick: hideBranch, disabled: !selectedNode || selectedNode.id === centerNode?.id },
+    { key: "toggle", label: selectedCollapsed ? "展开全部子节点" : "折叠全部子节点", onClick: toggleBranch, disabled: !selectedNode || !selectedHasChildren },
+    { key: "delete", label: "删除此节点", onClick: deleteNode, disabled: !selectedNode || selectedNode.id === centerNode?.id },
   ];
   const mapLayer = useMemo(() => (
     <>
@@ -311,17 +313,32 @@ export function MindMapScreen({ result, onResultChange = () => {}, onBack, onLoc
           if (!from || !to) return null;
           const curve = getEdgeCurve(from, to);
           return (
-            <path
-              key={`${edge.from}-${edge.to}-${index}`}
-              data-mindmap-edge-index={index}
-              d={curve.path}
-              fill="none"
-              stroke={to.line || "#93c5fd"}
-              strokeLinecap="round"
-              strokeWidth="2.2"
-              filter="url(#softShadow)"
-              opacity="0.88"
-            />
+            <g key={`${edge.from}-${edge.to}-${index}`}>
+              <path
+                data-mindmap-edge-index={index}
+                d={curve.path}
+                fill="none"
+                stroke={to.line || "#93c5fd"}
+                strokeLinecap="round"
+                strokeWidth="2.2"
+                filter="url(#softShadow)"
+                opacity="0.88"
+              />
+              <path
+                d={curve.path}
+                fill="none"
+                stroke="transparent"
+                strokeLinecap="round"
+                strokeWidth="12"
+                className="cursor-text"
+                pointerEvents="stroke"
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  startEditingEdgeLabel(edge);
+                }}
+              />
+            </g>
           );
         })}
       </svg>
@@ -330,20 +347,67 @@ export function MindMapScreen({ result, onResultChange = () => {}, onBack, onLoc
         if (isEdgeConnectedToNode(edge, draggedNodeId)) return null;
         const from = displayNodeById.get(edge.from);
         const to = displayNodeById.get(edge.to);
-        if (!from || !to || !hasRelationMetadata(edge)) return null;
+        if (!from || !to) return null;
         const curve = getEdgeCurve(from, to);
+        const label = edge.label || edgeTypeLabel(edge.type) || "关系";
+        const edgeKey = mindMapEdgeKey(edge);
+        const isEditing = editingEdgeKey === edgeKey;
+        if (isEditing) {
+          return (
+            <form
+              key={`editor-${edge.from}-${edge.to}-${index}`}
+              data-mindmap-edge-label-index={index}
+              onSubmit={(event) => {
+                event.preventDefault();
+                commitEdgeLabel(edge);
+              }}
+              onPointerDown={(event) => event.stopPropagation()}
+              className="absolute z-50 flex -translate-x-1/2 -translate-y-1/2 items-center gap-1 rounded-xl border border-blue-200 bg-white/95 p-1 shadow-[0_12px_30px_rgba(37,99,235,0.22)] backdrop-blur"
+              style={{
+                left: `${curve.label.x}%`,
+                top: `${curve.label.y}%`,
+              }}
+            >
+              <input
+                autoFocus
+                value={edgeLabelDraft}
+                onChange={(event) => setEdgeLabelDraft(event.target.value)}
+                className="h-7 w-[112px] rounded-lg border border-slate-200 bg-white px-2 text-[11px] font-semibold text-slate-700 outline-none focus:border-blue-300"
+                aria-label="连线文字"
+              />
+              <button type="submit" className="rounded-lg bg-blue-600 px-2 py-1 text-[10px] font-semibold text-white">
+                保存
+              </button>
+              <button
+                type="button"
+                onClick={() => cancelEdgeLabelEdit()}
+                className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-[10px] font-semibold text-slate-500"
+              >
+                取消
+              </button>
+            </form>
+          );
+        }
         return (
-          <div
+          <button
+            type="button"
             key={`label-${edge.from}-${edge.to}-${index}`}
             data-mindmap-edge-label-index={index}
-            className="pointer-events-none absolute z-[5] -translate-x-1/2 -translate-y-1/2 rounded-full border border-white/90 bg-white/90 px-2 py-0.5 text-[8px] font-semibold tracking-wide text-slate-500 shadow-sm backdrop-blur"
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              startEditingEdgeLabel(edge);
+            }}
+            className="absolute z-[5] -translate-x-1/2 -translate-y-1/2 rounded-full border border-white/90 bg-white/90 px-2 py-0.5 text-[8px] font-semibold tracking-wide text-slate-500 shadow-sm backdrop-blur transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
             style={{
               left: `${curve.label.x}%`,
               top: `${curve.label.y}%`,
             }}
+            aria-label={`编辑连线文字：${label}`}
+            title="点击编辑连线文字"
           >
-            {edge.label || edgeTypeLabel(edge.type)}
-          </div>
+            {label}
+          </button>
         );
       })}
 
@@ -396,7 +460,7 @@ export function MindMapScreen({ result, onResultChange = () => {}, onBack, onLoc
         </div>
       ) : null}
     </>
-  ), [displayCenterNode?.id, displayEdges, displayNodeById, displayNodes, draggedNodeId, hasMap]);
+  ), [displayCenterNode?.id, displayEdges, displayNodeById, displayNodes, draggedNodeId, edgeLabelDraft, editingEdgeKey, hasMap]);
 
   useEffect(() => {
     const androidShell = window.AndroidShell;
@@ -712,6 +776,31 @@ export function MindMapScreen({ result, onResultChange = () => {}, onBack, onLoc
     }
   }
 
+  function startEditingEdgeLabel(edge) {
+    if (!edge?.from || !edge?.to) return;
+
+    setEditingEdgeKey(mindMapEdgeKey(edge));
+    setEdgeLabelDraft(edge.label || edgeTypeLabel(edge.type) || "");
+  }
+
+  function cancelEdgeLabelEdit() {
+    setEditingEdgeKey("");
+    setEdgeLabelDraft("");
+  }
+
+  function commitEdgeLabel(edge) {
+    if (!edge?.from || !edge?.to) return;
+
+    const trimmedLabel = edgeLabelDraft.trim();
+    const edgeIndex = findMindMapEdgeIndex(edges, edge);
+    const nextEdges = edgeIndex >= 0
+      ? edges.map((item, index) => (index === edgeIndex ? { ...item, label: trimmedLabel } : item))
+      : [...edges, { ...edge, label: trimmedLabel }];
+
+    updateMindMap({ edges: nextEdges }, selectedNodeIdRef.current);
+    cancelEdgeLabelEdit();
+  }
+
   function locateSource() {
     if (!detailNode) return;
     window.AndroidShell?.setMindMapLandscape?.(false);
@@ -732,17 +821,19 @@ export function MindMapScreen({ result, onResultChange = () => {}, onBack, onLoc
     });
   }
 
-  function hideBranch() {
+  function deleteNode() {
     if (!selectedNode || selectedNode.id === centerNode?.id) return;
 
-    const hiddenNodeIds = collectDescendantNodeIds(selectedNode.id, edges);
-    hiddenNodeIds.add(selectedNode.id);
+    const ok = window.confirm(`删除「${selectedNode.label || "此节点"}」及其全部子节点？相关连线也会一起删除。`);
+    if (!ok) return;
 
-    const nextNodes = nodes.filter((node) => !hiddenNodeIds.has(node.id));
-    const nextEdges = edges.filter((edge) => !hiddenNodeIds.has(edge.from) && !hiddenNodeIds.has(edge.to));
+    const deletedNodeIds = collectNodeDeletionIds(selectedNode.id, nodes, edges, centerNode?.id);
+
+    const nextNodes = nodes.filter((node) => !deletedNodeIds.has(node.id));
+    const nextEdges = edges.filter((edge) => !deletedNodeIds.has(edge.from) && !deletedNodeIds.has(edge.to));
     setCollapsedNodeIds((current) => {
       const next = new Set(current);
-      hiddenNodeIds.forEach((id) => next.delete(id));
+      deletedNodeIds.forEach((id) => next.delete(id));
       return next;
     });
     updateMindMap({ nodes: nextNodes, edges: nextEdges }, null);
@@ -1092,7 +1183,7 @@ const nodeCoordinateBounds = {
 };
 
 const zoomBounds = {
-  min: 0.45,
+  min: 0.85,
   max: 2.2,
   step: 0.15,
 };
@@ -1451,6 +1542,57 @@ function collectDescendantNodeIds(rootId, edges) {
   }
 
   return collected;
+}
+
+function collectNodeDeletionIds(rootId, nodes, edges, centerNodeId) {
+  const deleted = collectDescendantNodeIds(rootId, edges);
+  deleted.add(rootId);
+
+  let changed = true;
+  while (changed) {
+    changed = false;
+    const remainingNodeIds = new Set(nodes.map((node) => node.id).filter((id) => !deleted.has(id)));
+    const remainingEdges = edges.filter((edge) => !deleted.has(edge.from) && !deleted.has(edge.to));
+    const connectedNodeIds = new Set();
+
+    remainingEdges.forEach((edge) => {
+      connectedNodeIds.add(edge.from);
+      connectedNodeIds.add(edge.to);
+    });
+
+    remainingNodeIds.forEach((nodeId) => {
+      if (nodeId === centerNodeId) return;
+      if (connectedNodeIds.has(nodeId)) return;
+      deleted.add(nodeId);
+      changed = true;
+    });
+  }
+
+  return deleted;
+}
+
+function findMindMapEdgeIndex(edges, targetEdge) {
+  const strictIndex = edges.findIndex((edge) => (
+    edge.from === targetEdge.from &&
+    edge.to === targetEdge.to &&
+    (edge.type || "hierarchy") === (targetEdge.type || "hierarchy") &&
+    (edge.label || "") === (targetEdge.label || "") &&
+    (edge.reason || "") === (targetEdge.reason || "")
+  ));
+
+  if (strictIndex >= 0) return strictIndex;
+
+  return edges.findIndex((edge) => edge.from === targetEdge.from && edge.to === targetEdge.to);
+}
+
+function mindMapEdgeKey(edge) {
+  return [
+    edge?.from || "",
+    edge?.to || "",
+    edge?.type || "hierarchy",
+    edge?.label || "",
+    edge?.reason || "",
+  ].join("::");
 }
 
 function clamp(value, min, max) {

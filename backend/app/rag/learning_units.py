@@ -171,10 +171,10 @@ def learning_key_points(unit: LearningUnit) -> list[str]:
 def learning_key_points_for_profile(profile: dict[str, Any], points: list[str], *, title: str = "") -> list[str]:
     labels = profile.get("numberedLabels") or []
     if "enumeration" in profile["roles"] and labels:
-        return dedupe_learning_values(labels, max_items=6 if len(labels) >= 6 else 5)
+        return dedupe_learning_values(labels, max_items=None)
     if profile["material"] != "technical":
         fallback = points or fallback_learning_points_from_title(title, profile)
-        return dedupe_learning_values(fallback, max_items=6 if numbered_series_count(fallback) >= 6 else 5)
+        return dedupe_learning_values(fallback, max_items=None)
     subtype = profile["subtype"]
     if "transfer_method" in profile["roles"]:
         if subtype == "cycle_stealing":
@@ -208,7 +208,7 @@ def learning_key_points_for_profile(profile: dict[str, Any], points: list[str], 
             return ["预处理设置地址和传送长度", "数据传送阶段完成数据块交换", "结束后执行校验和后处理"]
         if subtype == "post_process":
             return ["校验传送数据是否正确", "判断是否继续传送其他数据块", "必要时重新初始化接口或停止外设"]
-    return dedupe_learning_values(points, max_items=5)
+    return dedupe_learning_values(points, max_items=None)
 
 
 def fallback_learning_points_from_title(title: str, profile: dict[str, Any]) -> list[str]:
@@ -218,13 +218,13 @@ def fallback_learning_points_from_title(title: str, profile: dict[str, Any]) -> 
         return []
     if profile["material"] == "politics" and "action" in profile["roles"]:
         parts = [part.strip(" 。；;，,") for part in re.split(r"[，、；;]", cleaned) if part.strip(" 。；;，,")]
-        return parts[:4] or [cleaned]
+        return parts or [cleaned]
     if profile["material"] in {"politics", "exam"}:
         return [cleaned]
     return []
 
 
-def dedupe_learning_values(values: list[str], *, max_items: int) -> list[str]:
+def dedupe_learning_values(values: list[str], *, max_items: int | None) -> list[str]:
     result: list[str] = []
     seen: set[str] = set()
     for value in values:
@@ -233,7 +233,7 @@ def dedupe_learning_values(values: list[str], *, max_items: int) -> list[str]:
         if text and key and key not in seen:
             seen.add(key)
             result.append(text)
-        if len(result) >= max_items:
+        if max_items is not None and len(result) >= max_items:
             break
     return result
 

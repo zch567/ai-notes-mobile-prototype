@@ -3,7 +3,7 @@ import { Card } from "../../components/Card";
 import { regenerateReviewQuestions, submitReviewAnswers } from "../ai/agentApi";
 import { readReviewProgress, saveReviewProgress } from "../../services/localDemoFs";
 
-export function ReviewScreen({ result, onBack, onResultChange }) {
+export function ReviewScreen({ result, onBack, onResultChange, onQuestionsAnswered = () => {} }) {
   const { review } = result;
   const [progress, setProgress] = useState(() => readReviewProgress(result.id));
   const [selectedAnswers, setSelectedAnswers] = useState(() => progress.answers || {});
@@ -14,6 +14,9 @@ export function ReviewScreen({ result, onBack, onResultChange }) {
   const [regenerateError, setRegenerateError] = useState("");
   const [showReviewSet, setShowReviewSet] = useState(false);
   const [reviewSessions, setReviewSessions] = useState(() => normalizeReviewSessions(progress.sessions));
+  const [hasRecordedCurrentQuestions, setHasRecordedCurrentQuestions] = useState(() =>
+    hasSessionForCurrentQuestions(progress.sessions || [], review.questions),
+  );
   const hasQuestions = review.questions.length > 0;
   const answerableQuestions = review.questions.filter(isChoiceQuestion);
   const questionResults = assessment?.questionResults || buildLocalQuestionResults(review.questions, selectedAnswers);
@@ -69,6 +72,10 @@ export function ReviewScreen({ result, onBack, onResultChange }) {
     setReviewSessions(sessionsWithLocal);
     setProgress(localProgress);
     saveReviewProgress(result.id, localProgress);
+    if (!hasRecordedCurrentQuestions) {
+      onQuestionsAnswered(localResults.filter((item) => item.hasAnswer).length);
+      setHasRecordedCurrentQuestions(true);
+    }
 
     setIsSubmitting(true);
     setSubmitError("");
@@ -152,6 +159,7 @@ export function ReviewScreen({ result, onBack, onResultChange }) {
       };
       setSelectedAnswers({});
       setAssessment(null);
+      setHasRecordedCurrentQuestions(false);
       setProgress(nextProgress);
       saveReviewProgress(result.id, nextProgress);
       onResultChange?.(nextResult);

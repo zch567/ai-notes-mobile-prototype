@@ -547,52 +547,20 @@ export function NoteDetailScreen({
                 <div
                   key={result.id}
                   ref={noteDocumentRef}
-                  className="min-h-[340px] rounded-[26px] border border-slate-200 bg-white/86 px-4 py-4 text-[15px] leading-8 text-slate-700"
+                  className="min-h-[340px] text-[15px] leading-8 text-slate-700"
                   aria-label="整篇笔记正文"
                 >
-                  {result.notes.map((block) => (
-                    <section
-                      key={block.id}
-                      data-note-id={block.id}
-                      className="mb-6 last:mb-0"
-                      style={{ paddingLeft: `${Math.min(Math.max(block.level - 1, 0), 3) * 16}px` }}
-                    >
-                      <h2 data-note-title className="mb-2 text-[16px] font-semibold tracking-tight text-slate-900">
-                        {block.title}
-                      </h2>
-                      <SemanticNoteDetails note={block} />
-                      <p className="whitespace-pre-wrap text-[15px] leading-8 text-slate-700">
-                        <span data-note-content>{block.content}</span>
-                        {settings.showCitations && block.citationIds.length ? (
-                          <span contentEditable={false} className="ml-1.5 inline-flex flex-wrap items-center gap-1.5 align-baseline">
-                            {block.citationIds.map((sourceId) => {
-                              const hasSource = sourceById.has(sourceId);
-                              const sourceIndex = result.sources.findIndex((source) => source.id === sourceId);
-                              return (
-                                <button
-                                  key={sourceId}
-                                  type="button"
-                                  data-source-id={sourceId}
-                                  disabled={!hasSource}
-                                  onClick={(event) => toggleSource(sourceId, event.currentTarget)}
-                                  className={`inline-flex h-6 min-w-6 items-center justify-center rounded-full border px-1.5 text-[11px] font-semibold leading-none transition ${
-                                    !hasSource
-                                      ? "cursor-not-allowed border-amber-200 bg-amber-50 text-amber-600"
-                                      : activeSourceId === sourceId
-                                        ? "border-slate-900 bg-slate-900 text-white"
-                                        : "border-slate-300 bg-white text-slate-600"
-                                  }`}
-                                  title={hasSource ? `引用 ${sourceId}` : `引用 ${sourceId} 缺少对应 sources`}
-                                  aria-label={hasSource ? `引用 ${sourceId}` : `引用 ${sourceId} 缺少对应来源`}
-                                >
-                                  {sourceIndex >= 0 ? sourceIndex + 1 : "?"}
-                                </button>
-                              );
-                            })}
-                          </span>
-                        ) : null}
-                      </p>
-                    </section>
+                  {result.notes.map((note, index) => (
+                    <LearningNoteCard
+                      key={note.id}
+                      note={note}
+                      index={index}
+                      settings={settings}
+                      sourceById={sourceById}
+                      result={result}
+                      activeSourceId={activeSourceId}
+                      toggleSource={toggleSource}
+                    />
                   ))}
                 </div>
               ) : (
@@ -821,6 +789,86 @@ function NoteFreeEditor({ draft, onUpdateNote, onAddNote, onDeleteNote }) {
         + 新增笔记小节
       </button>
     </div>
+  );
+}
+
+function LearningNoteCard({ note, index, settings, sourceById, result, activeSourceId, toggleSource }) {
+  const keyPoints = Array.isArray(note.keyPoints) ? note.keyPoints.filter(Boolean) : [];
+  const citationIds = Array.isArray(note.citationIds) ? note.citationIds : [];
+
+  return (
+    <section
+      data-note-id={note.id}
+      className="mb-5 rounded-[22px] border border-slate-200 bg-white px-4 py-4 shadow-sm last:mb-0"
+      style={{ paddingLeft: `${Math.min(Math.max((note.level || 1) - 1, 0), 3) * 16 + 16}px` }}
+    >
+      <div className="mb-3 flex items-start gap-3">
+        <span className="mt-1 shrink-0 rounded-full border border-blue-100 bg-blue-50 px-2 py-0.5 text-[11px] font-semibold text-blue-600">
+          NOTE {index + 1}
+        </span>
+        <h2 data-note-title className="text-[17px] font-semibold leading-7 text-slate-950">
+          {note.title}
+        </h2>
+      </div>
+
+      {note.summary ? (
+        <section className="mb-3 rounded-[16px] border border-blue-100 bg-blue-50/70 px-3 py-3">
+          <p className="text-[12px] font-semibold text-blue-600">概要</p>
+          <p className="mt-1 text-[14px] leading-7 text-blue-950">{note.summary}</p>
+        </section>
+      ) : null}
+
+      {note.content ? (
+        <section className="mb-3">
+          <p className="text-[12px] font-semibold text-slate-500">解释内容</p>
+          <p className="mt-1 whitespace-pre-wrap text-[15px] leading-8 text-slate-700">
+            <span data-note-content>{note.content}</span>
+            {settings.showCitations && citationIds.length ? (
+              <span contentEditable={false} className="ml-1.5 inline-flex flex-wrap items-center gap-1.5 align-baseline">
+                {citationIds.map((sourceId) => {
+                  const hasSource = sourceById.has(sourceId);
+                  const sourceIndex = result.sources.findIndex((source) => source.id === sourceId);
+                  return (
+                    <button
+                      key={sourceId}
+                      type="button"
+                      data-source-id={sourceId}
+                      disabled={!hasSource}
+                      onClick={(event) => toggleSource(sourceId, event.currentTarget)}
+                      className={`inline-flex h-6 min-w-6 items-center justify-center rounded-full border px-1.5 text-[11px] font-semibold leading-none transition ${
+                        !hasSource
+                          ? "cursor-not-allowed border-amber-200 bg-amber-50 text-amber-600"
+                          : activeSourceId === sourceId
+                            ? "border-slate-900 bg-slate-900 text-white"
+                            : "border-slate-300 bg-white text-slate-600"
+                      }`}
+                      title={hasSource ? `引用 ${sourceId}` : `引用 ${sourceId} 缺少对应 sources`}
+                      aria-label={hasSource ? `引用 ${sourceId}` : `引用 ${sourceId} 缺少对应来源`}
+                    >
+                      {sourceIndex >= 0 ? sourceIndex + 1 : "?"}
+                    </button>
+                  );
+                })}
+              </span>
+            ) : null}
+          </p>
+        </section>
+      ) : null}
+
+      {keyPoints.length ? (
+        <section className="rounded-[16px] border border-slate-200 bg-slate-50 px-3 py-3">
+          <p className="text-[12px] font-semibold text-slate-500">要点</p>
+          <ul className="mt-2 space-y-1.5 text-[14px] leading-7 text-slate-700">
+            {keyPoints.map((point, pointIndex) => (
+              <li key={`${point}-${pointIndex}`} className="flex gap-2">
+                <span className="mt-[11px] h-1.5 w-1.5 shrink-0 rounded-full bg-blue-500" />
+                <span>{point}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+    </section>
   );
 }
 

@@ -25,3 +25,24 @@ def test_invalid_source_link_is_rejected():
     raw["notes"][0]["citationIds"] = ["missing"]
     with pytest.raises(ValueError):
         normalize_agent_result(raw)
+
+
+def test_core_summary_mindmap_node_is_merged_into_center_topic():
+    raw = minimal_result()
+    raw["topic"] = "操作系统"
+    raw["mindMap"] = {
+        "nodes": [
+            {"id": "root", "label": "操作系统", "desc": "中心主题"},
+            {"id": "summary", "label": "本章核心考点总结", "desc": "与中心主题重复"},
+            {"id": "process", "label": "进程管理"},
+        ],
+        "edges": [
+            {"from": "root", "to": "summary"},
+            {"from": "summary", "to": "process"},
+        ],
+    }
+
+    result = normalize_agent_result(raw)
+
+    assert [node["id"] for node in result["mindMap"]["nodes"]] == ["root", "process"]
+    assert [(edge["from"], edge["to"]) for edge in result["mindMap"]["edges"]] == [("root", "process")]
