@@ -2,18 +2,27 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Card } from "../../components/Card";
 import { TopBar } from "../../components/TopBar";
 import { isWebViewShell } from "../../services/appShellMode";
+import { FolderSelect, LibraryFolderBar, filterRecordsByFolder, getFolderName } from "../library/LibraryFolders";
 
 export function MindMapLibraryScreen({
   result,
   history = [],
+  folders = [],
+  activeFolderId,
   onOpenMap,
   onSelectHistory = () => {},
   onPinHistory = () => {},
   onDeleteHistory = () => {},
+  onMoveHistory = () => {},
+  onSelectFolder = () => {},
+  onCreateFolder = () => {},
+  onRenameFolder = () => {},
+  onDeleteFolder = () => {},
 }) {
   const [query, setQuery] = useState("");
   const records = history.length ? history : [createFallbackRecord(result)];
-  const filteredRecords = useMemo(() => filterMapRecords(records, query), [records, query]);
+  const folderRecords = useMemo(() => filterRecordsByFolder(records, activeFolderId), [records, activeFolderId]);
+  const filteredRecords = useMemo(() => filterMapRecords(folderRecords, query), [folderRecords, query]);
   const hasQuery = query.trim().length > 0;
 
   return (
@@ -41,6 +50,16 @@ export function MindMapLibraryScreen({
         </div>
       </div>
 
+      <LibraryFolderBar
+        folders={folders}
+        records={records}
+        activeFolderId={activeFolderId}
+        onSelectFolder={onSelectFolder}
+        onCreateFolder={onCreateFolder}
+        onRenameFolder={onRenameFolder}
+        onDeleteFolder={onDeleteFolder}
+      />
+
       <div className="px-5">
         <Card title={hasQuery ? `搜索结果 ${filteredRecords.length}` : "历史导图"} subtitle="Mind Maps">
           {filteredRecords.length ? (
@@ -54,6 +73,8 @@ export function MindMapLibraryScreen({
                 onSelectHistory={onSelectHistory}
                 onPinHistory={onPinHistory}
                 onDeleteHistory={onDeleteHistory}
+                folders={folders}
+                onMoveHistory={onMoveHistory}
               />
               ))}
             </div>
@@ -62,24 +83,16 @@ export function MindMapLibraryScreen({
           )}
         </Card>
       </div>
-
-      <div className="px-5">
-        <Card title="导图说明" subtitle="Usage">
-          <div className="space-y-3 text-[13px] leading-6 text-slate-600">
-            <p>导图目录现在会读取本地历史资产，同一批资料可在笔记库和导图目录中同步置顶或删除。</p>
-            <p>点击具体导图后进入横屏画布，适合录屏展示节点关系和知识点详情。</p>
-          </div>
-        </Card>
-      </div>
     </div>
   );
 }
 
-function HistoryMapCard({ record, totalCount, onOpenMap, onSelectHistory, onPinHistory, onDeleteHistory }) {
+function HistoryMapCard({ record, totalCount, folders, onOpenMap, onSelectHistory, onPinHistory, onDeleteHistory, onMoveHistory }) {
   const result = record.agentResult || {};
   const nodeCount = result.mindMap?.nodes?.length || 0;
   const isPinned = Boolean(record.flags?.pinned);
   const canDelete = totalCount > 1;
+  const folderName = getFolderName(folders, record.folderId);
 
   function deleteRecord() {
     if (!canDelete) return;
@@ -93,6 +106,7 @@ function HistoryMapCard({ record, totalCount, onOpenMap, onSelectHistory, onPinH
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap gap-2">
             {isPinned ? <MapTag tone="amber">置顶</MapTag> : null}
+            <MapTag tone="blue">{folderName}</MapTag>
           </div>
           <h2 className="mt-3 line-clamp-2 text-[18px] font-semibold leading-6 text-slate-900">{result.topic || "未命名导图"}</h2>
           <p className="mt-2 line-clamp-2 text-[13px] leading-5 text-slate-500">{result.summary || "暂无摘要"}</p>
@@ -102,21 +116,22 @@ function HistoryMapCard({ record, totalCount, onOpenMap, onSelectHistory, onPinH
         </span>
       </div>
 
-      <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+      <div className="mt-4 flex flex-col gap-3">
         <p className="text-[12px] text-slate-400">{formatDate(record.updatedAt)}</p>
-        <div className="flex shrink-0 gap-2">
+        <FolderSelect folders={folders} value={record.folderId} onChange={(folderId) => onMoveHistory(record.id, folderId)} />
+        <div className="grid w-full grid-cols-3 gap-2">
           <button
             type="button"
             onClick={() => onOpenMap(record.id)}
             disabled={!nodeCount}
-            className="rounded-2xl bg-blue-600 px-3 py-2 text-[12px] font-semibold text-white disabled:bg-slate-300"
+            className="min-w-0 rounded-2xl bg-blue-600 px-2 py-2 text-[12px] font-semibold text-white disabled:bg-slate-300"
           >
             进入导图
           </button>
           <button
             type="button"
             onClick={() => onPinHistory(record.id, !isPinned)}
-            className="rounded-2xl border border-blue-100 bg-white px-3 py-2 text-[12px] font-semibold text-blue-700"
+            className="min-w-0 rounded-2xl border border-blue-100 bg-white px-2 py-2 text-[12px] font-semibold text-blue-700"
           >
             {isPinned ? "取消置顶" : "置顶"}
           </button>
@@ -124,7 +139,7 @@ function HistoryMapCard({ record, totalCount, onOpenMap, onSelectHistory, onPinH
             type="button"
             onClick={deleteRecord}
             disabled={!canDelete}
-            className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-[12px] font-semibold text-slate-500 disabled:text-slate-300"
+            className="min-w-0 rounded-2xl border border-slate-200 bg-white px-2 py-2 text-[12px] font-semibold text-slate-500 disabled:text-slate-300"
           >
             删除
           </button>
@@ -150,6 +165,7 @@ function createFallbackRecord(result) {
     sourceType: "generated",
     updatedAt: new Date().toISOString(),
     active: true,
+    folderId: "",
     flags: { pinned: false, archived: false },
     agentResult: result,
   };
