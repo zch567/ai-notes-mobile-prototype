@@ -7,7 +7,7 @@ import { InputScreen } from "../features/ai/InputScreen";
 import { LoadingScreen } from "../features/ai/LoadingScreen";
 import { ResultScreen } from "../features/ai/ResultScreen";
 import { runAgent } from "../features/ai/agentApi";
-import { HomeScreen } from "../features/home/HomeScreen";
+import { HomeScreen } from "../features/home/HomeScreenCalendar";
 import { MindMapLibraryScreen, MindMapScreen } from "../features/mindmap/MindMapScreen";
 import { NoteDetailScreen } from "../features/notes/NoteDetailScreen";
 import { NotesScreen } from "../features/notes/NotesScreen";
@@ -16,17 +16,26 @@ import { ProfileScreen } from "../features/profile/ProfileScreen";
 import { isWebViewShell } from "../services/appShellMode";
 import {
   activateAgentResult,
+  addLearningDuration,
+  createAgentFolder,
+  deleteAgentFolder,
   deleteAgentResultRecord,
   initializeLocalDemoFs,
+  readAgentFolders,
   readActiveAgentResult,
   readAgentResultHistory,
   readInputDraft,
+  readLearningLog,
   readNoteSettings,
+  recordLearningAction,
+  renameAgentFolder,
   saveActiveAgentResult,
   saveInputDraft,
   saveNoteSettings,
+  setAgentResultFolder,
   setAgentResultPinned,
 } from "../services/localDemoFs";
+import { ALL_FOLDERS_ID } from "../features/library/LibraryFolders";
 
 const RUNNING_AGENT_STAGES = [
   {
@@ -69,6 +78,9 @@ export default function App() {
   const [agentStatus, setAgentStatus] = useState(AGENT_STATUS.IDLE);
   const [agentResult, setAgentResult] = useState(initialAgentResult);
   const [resultHistory, setResultHistory] = useState(() => readAgentResultHistory());
+  const [folders, setFolders] = useState(() => readAgentFolders());
+  const [activeFolderId, setActiveFolderId] = useState(ALL_FOLDERS_ID);
+  const [learningLog, setLearningLog] = useState(() => readLearningLog());
   const [inputDraft, setInputDraft] = useState(() => readInputDraft());
   const [noteSettings, setNoteSettings] = useState(() => readNoteSettings(initialAgentResult.id));
   const [pendingSourceId, setPendingSourceId] = useState(null);
@@ -87,6 +99,17 @@ export default function App() {
     saveNoteSettings(agentResult.id, noteSettings);
   }, [agentResult.id, noteSettings]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+
+    const intervalId = window.setInterval(() => {
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+      setLearningLog(addLearningDuration(30));
+    }, 30000);
+
+    return () => window.clearInterval(intervalId);
+  }, []);
+
   async function handleRunAgent(input) {
     setError("");
     setAgentJob(createInitialAgentJob());
@@ -99,6 +122,7 @@ export default function App() {
       setAgentResult(result);
       saveActiveAgentResult(result);
       setResultHistory(readAgentResultHistory());
+      setLearningLog(recordLearningAction("generate"));
       setAgentJob(null);
       setAgentStatus(AGENT_STATUS.SUCCESS);
     } catch (err) {
@@ -137,6 +161,28 @@ export default function App() {
     setResultHistory(setAgentResultPinned(resultId, pinned));
   }
 
+  function handleMoveHistoryResult(resultId, folderId) {
+    setResultHistory(setAgentResultFolder(resultId, folderId));
+  }
+
+  function handleCreateFolder(name) {
+    const nextFolders = createAgentFolder(name);
+    setFolders(nextFolders);
+  }
+
+  function handleRenameFolder(folderId, name) {
+    setFolders(renameAgentFolder(folderId, name));
+  }
+
+  function handleDeleteFolder(folderId) {
+    const nextState = deleteAgentFolder(folderId);
+    setFolders(nextState.folders);
+    setResultHistory(nextState.history);
+    if (activeFolderId === folderId) {
+      setActiveFolderId(ALL_FOLDERS_ID);
+    }
+  }
+
   function handleDeleteHistoryResult(resultId) {
     const deletion = deleteAgentResultRecord(resultId);
     setAgentResult(deletion.activeResult);
@@ -157,6 +203,7 @@ export default function App() {
   function openNote(target) {
     setPendingSourceId(getPrimarySourceId(target));
     if (target && typeof target !== "object") selectHistoryResult(target);
+    setLearningLog(recordLearningAction("read"));
     setDetailView(DETAIL_VIEWS.NOTE);
     setNav("notes");
   }
@@ -168,6 +215,7 @@ export default function App() {
   }
 
   function openReview() {
+    setLearningLog(recordLearningAction("review"));
     setDetailView(DETAIL_VIEWS.REVIEW);
     setNav("notes");
   }
@@ -178,6 +226,9 @@ export default function App() {
     agentStatus,
     agentResult,
     resultHistory,
+    folders,
+    activeFolderId,
+    learningLog,
     agentJob,
     error,
     handleRunAgent,
@@ -187,6 +238,11 @@ export default function App() {
     selectHistoryResult,
     handlePinHistoryResult,
     handleDeleteHistoryResult,
+    handleMoveHistoryResult,
+    setActiveFolderId,
+    handleCreateFolder,
+    handleRenameFolder,
+    handleDeleteFolder,
     setDetailView,
     setNav,
     setAgentStatus,
@@ -371,6 +427,9 @@ function getScreen({
   agentStatus,
   agentResult,
   resultHistory,
+  folders,
+  activeFolderId,
+  learningLog,
   agentJob,
   error,
   handleRunAgent,
@@ -380,6 +439,11 @@ function getScreen({
   selectHistoryResult,
   handlePinHistoryResult,
   handleDeleteHistoryResult,
+  handleMoveHistoryResult,
+  setActiveFolderId,
+  handleCreateFolder,
+  handleRenameFolder,
+  handleDeleteFolder,
   setDetailView,
   setNav,
   setAgentStatus,
@@ -415,7 +479,7 @@ function getScreen({
   }
 
   if (nav === "home") {
-    return <HomeScreen result={agentResult} onStart={() => setNav("ai")} onOpenNote={openNote} />;
+    return <HomeScreen result={agentResult} learningLog={learningLog} onStart={() => setNav("ai")} onOpenNote={openNote} />;
   }
 
   if (nav === "notes") {
@@ -423,10 +487,17 @@ function getScreen({
       <NotesScreen
         result={agentResult}
         history={resultHistory}
+        folders={folders}
+        activeFolderId={activeFolderId}
         onOpenNote={openNote}
         onSelectHistory={selectHistoryResult}
         onPinHistory={handlePinHistoryResult}
         onDeleteHistory={handleDeleteHistoryResult}
+        onMoveHistory={handleMoveHistoryResult}
+        onSelectFolder={setActiveFolderId}
+        onCreateFolder={handleCreateFolder}
+        onRenameFolder={handleRenameFolder}
+        onDeleteFolder={handleDeleteFolder}
       />
     );
   }
@@ -436,10 +507,17 @@ function getScreen({
       <MindMapLibraryScreen
         result={agentResult}
         history={resultHistory}
+        folders={folders}
+        activeFolderId={activeFolderId}
         onOpenMap={openMindMap}
         onSelectHistory={selectHistoryResult}
         onPinHistory={handlePinHistoryResult}
         onDeleteHistory={handleDeleteHistoryResult}
+        onMoveHistory={handleMoveHistoryResult}
+        onSelectFolder={setActiveFolderId}
+        onCreateFolder={handleCreateFolder}
+        onRenameFolder={handleRenameFolder}
+        onDeleteFolder={handleDeleteFolder}
       />
     );
   }

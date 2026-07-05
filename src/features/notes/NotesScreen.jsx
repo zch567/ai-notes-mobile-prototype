@@ -2,18 +2,27 @@ import { useMemo, useState } from "react";
 import { Card } from "../../components/Card";
 import { TopBar } from "../../components/TopBar";
 import { deriveAgentResultInsights } from "../ai/agentTypes";
+import { FolderSelect, LibraryFolderBar, filterRecordsByFolder, getFolderName } from "../library/LibraryFolders";
 
 export function NotesScreen({
   result,
   history = [],
+  folders = [],
+  activeFolderId,
   onOpenNote,
   onSelectHistory = () => {},
   onPinHistory = () => {},
   onDeleteHistory = () => {},
+  onMoveHistory = () => {},
+  onSelectFolder = () => {},
+  onCreateFolder = () => {},
+  onRenameFolder = () => {},
+  onDeleteFolder = () => {},
 }) {
   const [query, setQuery] = useState("");
   const records = history.length ? history : [createFallbackRecord(result)];
-  const filteredRecords = useMemo(() => filterRecords(records, query), [records, query]);
+  const folderRecords = useMemo(() => filterRecordsByFolder(records, activeFolderId), [records, activeFolderId]);
+  const filteredRecords = useMemo(() => filterRecords(folderRecords, query), [folderRecords, query]);
   const hasQuery = query.trim().length > 0;
 
   return (
@@ -40,6 +49,16 @@ export function NotesScreen({
         </div>
       </div>
 
+      <LibraryFolderBar
+        folders={folders}
+        records={records}
+        activeFolderId={activeFolderId}
+        onSelectFolder={onSelectFolder}
+        onCreateFolder={onCreateFolder}
+        onRenameFolder={onRenameFolder}
+        onDeleteFolder={onDeleteFolder}
+      />
+
       <div className="px-5">
         <Card title={hasQuery ? `搜索结果 ${filteredRecords.length}` : "历史笔记"} subtitle="Learning Assets">
           {filteredRecords.length ? (
@@ -53,6 +72,8 @@ export function NotesScreen({
                 onSelectHistory={onSelectHistory}
                 onPinHistory={onPinHistory}
                 onDeleteHistory={onDeleteHistory}
+                folders={folders}
+                onMoveHistory={onMoveHistory}
               />
               ))}
             </div>
@@ -65,10 +86,11 @@ export function NotesScreen({
   );
 }
 
-function HistoryNoteCard({ record, totalCount, onOpenNote, onSelectHistory, onPinHistory, onDeleteHistory }) {
+function HistoryNoteCard({ record, totalCount, folders, onOpenNote, onSelectHistory, onPinHistory, onDeleteHistory, onMoveHistory }) {
   const { assetSummary } = deriveAgentResultInsights(record.agentResult);
   const isPinned = Boolean(record.flags?.pinned);
   const canDelete = totalCount > 1;
+  const folderName = getFolderName(folders, record.folderId);
 
   function deleteRecord() {
     if (!canDelete) return;
@@ -82,26 +104,28 @@ function HistoryNoteCard({ record, totalCount, onOpenNote, onSelectHistory, onPi
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap gap-2">
             {isPinned ? <Tag tone="amber">置顶</Tag> : null}
+            <Tag tone="blue">{folderName}</Tag>
           </div>
           <h3 className="mt-3 line-clamp-2 text-[17px] font-semibold leading-6 text-slate-900">{assetSummary.topic}</h3>
           <p className="mt-2 line-clamp-2 text-[13px] leading-5 text-slate-500">{assetSummary.summary}</p>
         </div>
       </div>
 
-      <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+      <div className="mt-4 flex flex-col gap-3">
         <p className="text-[12px] text-slate-400">{formatDate(record.updatedAt)}</p>
-        <div className="flex shrink-0 gap-2">
+        <FolderSelect folders={folders} value={record.folderId} onChange={(folderId) => onMoveHistory(record.id, folderId)} />
+        <div className="grid w-full grid-cols-3 gap-2">
           <button
             type="button"
             onClick={() => onOpenNote(record.id)}
-            className="rounded-2xl bg-blue-600 px-3 py-2 text-[12px] font-semibold text-white"
+            className="min-w-0 rounded-2xl bg-blue-600 px-2 py-2 text-[12px] font-semibold text-white"
           >
             查看
           </button>
           <button
             type="button"
             onClick={() => onPinHistory(record.id, !isPinned)}
-            className="rounded-2xl border border-blue-100 bg-white px-3 py-2 text-[12px] font-semibold text-blue-700"
+            className="min-w-0 rounded-2xl border border-blue-100 bg-white px-2 py-2 text-[12px] font-semibold text-blue-700"
           >
             {isPinned ? "取消置顶" : "置顶"}
           </button>
@@ -109,7 +133,7 @@ function HistoryNoteCard({ record, totalCount, onOpenNote, onSelectHistory, onPi
             type="button"
             onClick={deleteRecord}
             disabled={!canDelete}
-            className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-[12px] font-semibold text-slate-500 disabled:text-slate-300"
+            className="min-w-0 rounded-2xl border border-slate-200 bg-white px-2 py-2 text-[12px] font-semibold text-slate-500 disabled:text-slate-300"
           >
             删除
           </button>
@@ -135,6 +159,7 @@ function createFallbackRecord(result) {
     sourceType: "generated",
     updatedAt: new Date().toISOString(),
     active: true,
+    folderId: "",
     flags: { pinned: false, archived: false },
     agentResult: result,
   };

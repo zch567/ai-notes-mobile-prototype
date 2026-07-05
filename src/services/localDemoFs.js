@@ -11,6 +11,8 @@ const STORAGE_KEYS = {
   inputDraft: `${STORAGE_PREFIX}inputDraft`,
   noteSettings: `${STORAGE_PREFIX}noteSettings`,
   reviewProgress: `${STORAGE_PREFIX}reviewProgress`,
+  folders: `${STORAGE_PREFIX}folders`,
+  learningLog: `${STORAGE_PREFIX}learningLog`,
 };
 
 const defaultInputDraft = {
@@ -25,12 +27,25 @@ const defaultNoteSettings = {
   autoSave: true,
 };
 
+const defaultLearningLog = {
+  generatedNotes: 0,
+  readNotes: 0,
+  reviewSessions: 0,
+  totalStudySeconds: 0,
+  dailyRecords: {},
+  lastAction: "",
+  lastActionAt: null,
+  updatedAt: null,
+};
+
 export function initializeLocalDemoFs() {
   if (!canUseStorage()) return;
 
   const meta = readJSON(STORAGE_KEYS.meta, null);
   if (meta?.schemaVersion === SCHEMA_VERSION) {
     ensureInitialAgentResult(meta);
+    ensureAgentFolders();
+    ensureLearningLog();
     return;
   }
 
@@ -48,6 +63,11 @@ export function initializeLocalDemoFs() {
   });
   writeJSON(STORAGE_KEYS.noteSettings, {});
   writeJSON(STORAGE_KEYS.reviewProgress, {});
+  writeJSON(STORAGE_KEYS.folders, []);
+  writeJSON(STORAGE_KEYS.learningLog, {
+    ...defaultLearningLog,
+    updatedAt: now(),
+  });
 }
 
 export function readActiveAgentResult() {
@@ -77,6 +97,24 @@ export function readAgentResultHistory() {
   }));
 }
 
+export function readAgentFolders() {
+  initializeLocalDemoFs();
+  const folders = normalizeFolders(readJSON(STORAGE_KEYS.folders, []));
+
+  if (JSON.stringify(folders) !== JSON.stringify(readJSON(STORAGE_KEYS.folders, []))) {
+    writeJSON(STORAGE_KEYS.folders, folders);
+  }
+
+  return folders;
+}
+
+export function readLearningLog() {
+  initializeLocalDemoFs();
+  const log = normalizeLearningLog(readJSON(STORAGE_KEYS.learningLog, defaultLearningLog));
+  writeJSON(STORAGE_KEYS.learningLog, log);
+  return log;
+}
+
 function ensureInitialAgentResult(meta) {
   const results = readJSON(STORAGE_KEYS.results, []);
   if (Array.isArray(results) && results.length > 0) return;
@@ -87,6 +125,21 @@ function ensureInitialAgentResult(meta) {
     ...(meta || {}),
     schemaVersion: SCHEMA_VERSION,
     activeResultId: seedRecord.id,
+    updatedAt: now(),
+  });
+}
+
+function ensureAgentFolders() {
+  const folders = readJSON(STORAGE_KEYS.folders, null);
+  if (Array.isArray(folders)) return;
+  writeJSON(STORAGE_KEYS.folders, []);
+}
+
+function ensureLearningLog() {
+  const log = readJSON(STORAGE_KEYS.learningLog, null);
+  if (log && typeof log === "object") return;
+  writeJSON(STORAGE_KEYS.learningLog, {
+    ...defaultLearningLog,
     updatedAt: now(),
   });
 }
@@ -145,6 +198,98 @@ export function setAgentResultPinned(resultId, pinned) {
 
   writeJSON(STORAGE_KEYS.results, nextRecords);
   return readAgentResultHistory();
+}
+
+export function setAgentResultFolder(resultId, folderId) {
+  if (!canUseStorage() || !resultId) return readAgentResultHistory();
+
+  const folders = readAgentFolders();
+  const normalizedFolderId = String(folderId || "");
+  const nextFolderId = normalizedFolderId && folders.some((folder) => folder.id === normalizedFolderId)
+    ? normalizedFolderId
+    : "";
+  const records = normalizeResultRecords(readJSON(STORAGE_KEYS.results, []));
+  const nextRecords = sortResultRecords(records.map((record) => (
+    record.id === resultId
+      ? {
+          ...record,
+          folderId: nextFolderId,
+          updatedAt: now(),
+        }
+      : record
+  )));
+
+  writeJSON(STORAGE_KEYS.results, nextRecords);
+  return readAgentResultHistory();
+}
+
+export function createAgentFolder(name) {
+  if (!canUseStorage()) return readAgentFolders();
+
+  const folders = readAgentFolders();
+  const trimmedName = normalizeFolderName(name);
+  if (!trimmedName) return folders;
+
+  const existing = folders.find((folder) => folder.name === trimmedName);
+  if (existing) return folders;
+
+  const nextFolders = sortFolders([
+    ...folders,
+    {
+      id: createFolderId(trimmedName, folders),
+      name: trimmedName,
+      createdAt: now(),
+      updatedAt: now(),
+    },
+  ]);
+  writeJSON(STORAGE_KEYS.folders, nextFolders);
+  return nextFolders;
+}
+
+export function renameAgentFolder(folderId, name) {
+  if (!canUseStorage() || !folderId) return readAgentFolders();
+
+  const folders = readAgentFolders();
+  const trimmedName = normalizeFolderName(name);
+  if (!trimmedName) return folders;
+  if (folders.some((folder) => folder.id !== folderId && folder.name === trimmedName)) return folders;
+
+  const nextFolders = sortFolders(folders.map((folder) => (
+    folder.id === folderId
+      ? {
+          ...folder,
+          name: trimmedName,
+          updatedAt: now(),
+        }
+      : folder
+  )));
+  writeJSON(STORAGE_KEYS.folders, nextFolders);
+  return nextFolders;
+}
+
+export function deleteAgentFolder(folderId) {
+  if (!canUseStorage() || !folderId) {
+    return {
+      folders: readAgentFolders(),
+      history: readAgentResultHistory(),
+    };
+  }
+
+  const folders = readAgentFolders().filter((folder) => folder.id !== folderId);
+  const records = normalizeResultRecords(readJSON(STORAGE_KEYS.results, []));
+  const nextRecords = sortResultRecords(records.map((record) => (
+    record.folderId === folderId
+      ? { ...record, folderId: "", updatedAt: now() }
+      : record
+  )));
+
+  writeJSON(STORAGE_KEYS.folders, folders);
+  writeJSON(STORAGE_KEYS.results, nextRecords);
+
+  return {
+    folders: readAgentFolders(),
+    history: readAgentResultHistory(),
+  };
 }
 
 export function deleteAgentResultRecord(resultId) {
@@ -272,6 +417,7 @@ function createResultRecord(agentResult, sourceType, existingRecord = null) {
     createdAt: existingRecord?.createdAt || timestamp,
     updatedAt: timestamp,
     agentResult: normalized,
+    folderId: existingRecord?.folderId || "",
     flags: {
       pinned: Boolean(existingRecord?.flags?.pinned),
       archived: Boolean(existingRecord?.flags?.archived),
@@ -292,6 +438,7 @@ function normalizeResultRecords(records) {
         createdAt: String(record?.createdAt || timestamp),
         updatedAt: String(record?.updatedAt || record?.createdAt || timestamp),
         agentResult,
+        folderId: String(record?.folderId || ""),
         flags: {
           pinned: Boolean(record?.flags?.pinned),
           archived: Boolean(record?.flags?.archived),
@@ -299,6 +446,144 @@ function normalizeResultRecords(records) {
       };
     })
     .filter((record) => record.id);
+}
+
+export function recordLearningAction(action, amount = 1) {
+  if (!canUseStorage()) return normalizeLearningLog(defaultLearningLog);
+
+  const current = normalizeLearningLog(readJSON(STORAGE_KEYS.learningLog, defaultLearningLog));
+  const increment = Math.max(1, Number(amount) || 1);
+  const timestamp = now();
+  const dayKey = toDateKey(new Date(timestamp));
+  const dailyRecord = normalizeDailyRecord(current.dailyRecords[dayKey]);
+  const nextLog = {
+    ...current,
+    dailyRecords: {
+      ...current.dailyRecords,
+      [dayKey]: {
+        ...dailyRecord,
+        updatedAt: timestamp,
+      },
+    },
+    updatedAt: timestamp,
+    lastActionAt: timestamp,
+  };
+
+  if (action === "generate") {
+    nextLog.generatedNotes += increment;
+    nextLog.dailyRecords[dayKey].generatedNotes += increment;
+    nextLog.lastAction = "生成笔记";
+  } else if (action === "read") {
+    nextLog.readNotes += increment;
+    nextLog.dailyRecords[dayKey].readNotes += increment;
+    nextLog.lastAction = "阅读笔记";
+  } else if (action === "review") {
+    nextLog.reviewSessions += increment;
+    nextLog.dailyRecords[dayKey].reviewSessions += increment;
+    nextLog.lastAction = "进入复习";
+  }
+
+  writeJSON(STORAGE_KEYS.learningLog, nextLog);
+  return nextLog;
+}
+
+export function addLearningDuration(seconds) {
+  if (!canUseStorage()) return normalizeLearningLog(defaultLearningLog);
+
+  const current = normalizeLearningLog(readJSON(STORAGE_KEYS.learningLog, defaultLearningLog));
+  const duration = Math.max(0, Math.min(Number(seconds) || 0, 3600));
+  const timestamp = now();
+  const dayKey = toDateKey(new Date(timestamp));
+  const dailyRecord = normalizeDailyRecord(current.dailyRecords[dayKey]);
+  const nextLog = {
+    ...current,
+    totalStudySeconds: current.totalStudySeconds + duration,
+    dailyRecords: {
+      ...current.dailyRecords,
+      [dayKey]: {
+        ...dailyRecord,
+        totalStudySeconds: dailyRecord.totalStudySeconds + duration,
+        updatedAt: timestamp,
+      },
+    },
+    updatedAt: timestamp,
+  };
+
+  writeJSON(STORAGE_KEYS.learningLog, nextLog);
+  return nextLog;
+}
+
+function normalizeFolders(folders) {
+  return sortFolders((Array.isArray(folders) ? folders : [])
+    .map((folder) => ({
+      id: String(folder?.id || "").trim(),
+      name: normalizeFolderName(folder?.name),
+      createdAt: String(folder?.createdAt || now()),
+      updatedAt: String(folder?.updatedAt || folder?.createdAt || now()),
+    }))
+    .filter((folder) => folder.id && folder.name));
+}
+
+function normalizeLearningLog(log) {
+  const dailyRecords = Object.fromEntries(
+    Object.entries(log?.dailyRecords && typeof log.dailyRecords === "object" ? log.dailyRecords : {})
+      .map(([key, record]) => [key, normalizeDailyRecord(record)])
+      .filter(([key]) => /^\d{4}-\d{2}-\d{2}$/.test(key))
+  );
+
+  return {
+    ...defaultLearningLog,
+    ...(log || {}),
+    generatedNotes: Math.max(0, Number(log?.generatedNotes) || 0),
+    readNotes: Math.max(0, Number(log?.readNotes) || 0),
+    reviewSessions: Math.max(0, Number(log?.reviewSessions) || 0),
+    totalStudySeconds: Math.max(0, Number(log?.totalStudySeconds) || 0),
+    dailyRecords,
+    lastAction: String(log?.lastAction || ""),
+    lastActionAt: log?.lastActionAt || null,
+    updatedAt: log?.updatedAt || null,
+  };
+}
+
+function normalizeDailyRecord(record) {
+  return {
+    generatedNotes: Math.max(0, Number(record?.generatedNotes) || 0),
+    readNotes: Math.max(0, Number(record?.readNotes) || 0),
+    reviewSessions: Math.max(0, Number(record?.reviewSessions) || 0),
+    totalStudySeconds: Math.max(0, Number(record?.totalStudySeconds) || 0),
+    updatedAt: record?.updatedAt || null,
+  };
+}
+
+function toDateKey(date) {
+  const safeDate = Number.isNaN(date?.getTime?.()) ? new Date() : date;
+  const year = safeDate.getFullYear();
+  const month = String(safeDate.getMonth() + 1).padStart(2, "0");
+  const day = String(safeDate.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function sortFolders(folders) {
+  return [...folders].sort((a, b) => a.name.localeCompare(b.name, "zh-Hans-CN"));
+}
+
+function normalizeFolderName(name) {
+  return String(name || "").trim().slice(0, 18);
+}
+
+function createFolderId(name, folders) {
+  const base = normalizeFolderName(name)
+    .toLocaleLowerCase()
+    .replace(/[^a-z0-9\u4e00-\u9fa5]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "folder";
+  const ids = new Set(folders.map((folder) => folder.id));
+  let id = `folder-${base}`;
+  let index = 2;
+  while (ids.has(id)) {
+    id = `folder-${base}-${index}`;
+    index += 1;
+  }
+  return id;
 }
 
 function sortResultRecords(records) {
