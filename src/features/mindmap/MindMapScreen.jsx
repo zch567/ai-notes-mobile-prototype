@@ -3,60 +3,226 @@ import { Card } from "../../components/Card";
 import { TopBar } from "../../components/TopBar";
 import { isWebViewShell } from "../../services/appShellMode";
 
-export function MindMapLibraryScreen({ result, onOpenMap }) {
-  const nodeCount = result.mindMap.nodes.length;
-  const edgeCount = result.mindMap.edges.length;
-  const savedMaps = [
-    {
-      id: result.id || "current-map",
-      title: result.topic,
-      summary: result.summary,
-      meta: `${nodeCount} 个节点 · ${edgeCount} 条连线`,
-      status: nodeCount ? "可打开" : "待生成",
-    },
-  ];
+export function MindMapLibraryScreen({
+  result,
+  history = [],
+  onOpenMap,
+  onSelectHistory = () => {},
+  onPinHistory = () => {},
+  onDeleteHistory = () => {},
+}) {
+  const [query, setQuery] = useState("");
+  const records = history.length ? history : [createFallbackRecord(result)];
+  const filteredRecords = useMemo(() => filterMapRecords(records, query), [records, query]);
+  const hasQuery = query.trim().length > 0;
 
   return (
     <div className="space-y-5 pb-6">
-      <TopBar title="导图目录" subtitle="查看已保存的知识导图" />
+      <TopBar title="导图目录" subtitle="查看历史学习资产中的知识导图" />
 
       <div className="px-5">
-        <Card title="已保存导图" subtitle="Mind Maps">
-          <div className="space-y-3">
-            {savedMaps.map((item) => (
-              <button
-                key={item.id}
-                onClick={onOpenMap}
-                className="w-full rounded-[28px] border border-slate-200 bg-slate-50 p-4 text-left transition hover:border-blue-200 hover:bg-white"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="text-[12px] font-semibold uppercase tracking-[0.18em] text-slate-400">当前结果</p>
-                    <h2 className="mt-2 text-[18px] font-semibold tracking-tight text-slate-900">{item.title}</h2>
-                    <p className="mt-2 line-clamp-2 text-[13px] leading-5 text-slate-500">{item.summary}</p>
-                  </div>
-                  <span className="shrink-0 rounded-full bg-blue-50 px-3 py-1 text-[12px] font-semibold text-blue-600">
-                    {item.status}
-                  </span>
-                </div>
-                <div className="mt-4 flex items-center justify-between rounded-2xl bg-white px-3 py-2 text-[12px] font-semibold text-slate-500">
-                  <span>{item.meta}</span>
-                  <span className="text-blue-600">进入横屏</span>
-                </div>
-              </button>
-            ))}
-          </div>
+        <div className="flex w-full items-center gap-3 rounded-3xl border border-slate-200 bg-white px-4 py-3 text-left shadow-sm">
+          <span className="text-slate-400">⌕</span>
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="搜索导图、节点或主题..."
+            className="min-w-0 flex-1 bg-transparent text-[15px] text-slate-700 outline-none placeholder:text-slate-400"
+          />
+          {hasQuery ? (
+            <button
+              type="button"
+              onClick={() => setQuery("")}
+              className="shrink-0 rounded-full bg-slate-100 px-2.5 py-1 text-[12px] font-semibold text-slate-500"
+            >
+              清除
+            </button>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="px-5">
+        <Card title={hasQuery ? `搜索结果 ${filteredRecords.length}` : "历史导图"} subtitle="Mind Maps">
+          {filteredRecords.length ? (
+            <div className="space-y-3">
+              {filteredRecords.map((record) => (
+              <HistoryMapCard
+                key={record.id}
+                record={record}
+                totalCount={records.length}
+                onOpenMap={onOpenMap}
+                onSelectHistory={onSelectHistory}
+                onPinHistory={onPinHistory}
+                onDeleteHistory={onDeleteHistory}
+              />
+              ))}
+            </div>
+          ) : (
+            <EmptyMapSearch query={query} onClear={() => setQuery("")} />
+          )}
         </Card>
       </div>
 
       <div className="px-5">
         <Card title="导图说明" subtitle="Usage">
           <div className="space-y-3 text-[13px] leading-6 text-slate-600">
-            <p>导图目录用于承载后续多份学习资料生成的知识图谱。当前阶段先展示最近一次 AgentResult 生成的导图。</p>
+            <p>导图目录现在会读取本地历史资产，同一批资料可在笔记库和导图目录中同步置顶或删除。</p>
             <p>点击具体导图后进入横屏画布，适合录屏展示节点关系和知识点详情。</p>
           </div>
         </Card>
       </div>
+    </div>
+  );
+}
+
+function HistoryMapCard({ record, totalCount, onOpenMap, onSelectHistory, onPinHistory, onDeleteHistory }) {
+  const result = record.agentResult || {};
+  const nodeCount = result.mindMap?.nodes?.length || 0;
+  const isPinned = Boolean(record.flags?.pinned);
+  const canDelete = totalCount > 1;
+
+  function deleteRecord() {
+    if (!canDelete) return;
+    const ok = window.confirm(`删除「${result.topic || "未命名导图"}」？对应笔记和复习记录也会从本地历史中移除。`);
+    if (ok) onDeleteHistory(record.id);
+  }
+
+  return (
+    <article className={`rounded-[28px] border bg-slate-50 p-4 shadow-sm ${record.active ? "border-blue-200 bg-blue-50/50" : "border-slate-200"}`}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap gap-2">
+            {record.active ? <MapTag tone="blue">当前</MapTag> : null}
+            {isPinned ? <MapTag tone="amber">置顶</MapTag> : null}
+            <MapTag>{sourceTypeLabel(record.sourceType)}</MapTag>
+          </div>
+          <h2 className="mt-3 line-clamp-2 text-[18px] font-semibold leading-6 text-slate-900">{result.topic || "未命名导图"}</h2>
+          <p className="mt-2 line-clamp-2 text-[13px] leading-5 text-slate-500">{result.summary || "暂无摘要"}</p>
+        </div>
+        <span className="shrink-0 rounded-full bg-blue-50 px-3 py-1 text-[12px] font-semibold text-blue-600">
+          {nodeCount ? "可打开" : "待生成"}
+        </span>
+      </div>
+
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+        <p className="text-[12px] text-slate-400">{formatDate(record.updatedAt)}</p>
+        <div className="flex shrink-0 gap-2">
+          <button
+            type="button"
+            onClick={() => onOpenMap(record.id)}
+            disabled={!nodeCount}
+            className="rounded-2xl bg-blue-600 px-3 py-2 text-[12px] font-semibold text-white disabled:bg-slate-300"
+          >
+            进入导图
+          </button>
+          <button
+            type="button"
+            onClick={() => onPinHistory(record.id, !isPinned)}
+            className="rounded-2xl border border-blue-100 bg-white px-3 py-2 text-[12px] font-semibold text-blue-700"
+          >
+            {isPinned ? "取消置顶" : "置顶"}
+          </button>
+          <button
+            type="button"
+            onClick={deleteRecord}
+            disabled={!canDelete}
+            className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-[12px] font-semibold text-slate-500 disabled:text-slate-300"
+          >
+            删除
+          </button>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function MapTag({ children, tone = "slate" }) {
+  const classes = {
+    blue: "bg-blue-100 text-blue-700",
+    amber: "bg-amber-100 text-amber-700",
+    slate: "bg-white text-slate-500 ring-1 ring-slate-200",
+  };
+
+  return <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${classes[tone]}`}>{children}</span>;
+}
+
+function createFallbackRecord(result) {
+  return {
+    id: result?.id || "current-map",
+    sourceType: "generated",
+    updatedAt: new Date().toISOString(),
+    active: true,
+    flags: { pinned: false, archived: false },
+    agentResult: result,
+  };
+}
+
+function sourceTypeLabel(sourceType) {
+  return {
+    seed: "示例",
+    generated: "生成",
+    fallback: "演示",
+    "local-edit": "已编辑",
+  }[sourceType] || "历史";
+}
+
+function formatDate(value) {
+  if (!value) return "刚刚更新";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "刚刚更新";
+  return `${date.getMonth() + 1}/${date.getDate()} ${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
+function filterMapRecords(records, query) {
+  const normalizedQuery = normalizeMapSearchText(query);
+  if (!normalizedQuery) return records;
+
+  return records.filter((record) => collectMapSearchText(record).includes(normalizedQuery));
+}
+
+function collectMapSearchText(record) {
+  const result = record?.agentResult || {};
+  const parts = [
+    record?.title,
+    record?.summary,
+    sourceTypeLabel(record?.sourceType),
+    result.topic,
+    result.summary,
+    ...(result.keywords || []),
+    ...(result.mindMap?.nodes || []).flatMap((node) => [node.label, node.desc, node.detail]),
+    ...(result.mindMap?.edges || []).flatMap((edge) => [edge.label, edge.type, edge.reason]),
+    ...(result.notes || []).flatMap((note) => [
+      note.title,
+      note.content,
+      ...(note.blocks || []).flatMap((block) => [block.title, block.text, block.content]),
+    ]),
+    ...(result.review?.questions || []).flatMap((question) => [
+      question.question,
+      question.answer,
+      ...(question.options || []),
+      ...(question.explanation ? [question.explanation] : []),
+    ]),
+  ];
+
+  return normalizeMapSearchText(parts.filter(Boolean).join(" "));
+}
+
+function normalizeMapSearchText(value) {
+  return String(value || "").trim().toLocaleLowerCase();
+}
+
+function EmptyMapSearch({ query, onClear }) {
+  return (
+    <div className="rounded-[24px] border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center">
+      <p className="text-[14px] font-semibold text-slate-700">没有找到相关导图</p>
+      <p className="mt-2 text-[12px] leading-5 text-slate-400">当前搜索词：{query}</p>
+      <button
+        type="button"
+        onClick={onClear}
+        className="mt-4 rounded-2xl bg-white px-4 py-2 text-[12px] font-semibold text-blue-700 ring-1 ring-blue-100"
+      >
+        清除搜索
+      </button>
     </div>
   );
 }

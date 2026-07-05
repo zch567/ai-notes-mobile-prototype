@@ -74,8 +74,8 @@ class AgentService:
             progress,
             "generate",
             42,
-            "生成笔记",
-            "Agent 正在围绕主题、摘要和核心知识点生成结构化笔记。",
+            "正在调用大模型生成笔记",
+            "后端正在调用已配置的大模型，围绕主题、摘要和核心知识点生成结构化笔记。",
         )
         if pipeline == "hybrid":
             draft, agent_meta = self.agent.generate(

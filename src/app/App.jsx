@@ -16,13 +16,17 @@ import { ProfileScreen } from "../features/profile/ProfileScreen";
 import { ShowcaseScreen } from "../features/showcase/ShowcaseScreen";
 import { isWebViewShell } from "../services/appShellMode";
 import {
+  activateAgentResult,
+  deleteAgentResultRecord,
   initializeLocalDemoFs,
   readActiveAgentResult,
+  readAgentResultHistory,
   readInputDraft,
   readNoteSettings,
   saveActiveAgentResult,
   saveInputDraft,
   saveNoteSettings,
+  setAgentResultPinned,
 } from "../services/localDemoFs";
 
 const RUNNING_AGENT_STAGES = [
@@ -38,8 +42,8 @@ const RUNNING_AGENT_STAGES = [
   },
   {
     id: "generate",
-    label: "生成笔记",
-    text: "Agent 正在围绕主题、摘要和核心知识点生成结构化笔记。",
+    label: "正在调用大模型生成笔记",
+    text: "后端正在调用已配置的大模型，围绕主题、摘要和核心知识点生成结构化笔记。",
   },
   {
     id: "ground",
@@ -65,6 +69,7 @@ export default function App() {
   const [detailView, setDetailView] = useState(null);
   const [agentStatus, setAgentStatus] = useState(AGENT_STATUS.IDLE);
   const [agentResult, setAgentResult] = useState(initialAgentResult);
+  const [resultHistory, setResultHistory] = useState(() => readAgentResultHistory());
   const [inputDraft, setInputDraft] = useState(() => readInputDraft());
   const [noteSettings, setNoteSettings] = useState(() => readNoteSettings(initialAgentResult.id));
   const [agentJob, setAgentJob] = useState(null);
@@ -93,12 +98,14 @@ export default function App() {
       const result = await runAgent(input, { onProgress: setAgentJob });
       setAgentResult(result);
       saveActiveAgentResult(result);
+      setResultHistory(readAgentResultHistory());
       setAgentJob(null);
       setAgentStatus(AGENT_STATUS.SUCCESS);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Agent 调用失败");
       setAgentResult(demoAgentResult);
       saveActiveAgentResult(demoAgentResult, "fallback");
+      setResultHistory(readAgentResultHistory());
       setAgentJob(null);
       setAgentStatus(AGENT_STATUS.ERROR);
     }
@@ -111,8 +118,32 @@ export default function App() {
         : nextResultOrUpdater;
 
       saveActiveAgentResult(nextResult, "local-edit");
+      setResultHistory(readAgentResultHistory());
       return nextResult;
     });
+  }
+
+  function selectHistoryResult(resultId) {
+    if (!resultId || resultId === agentResult.id) return agentResult;
+
+    const nextResult = activateAgentResult(resultId);
+    setAgentResult(nextResult);
+    setResultHistory(readAgentResultHistory());
+    setAgentStatus(AGENT_STATUS.SUCCESS);
+    return nextResult;
+  }
+
+  function handlePinHistoryResult(resultId, pinned) {
+    setResultHistory(setAgentResultPinned(resultId, pinned));
+  }
+
+  function handleDeleteHistoryResult(resultId) {
+    const deletion = deleteAgentResultRecord(resultId);
+    setAgentResult(deletion.activeResult);
+    setResultHistory(deletion.history);
+    if (resultId === agentResult.id) {
+      setDetailView(null);
+    }
   }
 
   function handleNav(next) {
@@ -123,9 +154,16 @@ export default function App() {
     }
   }
 
-  function openNote() {
+  function openNote(resultId) {
+    if (resultId) selectHistoryResult(resultId);
     setDetailView(DETAIL_VIEWS.NOTE);
     setNav("notes");
+  }
+
+  function openMindMap(resultId) {
+    if (resultId) selectHistoryResult(resultId);
+    setDetailView(DETAIL_VIEWS.MINDMAP);
+    setNav("mindmap");
   }
 
   function openReview() {
@@ -138,11 +176,16 @@ export default function App() {
     detailView,
     agentStatus,
     agentResult,
+    resultHistory,
     agentJob,
     error,
     handleRunAgent,
     openNote,
+    openMindMap,
     openReview,
+    selectHistoryResult,
+    handlePinHistoryResult,
+    handleDeleteHistoryResult,
     setDetailView,
     setNav,
     setAgentStatus,
@@ -292,7 +335,7 @@ function createInitialAgentJob() {
 
 function GenerationFloatingStatus({ job, onOpen, showBottomNav, isWebView }) {
   const progress = Math.round(Math.min(Math.max(Number(job?.progress || 0), 0), 100));
-  const label = job?.label || "正在生成笔记";
+  const label = job?.label || "正在调用大模型生成笔记";
   const text = job?.text || "可以暂时离开此界面，完成后可回到 AI 页查看结果。";
   const bottom = showBottomNav
     ? isWebView
@@ -324,11 +367,16 @@ function getScreen({
   detailView,
   agentStatus,
   agentResult,
+  resultHistory,
   agentJob,
   error,
   handleRunAgent,
   openNote,
+  openMindMap,
   openReview,
+  selectHistoryResult,
+  handlePinHistoryResult,
+  handleDeleteHistoryResult,
   setDetailView,
   setNav,
   setAgentStatus,
@@ -364,11 +412,29 @@ function getScreen({
   }
 
   if (nav === "notes") {
-    return <NotesScreen result={agentResult} onOpenNote={openNote} />;
+    return (
+      <NotesScreen
+        result={agentResult}
+        history={resultHistory}
+        onOpenNote={openNote}
+        onSelectHistory={selectHistoryResult}
+        onPinHistory={handlePinHistoryResult}
+        onDeleteHistory={handleDeleteHistoryResult}
+      />
+    );
   }
 
   if (nav === "mindmap") {
-    return <MindMapLibraryScreen result={agentResult} onOpenMap={() => setDetailView(DETAIL_VIEWS.MINDMAP)} />;
+    return (
+      <MindMapLibraryScreen
+        result={agentResult}
+        history={resultHistory}
+        onOpenMap={openMindMap}
+        onSelectHistory={selectHistoryResult}
+        onPinHistory={handlePinHistoryResult}
+        onDeleteHistory={handleDeleteHistoryResult}
+      />
+    );
   }
 
   if (nav === "showcase") {
@@ -377,8 +443,7 @@ function getScreen({
         result={agentResult}
         onOpenNote={openNote}
         onOpenMindMap={() => {
-          setNav("mindmap");
-          setDetailView(DETAIL_VIEWS.MINDMAP);
+          openMindMap();
         }}
         onRunAgent={() => {
           setNav("ai");
