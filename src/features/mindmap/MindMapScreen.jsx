@@ -92,9 +92,7 @@ function HistoryMapCard({ record, totalCount, onOpenMap, onSelectHistory, onPinH
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap gap-2">
-            {record.active ? <MapTag tone="blue">当前</MapTag> : null}
             {isPinned ? <MapTag tone="amber">置顶</MapTag> : null}
-            <MapTag>{sourceTypeLabel(record.sourceType)}</MapTag>
           </div>
           <h2 className="mt-3 line-clamp-2 text-[18px] font-semibold leading-6 text-slate-900">{result.topic || "未命名导图"}</h2>
           <p className="mt-2 line-clamp-2 text-[13px] leading-5 text-slate-500">{result.summary || "暂无摘要"}</p>

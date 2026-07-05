@@ -81,9 +81,7 @@ function HistoryNoteCard({ record, totalCount, onOpenNote, onSelectHistory, onPi
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap gap-2">
-            {record.active ? <Tag tone="blue">当前</Tag> : null}
             {isPinned ? <Tag tone="amber">置顶</Tag> : null}
-            <Tag>{sourceTypeLabel(record.sourceType)}</Tag>
           </div>
           <h3 className="mt-3 line-clamp-2 text-[17px] font-semibold leading-6 text-slate-900">{assetSummary.topic}</h3>
           <p className="mt-2 line-clamp-2 text-[13px] leading-5 text-slate-500">{assetSummary.summary}</p>
