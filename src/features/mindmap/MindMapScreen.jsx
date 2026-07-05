@@ -61,7 +61,7 @@ export function MindMapLibraryScreen({ result, onOpenMap }) {
   );
 }
 
-export function MindMapScreen({ result, onResultChange = () => {}, onBack }) {
+export function MindMapScreen({ result, onResultChange = () => {}, onOpenNote = () => {}, onBack }) {
   const { nodes, edges } = result.mindMap;
   const [selectedNodeId, setSelectedNodeId] = useState(null);
   const [zoom, setZoom] = useState(1);
@@ -77,6 +77,8 @@ export function MindMapScreen({ result, onResultChange = () => {}, onBack }) {
   const displayCenterNode = displayNodeById.get(centerNode?.id) || displayNodes[0];
   const displaySelectedNode = selectedNodeId ? displayNodeById.get(selectedNodeId) : null;
   const detailNode = displaySelectedNode || displayCenterNode;
+  const noteIds = useMemo(() => new Set(result.notes.map((note) => note.id)), [result.notes]);
+  const detailNoteId = getRelatedNoteId(detailNode, noteIds);
   const selectedRelations = useMemo(
     () =>
       displayEdges.filter(
@@ -215,6 +217,11 @@ export function MindMapScreen({ result, onResultChange = () => {}, onBack }) {
       return next;
     });
     updateMindMap({ nodes: nextNodes, edges: nextEdges }, null);
+  }
+
+  function openRelatedNote() {
+    if (!detailNoteId) return;
+    onOpenNote(detailNoteId);
   }
 
   return (
@@ -411,9 +418,23 @@ export function MindMapScreen({ result, onResultChange = () => {}, onBack }) {
                     {detailNode?.desc || "查看来源说明、编辑操作和复习线索。"}
                   </p>
                 </div>
-                <button onClick={() => setSelectedNodeId(null)} className="shrink-0 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-semibold text-slate-500">
-                  收起
-                </button>
+                <div className="flex shrink-0 items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={openRelatedNote}
+                    disabled={!detailNoteId}
+                    className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold shadow-sm ${
+                      detailNoteId
+                        ? "border-blue-200 bg-blue-50 text-blue-600"
+                        : "cursor-not-allowed border-slate-100 bg-slate-50 text-slate-300"
+                    }`}
+                  >
+                    定位笔记
+                  </button>
+                  <button onClick={() => setSelectedNodeId(null)} className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-semibold text-slate-500">
+                    收起
+                  </button>
+                </div>
               </div>
 
               <div className="mt-3 grid grid-cols-2 gap-1.5">
@@ -714,6 +735,13 @@ function compactMapText(text, limit = 18) {
 function detailSummary(detail) {
   if (!detail) return "";
   return String(detail).split(/\n+/).find((paragraph) => paragraph.trim())?.trim() || "";
+}
+
+function getRelatedNoteId(node, noteIds) {
+  if (!node) return "";
+  if (node.relatedNoteId && noteIds.has(node.relatedNoteId)) return node.relatedNoteId;
+  if (node.id && noteIds.has(node.id)) return node.id;
+  return "";
 }
 
 function hasRelationMetadata(edge) {
