@@ -61,6 +61,18 @@ export async function chatAgent({ resultId, question, provider, strictProvider =
   });
 }
 
+export async function submitReviewAnswers({ resultId, answers, provider = "lanxin", strictProvider = true }) {
+  return requestJSON("/api/agent/review/submit", {
+    method: "POST",
+    body: JSON.stringify({
+      resultId,
+      answers,
+      provider,
+      strictProvider,
+    }),
+  });
+}
+
 export async function getAgentJob(jobId) {
   return requestJSON(`/api/agent/jobs/${encodeURIComponent(jobId)}`);
 }

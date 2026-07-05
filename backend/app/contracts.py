@@ -159,5 +159,57 @@ class ChatAgentRequest(ExtensibleModel):
         return self
 
 
+class ChatAgentResponse(ExtensibleModel):
+    answer: str
+    used_citations: list[Any] = Field(default_factory=list)
+    related_notes: list[Any] = Field(default_factory=list)
+    is_fully_supported_by_sources: bool = False
+    unsupported_parts: list[Any] = Field(default_factory=list)
+    follow_up_suggestions: list[str] = Field(default_factory=list)
+
+
+class ReviewAnswerItem(ExtensibleModel):
+    questionId: str
+    answer: str
+
+
+class ReviewSubmitRequest(ExtensibleModel):
+    resultId: str
+    answers: list[ReviewAnswerItem] = Field(default_factory=list)
+    provider: str | None = "lanxin"
+    strictProvider: bool = True
+
+    @model_validator(mode="after")
+    def validate_review_submit_request(self) -> "ReviewSubmitRequest":
+        if not self.resultId.strip():
+            raise ValueError("resultId is required")
+        if not self.answers:
+            raise ValueError("answers is required")
+        if self.provider and self.provider != "lanxin":
+            raise ValueError("provider must be 'lanxin'")
+        return self
+
+
+class ReviewQuestionFeedback(ExtensibleModel):
+    questionId: str
+    question: str = ""
+    userAnswer: str = ""
+    correctAnswer: str = ""
+    isCorrect: bool = False
+    explanation: str = ""
+    relatedNoteId: str = ""
+
+
+class ReviewSubmitResponse(ExtensibleModel):
+    resultId: str
+    masteryScore: float = 0
+    correctCount: int = 0
+    totalCount: int = 0
+    questionResults: list[ReviewQuestionFeedback] = Field(default_factory=list)
+    wrongQuestionExplanations: list[dict[str, Any]] = Field(default_factory=list)
+    weakPoints: list[str] = Field(default_factory=list)
+    reviewSuggestions: list[str] = Field(default_factory=list)
+
+
 class ValidateRequest(ExtensibleModel):
     result: dict[str, Any]

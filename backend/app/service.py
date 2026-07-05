@@ -10,9 +10,10 @@ from typing import Any, Callable
 from .adapters import RagPipelineAdapter, SidecarCapabilityAdapter
 from .agents import ModuleAgentOrchestrator
 from .config import settings
-from .contracts import RunAgentRequest
+from .contracts import ReviewAnswerItem, RunAgentRequest
 from .errors import BadRequestError, NotFoundError, ProviderError, ValidationError
 from .normalization import normalize_agent_result, raw_contract_report
+from .provider_config import create_provider
 from .rag.fingerprint import corpus_hash
 from .rag.io_utils import load_chunks
 from .rag.llm_polish import polish_result_with_provider
@@ -199,6 +200,41 @@ class AgentService:
             top_k=top_k,
         )
 
+    def submit_review_answers(
+        self,
+        *,
+        result_id: str,
+        answers: list[ReviewAnswerItem],
+        provider_name: str | None,
+        strict: bool,
+    ) -> dict[str, Any]:
+        result_dir = self._safe_result_dir(result_id)
+        result_path = result_dir / "result.json"
+        chunks_path = result_dir / "chunks.json"
+        if not result_path.exists():
+            raise NotFoundError(result_id)
+        if not chunks_path.exists():
+            raise NotFoundError(f"chunks for result {result_id}")
+
+        result = json.loads(result_path.read_text(encoding="utf-8"))
+        chunks = load_chunks(chunks_path)
+        evaluation = _evaluate_review_answers(result, answers)
+        payload = _review_assessment_payload(result, chunks, evaluation)
+        prompt = _review_assessment_prompt()
+        try:
+            provider = create_provider(provider_name or "lanxin")
+            output, log = provider.generate_module_json("M7_review_assessment", prompt, payload, max_tokens=3072)
+            assessment = _normalize_review_assessment(output, evaluation)
+            assessment.setdefault("_meta", {})["modelLog"] = log.__dict__ if hasattr(log, "__dict__") else dict(log)
+            return assessment
+        except Exception as exc:
+            if strict:
+                raise ProviderError(f"Lanxin review assessment failed: {exc}") from exc
+            assessment = _fallback_review_assessment(evaluation)
+            assessment.setdefault("_meta", {})["fallbackUsed"] = True
+            assessment["_meta"]["error"] = str(exc)
+            return assessment
+
     def get_result(self, result_id: str) -> dict[str, Any]:
         path = self._safe_result_dir(result_id) / "result.json"
         if not path.exists():
@@ -296,3 +332,201 @@ def _report_progress(
         )
     except Exception:
         return
+
+
+def _evaluate_review_answers(result: dict[str, Any], answers: list[ReviewAnswerItem]) -> dict[str, Any]:
+    questions = (result.get("review") or {}).get("questions") or []
+    by_id = {str(question.get("id") or question.get("question_id") or ""): question for question in questions if isinstance(question, dict)}
+    note_by_id = {str(note.get("id") or ""): note for note in result.get("notes", []) if isinstance(note, dict)}
+    answer_items = []
+    for answer in answers:
+        question_id = str(answer.questionId or "")
+        question = by_id.get(question_id)
+        if not question:
+            raise BadRequestError(f"Unknown review questionId: {question_id}")
+        if str(question.get("type") or "") not in {"single-choice", "single_choice"}:
+            raise BadRequestError(f"Only single-choice answers are supported: {question_id}")
+        options = [str(item) for item in question.get("options") or []]
+        correct_answer = _normalize_choice_answer(str(question.get("answer") or ""), options)
+        user_answer = _normalize_choice_answer(str(answer.answer or ""), options)
+        related_note_id = str(question.get("relatedNoteId") or question.get("related_note_id") or "")
+        note = note_by_id.get(related_note_id, {})
+        answer_items.append(
+            {
+                "questionId": question_id,
+                "question": str(question.get("question") or ""),
+                "options": options,
+                "userAnswer": user_answer,
+                "rawUserAnswer": str(answer.answer or ""),
+                "correctAnswer": correct_answer,
+                "isCorrect": _choice_equal(user_answer, correct_answer),
+                "explanation": str(question.get("explanation") or ""),
+                "relatedNoteId": related_note_id,
+                "relatedNoteTitle": str(note.get("title") or ""),
+                "relatedNoteSummary": str(note.get("summary") or note.get("content") or ""),
+                "citationIds": [str(item) for item in question.get("citationIds") or []],
+            }
+        )
+    correct_count = sum(1 for item in answer_items if item["isCorrect"])
+    total_count = len(answer_items)
+    return {
+        "resultId": str(result.get("id") or ""),
+        "topic": str(result.get("topic") or ""),
+        "summary": str(result.get("summary") or ""),
+        "correctCount": correct_count,
+        "totalCount": total_count,
+        "masteryScore": round(correct_count / max(1, total_count) * 100, 1),
+        "questionResults": answer_items,
+        "wrongItems": [item for item in answer_items if not item["isCorrect"]],
+    }
+
+
+def _review_assessment_payload(result: dict[str, Any], chunks: list[Any], evaluation: dict[str, Any]) -> dict[str, Any]:
+    source_by_id = {chunk.id: chunk for chunk in chunks}
+    wrong_with_sources = []
+    for item in evaluation["wrongItems"]:
+        sources = []
+        for source_id in item.get("citationIds") or []:
+            chunk = source_by_id.get(source_id)
+            if chunk:
+                sources.append({"source_id": chunk.id, "source_ref": chunk.sourceRef, "text": chunk.text[:900]})
+        wrong_with_sources.append({**item, "sources": sources})
+    return {
+        "topic": evaluation["topic"],
+        "summary": evaluation["summary"],
+        "mastery_score": evaluation["masteryScore"],
+        "question_results": evaluation["questionResults"],
+        "wrong_questions": wrong_with_sources,
+        "notes": [
+            {
+                "id": note.get("id"),
+                "title": note.get("title"),
+                "summary": note.get("summary") or note.get("content"),
+            }
+            for note in result.get("notes", [])[:12]
+            if isinstance(note, dict)
+        ],
+        "output_schema": {
+            "wrongQuestionExplanations": [
+                {
+                    "questionId": "q1",
+                    "mistakeReason": "为什么错",
+                    "correctThinking": "正确思路",
+                    "knowledgePoint": "对应知识点",
+                    "remediation": "如何补救",
+                }
+            ],
+            "weakPoints": ["知识点"],
+            "reviewSuggestions": ["具体复习动作"],
+        },
+    }
+
+
+def _review_assessment_prompt() -> str:
+    return (
+        "你是模块 M7 学习评估与个性化复习建议。请只根据输入的复习题、用户答案、标准答案、"
+        "关联笔记和来源片段进行错题解析。不要编造资料外知识。返回严格 JSON，字段包括："
+        "wrongQuestionExplanations、weakPoints、reviewSuggestions。"
+        "wrongQuestionExplanations 每项必须包含 questionId、mistakeReason、correctThinking、"
+        "knowledgePoint、remediation。reviewSuggestions 必须具体说明复习什么、为什么复习、怎么复习。"
+    )
+
+
+def _normalize_review_assessment(output: dict[str, Any], evaluation: dict[str, Any]) -> dict[str, Any]:
+    data = output if isinstance(output, dict) else {}
+    explanations = data.get("wrongQuestionExplanations") or data.get("wrong_question_explanations") or data.get("analysis") or []
+    suggestions = data.get("reviewSuggestions") or data.get("review_suggestions") or data.get("suggestions") or []
+    weak_points = data.get("weakPoints") or data.get("weak_points") or []
+    return {
+        "resultId": evaluation["resultId"],
+        "masteryScore": evaluation["masteryScore"],
+        "correctCount": evaluation["correctCount"],
+        "totalCount": evaluation["totalCount"],
+        "questionResults": [
+            {
+                "questionId": item["questionId"],
+                "question": item["question"],
+                "userAnswer": item["userAnswer"],
+                "correctAnswer": item["correctAnswer"],
+                "isCorrect": item["isCorrect"],
+                "explanation": item["explanation"],
+                "relatedNoteId": item["relatedNoteId"],
+            }
+            for item in evaluation["questionResults"]
+        ],
+        "wrongQuestionExplanations": _list_of_dicts(explanations) or _fallback_wrong_explanations(evaluation),
+        "weakPoints": _string_list(weak_points) or _fallback_weak_points(evaluation),
+        "reviewSuggestions": _string_list(suggestions) or _fallback_review_suggestions(evaluation),
+    }
+
+
+def _fallback_review_assessment(evaluation: dict[str, Any]) -> dict[str, Any]:
+    return _normalize_review_assessment({}, evaluation)
+
+
+def _fallback_wrong_explanations(evaluation: dict[str, Any]) -> list[dict[str, str]]:
+    return [
+        {
+            "questionId": item["questionId"],
+            "mistakeReason": "用户答案与标准答案不一致，需要回到关联笔记核对概念边界。",
+            "correctThinking": item.get("explanation") or "先定位题干考察点，再用关联笔记判断正确选项。",
+            "knowledgePoint": item.get("relatedNoteTitle") or item.get("relatedNoteId") or "关联知识点",
+            "remediation": "重读关联笔记，总结正确选项成立的关键词，并对比其他选项为什么不成立。",
+        }
+        for item in evaluation["wrongItems"]
+    ]
+
+
+def _fallback_weak_points(evaluation: dict[str, Any]) -> list[str]:
+    points = [item.get("relatedNoteTitle") or item.get("relatedNoteId") for item in evaluation["wrongItems"]]
+    return [str(item) for item in points if item] or []
+
+
+def _fallback_review_suggestions(evaluation: dict[str, Any]) -> list[str]:
+    if not evaluation["wrongItems"]:
+        return ["本次单选题全部答对，可继续用简答题复述核心概念，检查是否真正理解。"]
+    return [
+        "优先回看错题关联笔记，逐题写出正确选项成立的依据。",
+        "把错误选项和正确选项放在一起比较，标出概念边界、条件和关键词。",
+        "完成订正后再次闭卷作答同类单选题，确认不再依赖选项提示。",
+    ]
+
+
+def _normalize_choice_answer(answer: str, options: list[str]) -> str:
+    value = str(answer or "").strip()
+    if not value:
+        return ""
+    label = value.rstrip(".、:：").upper()
+    if label in {"A", "B", "C", "D"}:
+        index = ord(label) - ord("A")
+        if 0 <= index < len(options):
+            return options[index]
+    for option in options:
+        if value == option or value in option or option in value:
+            return option
+    return value
+
+
+def _choice_equal(left: str, right: str) -> bool:
+    def clean(value: str) -> str:
+        return "".join(ch.lower() for ch in str(value or "") if ch.isalnum() or "\u4e00" <= ch <= "\u9fff")
+
+    return bool(clean(left)) and clean(left) == clean(right)
+
+
+def _list_of_dicts(value: Any) -> list[dict[str, Any]]:
+    return [item for item in value if isinstance(item, dict)] if isinstance(value, list) else []
+
+
+def _string_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    result = []
+    for item in value:
+        if isinstance(item, dict):
+            text = item.get("suggestion") or item.get("text") or item.get("content") or item.get("knowledgePoint")
+        else:
+            text = item
+        if str(text or "").strip():
+            result.append(str(text).strip())
+    return result

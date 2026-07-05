@@ -9,7 +9,16 @@ from pydantic import ValidationError as PydanticValidationError
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import settings
-from .contracts import AgentResult, ChatAgentRequest, RagQueryRequest, RunAgentRequest, ValidateRequest
+from .contracts import (
+    AgentResult,
+    ChatAgentRequest,
+    ChatAgentResponse,
+    RagQueryRequest,
+    ReviewSubmitRequest,
+    ReviewSubmitResponse,
+    RunAgentRequest,
+    ValidateRequest,
+)
 from .errors import BackendError, BadRequestError, NotFoundError, ProviderError, ValidationError
 from .jobs import AgentJobStore
 from .provider_config import ProviderConfig
@@ -165,7 +174,7 @@ def safe_file_stem(value: str) -> str:
     return stem[:80] or "uploaded"
 
 
-@app.post("/api/agent/chat")
+@app.post("/api/agent/chat", response_model=ChatAgentResponse, response_model_by_alias=True)
 def chat_agent(request: ChatAgentRequest) -> dict:
     try:
         return service.chat(
@@ -174,6 +183,19 @@ def chat_agent(request: ChatAgentRequest) -> dict:
             provider_name=request.provider,
             strict=request.strictProvider,
             top_k=request.topK,
+        )
+    except Exception as exc:
+        raise_http_error(exc)
+
+
+@app.post("/api/agent/review/submit", response_model=ReviewSubmitResponse, response_model_by_alias=True)
+def submit_review_answers(request: ReviewSubmitRequest) -> dict:
+    try:
+        return service.submit_review_answers(
+            result_id=request.resultId,
+            answers=request.answers,
+            provider_name=request.provider,
+            strict=request.strictProvider,
         )
     except Exception as exc:
         raise_http_error(exc)
