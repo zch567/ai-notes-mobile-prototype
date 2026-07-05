@@ -195,7 +195,7 @@ Content-Type: application/json
 |---|---|---:|---|
 | `file` | file | 是 | 支持 `.txt`、`.md`、`.doc`、`.docx`、`.pdf`、`.pptx` |
 | `pipeline` | string | 否 | 默认 `hybrid` |
-| `provider` | string | 否 | 当前仅支持 `lanxin`；为空时使用后端配置 |
+| `provider` | string | 否 | 支持任意 OpenAI-compatible provider；为空或 `configured` 时使用后端 `MODEL_PROVIDER` 配置 |
 | `strictProvider` | boolean | 否 | 默认 `true` |
 | `topK` | number | 否 | 引用召回数量，默认 `2` |
 | `sourceTitle` | string | 否 | 前端标题，用于上传文件落盘命名和结果标题修正 |

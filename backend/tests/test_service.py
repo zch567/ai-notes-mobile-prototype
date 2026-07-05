@@ -7,7 +7,6 @@ from pathlib import Path
 import pytest
 from fastapi import UploadFile
 from fastapi.testclient import TestClient
-from pydantic import ValidationError
 
 from app.config import settings
 from app.contracts import ChatAgentRequest, ReviewSubmitRequest, RunAgentRequest
@@ -197,9 +196,18 @@ def test_explicit_lanxin_enables_strict_provider(tmp_path: Path, monkeypatch):
     assert observed == {"provider": "lanxin", "strict": True}
 
 
-def test_mock_provider_is_rejected():
-    with pytest.raises(ValidationError, match="provider must be 'lanxin'"):
-        RunAgentRequest(sourceText="# RAG", pipeline="hybrid", provider="mock")
+def test_custom_provider_is_accepted():
+    request = RunAgentRequest(sourceText="# RAG", pipeline="hybrid", provider="openai")
+    chat_request = ChatAgentRequest(resultId="result-1", question="What is RAG?", provider="deepseek")
+    review_request = ReviewSubmitRequest(
+        resultId="result-1",
+        answers=[{"questionId": "q1", "answer": "A"}],
+        provider="qwen",
+    )
+
+    assert request.provider == "openai"
+    assert chat_request.provider == "deepseek"
+    assert review_request.provider == "qwen"
 
 
 def test_frontend_configured_provider_uses_backend_default():

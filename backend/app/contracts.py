@@ -136,8 +136,6 @@ class RunAgentRequest(ExtensibleModel):
             raise ValueError("filePath or sourceText is required")
         if self.provider == "configured":
             self.provider = None
-        if self.provider and self.provider != "lanxin":
-            raise ValueError("provider must be 'lanxin'")
         return self
 
 
@@ -162,8 +160,6 @@ class ChatAgentRequest(ExtensibleModel):
             raise ValueError("question is required")
         if self.provider == "configured":
             self.provider = None
-        if self.provider and self.provider != "lanxin":
-            raise ValueError("provider must be 'lanxin'")
         return self
 
 
@@ -195,8 +191,6 @@ class ReviewSubmitRequest(ExtensibleModel):
             raise ValueError("answers is required")
         if self.provider == "configured":
             self.provider = None
-        if self.provider and self.provider != "lanxin":
-            raise ValueError("provider must be 'lanxin'")
         return self
 
 
@@ -232,8 +226,8 @@ class ReviewRegenerateRequest(ExtensibleModel):
     def validate_review_regenerate_request(self) -> "ReviewRegenerateRequest":
         if not self.resultId.strip():
             raise ValueError("resultId is required")
-        if self.provider and self.provider != "lanxin":
-            raise ValueError("provider must be 'lanxin'")
+        if self.provider == "configured":
+            self.provider = None
         return self
 
 

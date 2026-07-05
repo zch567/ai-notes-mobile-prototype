@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -113,4 +114,48 @@ def create_provider(requested: str | None = None) -> ModelProvider:
             timeout_seconds=config.model_timeout_seconds,
             retries=config.lanxin_retries,
         )
-    raise ValueError(f"Unsupported provider: {provider_name}. Only 'lanxin' is supported.")
+
+    provider_values = _generic_provider_values(config, provider_name)
+    missing = [key for key in ("api_key", "base_url", "model") if not provider_values[key]]
+    if missing:
+        env_prefix = _provider_env_prefix(provider_name)
+        missing_display = ", ".join(missing)
+        raise RuntimeError(
+            f"{provider_name} is not configured. Missing {missing_display}. "
+            f"Set {env_prefix}_API_KEY, {env_prefix}_BASE_URL and {env_prefix}_MODEL "
+            "or the generic MODEL_API_KEY, MODEL_BASE_URL and MODEL_MODEL."
+        )
+
+    return OpenAICompatibleProvider(
+        name=provider_name,
+        base_url=str(provider_values["base_url"]),
+        api_key=str(provider_values["api_key"]),
+        model=str(provider_values["model"]),
+        timeout_seconds=config.model_timeout_seconds,
+        retries=int(provider_values["retries"] or 0),
+    )
+
+
+def _generic_provider_values(config: ProviderConfig, provider_name: str) -> dict[str, str | int]:
+    file_values = load_key_values(config.secrets_file)
+    env_prefix = _provider_env_prefix(provider_name)
+
+    def value(name: str, default: str = "") -> str:
+        env_value = os.getenv(name)
+        if env_value is not None:
+            return env_value
+        if name in file_values:
+            return file_values[name]
+        return get_backend_env(name, default)
+
+    return {
+        "api_key": value(f"{env_prefix}_API_KEY") or value("MODEL_API_KEY"),
+        "base_url": (value(f"{env_prefix}_BASE_URL") or value("MODEL_BASE_URL")).rstrip("/"),
+        "model": value(f"{env_prefix}_MODEL") or value("MODEL_MODEL") or value("MODEL_NAME"),
+        "retries": int(value(f"{env_prefix}_RETRIES") or value("MODEL_RETRIES", "0")),
+    }
+
+
+def _provider_env_prefix(provider_name: str) -> str:
+    prefix = re.sub(r"[^A-Za-z0-9]+", "_", provider_name).strip("_").upper()
+    return prefix or "MODEL"

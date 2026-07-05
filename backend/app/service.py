@@ -102,7 +102,7 @@ class AgentService:
                 chunks,
                 input_path=input_path,
                 provider_name=request.provider,
-                strict=request.strictProvider or request.provider == "lanxin",
+                strict=request.strictProvider,
             )
             _report_progress(
                 progress,
@@ -115,7 +115,7 @@ class AgentService:
             model_log = agent_meta.get("modelLog")
         elif pipeline == "rag-only":
             result = self.rag.build_deterministic_result(chunks, input_path)
-            if request.provider == "lanxin":
+            if request.provider:
                 try:
                     result, polish_meta = polish_result_with_provider(
                         result,
@@ -126,8 +126,8 @@ class AgentService:
                     model_log = polish_meta.get("modelLog")
                 except Exception as exc:
                     if request.strictProvider:
-                        raise ProviderError(f"Lanxin note polish failed: {exc}") from exc
-                    result.setdefault("warnings", []).append(f"Lanxin note polish fallback used: {exc}")
+                        raise ProviderError(f"Provider note polish failed: {exc}") from exc
+                    result.setdefault("warnings", []).append(f"Provider note polish fallback used: {exc}")
                 _report_progress(
                     progress,
                     "ground",
@@ -183,8 +183,8 @@ class AgentService:
                 result["_meta"]["qualityReview"]["finalGroundingApplied"] = not review_meta.get("skipped")
             except Exception as exc:
                 if request.strictProvider:
-                    raise ProviderError(f"Lanxin quality review failed: {exc}") from exc
-                result.setdefault("warnings", []).append(f"Lanxin quality review fallback used: {exc}")
+                    raise ProviderError(f"Provider quality review failed: {exc}") from exc
+                result.setdefault("warnings", []).append(f"Provider quality review fallback used: {exc}")
                 result.setdefault("_meta", {})["qualityReview"] = {
                     "skipped": True,
                     "reason": "provider-error",
@@ -252,7 +252,7 @@ class AgentService:
             result=result,
             chunks=chunks,
             provider_name=provider_name,
-            strict=strict or provider_name == "lanxin",
+            strict=strict,
             top_k=top_k,
         )
 
@@ -278,14 +278,14 @@ class AgentService:
         payload = _review_assessment_payload(result, chunks, evaluation)
         prompt = _review_assessment_prompt()
         try:
-            provider = create_provider(provider_name or "lanxin")
+            provider = create_provider(provider_name)
             output, log = provider.generate_module_json("M7_review_assessment", prompt, payload, max_tokens=3072)
             assessment = _normalize_review_assessment(output, evaluation)
             assessment.setdefault("_meta", {})["modelLog"] = log.__dict__ if hasattr(log, "__dict__") else dict(log)
             return assessment
         except Exception as exc:
             if strict:
-                raise ProviderError(f"Lanxin review assessment failed: {exc}") from exc
+                raise ProviderError(f"Provider review assessment failed: {exc}") from exc
             assessment = _fallback_review_assessment(evaluation)
             assessment.setdefault("_meta", {})["fallbackUsed"] = True
             assessment["_meta"]["error"] = str(exc)
@@ -315,12 +315,12 @@ class AgentService:
                 result=result,
                 review_history=review_history,
                 provider_name=provider_name,
-                strict=strict or provider_name == "lanxin",
+                strict=strict,
                 question_count=question_count,
             )
         except Exception as exc:
             if strict:
-                raise ProviderError(f"Lanxin review regeneration failed: {exc}") from exc
+                raise ProviderError(f"Provider review regeneration failed: {exc}") from exc
             review = _fallback_regenerated_review(result, review_history)
             meta = {"fallbackUsed": True, "error": str(exc)}
 

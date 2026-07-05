@@ -160,7 +160,7 @@ class FakeModuleProvider:
         return {}, FakeLog(taskType=module)
 
 
-def test_modular_generation_uses_lanxin_provider_for_m6(monkeypatch):
+def test_modular_generation_uses_configured_provider_for_all_modules(monkeypatch):
     calls = []
 
     def fake_create_provider(name=None):
@@ -172,9 +172,25 @@ def test_modular_generation_uses_lanxin_provider_for_m6(monkeypatch):
     _draft, _meta = orchestrator.generate([chunk()], provider_name=None)
 
     providers_by_module = {module: provider for module, provider, _payload in calls}
-    assert providers_by_module["M6"] == "lanxin"
+    assert providers_by_module["M6"] == "default"
     assert providers_by_module["M2"] == "default"
     m6_payload = next(payload for module, _provider, payload in calls if module == "M6")
     assert m6_payload["review_schema"]["quiz"][0]["question_type"] == "single_choice|multiple_choice"
     assert "single_choice" in m6_payload["user_requirement"]
     assert "multiple_choice" in m6_payload["user_requirement"]
+
+
+def test_modular_generation_uses_requested_provider_for_m6(monkeypatch):
+    calls = []
+
+    def fake_create_provider(name=None):
+        return FakeModuleProvider(name or "default", calls)
+
+    monkeypatch.setattr("app.agents.orchestrator.create_provider", fake_create_provider)
+    orchestrator = ModuleAgentOrchestrator()
+
+    _draft, _meta = orchestrator.generate([chunk()], provider_name="openai")
+
+    providers_by_module = {module: provider for module, provider, _payload in calls}
+    assert providers_by_module["M2"] == "openai"
+    assert providers_by_module["M6"] == "openai"

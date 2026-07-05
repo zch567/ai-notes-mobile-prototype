@@ -52,7 +52,7 @@ class ModuleAgentOrchestrator:
         logs: list[dict[str, Any]] = []
 
         for module in MODULE_SEQUENCE:
-            provider = create_provider("lanxin" if module == "M6" else provider_name)
+            provider = create_provider(provider_name)
             prompt = self.registry.get(module)
             payload = build_payload(module, prompt_chunks, outputs)
             output, log = provider.generate_module_json(module, prompt, payload, max_tokens=_module_max_tokens(module))
@@ -131,7 +131,7 @@ class ModuleAgentOrchestrator:
         strict: bool = False,
         question_count: int = 5,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
-        provider = create_provider(provider_name or "lanxin")
+        provider = create_provider(provider_name)
         notes = result.get("notes", [])
         history_summary = summarize_review_history(review_history, current_review=result.get("review") or {})
         payload = build_review_generation_payload(

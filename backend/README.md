@@ -7,7 +7,7 @@
 | 来源 | 后端落点 | 说明 |
 |---|---|---|
 | Week1 Agent 场景 | `app/prompts/`、`app/agents/` | 接入 M1-M7 模块化流程：解析清洗、主题摘要、结构化笔记、思维导图、引用定位、复习题、笔记问答。 |
-| Week2 模型调用 | `app/providers/`、`app/provider_config.py` | 仅保留 `lanxin` Provider。模型调用失败会直接返回错误，不再降级到 mock。 |
+| Week2 模型调用 | `app/providers/`、`app/provider_config.py` | 默认使用 `lanxin`，也支持任意 OpenAI-compatible Provider。模型调用失败会直接返回错误，不再降级到 mock。 |
 | Week2 OCR/Office sidecar | `app/parsers/` | 支持通过 `ocrTextDir`、`officeOcrDir` 合并已有 OCR/Office OCR 文本。 |
 | Week3 RAG | `app/rag/` | 支持结构化解析、分块、Hybrid Retriever、Citation Grounding、AgentResult 构建和校验。 |
 | 前端契约 | `app/contracts.py`、`app/normalization.py` | `/api/agent/run` 返回 `AgentResult/1.0`，兼容 `agent-result-contract.md` 核心字段。 |
@@ -69,6 +69,10 @@ curl http://127.0.0.1:8000/health
 ```text
 MODEL_PROVIDER=lanxin
 BACKEND_SECRETS_FILE=D:\AIGC\api
+MODEL_API_KEY=
+MODEL_BASE_URL=
+MODEL_MODEL=
+MODEL_RETRIES=0
 LANXIN_BASE_URL=https://api-ai.vivo.com.cn/v1
 LANXIN_MODEL=Doubao-Seed-2.0-mini
 MODEL_TIMEOUT_MS=90
@@ -80,6 +84,17 @@ LANXIN_RETRIES=1
 ```text
 LANXIN_API_KEY=your-key
 ```
+
+如果要切换到其它 OpenAI-compatible provider，可以把 `MODEL_PROVIDER` 改为对应名称，并配置通用变量：
+
+```text
+MODEL_PROVIDER=openai
+MODEL_API_KEY=your-key
+MODEL_BASE_URL=https://api.openai.com/v1
+MODEL_MODEL=gpt-4o-mini
+```
+
+也可以使用 provider 专属变量，例如 `OPENAI_API_KEY`、`OPENAI_BASE_URL`、`OPENAI_MODEL`。后端会优先读取专属变量，再回退到通用 `MODEL_*` 变量。
 
 交付时不要提交 `.env`、`api` 或任何真实密钥；让队友在自己的电脑上配置 Key。前端构建命令已接入 `scripts/check_no_secret_leak.mjs`，会扫描 `dist` / `dist-webview` 并在发现 Key 内容、`.env` 或 `api` 文件进入产物时失败。
 
