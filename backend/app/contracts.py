@@ -211,5 +211,21 @@ class ReviewSubmitResponse(ExtensibleModel):
     reviewSuggestions: list[str] = Field(default_factory=list)
 
 
+class ReviewRegenerateRequest(ExtensibleModel):
+    resultId: str
+    reviewHistory: list[dict[str, Any]] = Field(default_factory=list)
+    provider: str | None = "lanxin"
+    strictProvider: bool = True
+    questionCount: int = Field(default=5, ge=3, le=8)
+
+    @model_validator(mode="after")
+    def validate_review_regenerate_request(self) -> "ReviewRegenerateRequest":
+        if not self.resultId.strip():
+            raise ValueError("resultId is required")
+        if self.provider and self.provider != "lanxin":
+            raise ValueError("provider must be 'lanxin'")
+        return self
+
+
 class ValidateRequest(ExtensibleModel):
     result: dict[str, Any]

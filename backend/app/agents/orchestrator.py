@@ -122,6 +122,39 @@ class ModuleAgentOrchestrator:
         }
         return response
 
+    def regenerate_review(
+        self,
+        *,
+        result: dict[str, Any],
+        review_history: list[dict[str, Any]],
+        provider_name: str | None = None,
+        strict: bool = False,
+        question_count: int = 5,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        provider = create_provider(provider_name or "lanxin")
+        notes = result.get("notes", [])
+        history_summary = summarize_review_history(review_history, current_review=result.get("review") or {})
+        payload = build_review_generation_payload(
+            notes,
+            topic=result.get("topic"),
+            summary=result.get("summary"),
+            history_summary=history_summary,
+            question_count=question_count,
+        )
+        output, log = provider.generate_module_json("M6", self.registry.get("M6"), payload, max_tokens=_module_max_tokens("M6"))
+        review = normalize_review(output.get("review") if isinstance(output, dict) and isinstance(output.get("review"), dict) else output, notes)
+        review.setdefault("_meta", {})["regenerated"] = True
+        review["_meta"]["historyAware"] = True
+        review["_meta"]["strategy"] = payload["adaptive_review_strategy"]
+        return review, {
+            "agentMode": "modular-review-regeneration",
+            "agentModule": "M6_review_generation",
+            "promptSource": self.registry.source,
+            "modelLog": asdict(log),
+            "historySummary": history_summary,
+            "strategy": payload["adaptive_review_strategy"],
+        }
+
 
 def _module_max_tokens(module: str) -> int:
     limits = {"M2": 4096, "M3": 8192, "M4": 6144, "M6": 4096}
@@ -227,32 +260,153 @@ def build_payload(
             ),
         }
     if module == "M6":
-        return {
-            **language_policy,
-            "notes": _compact_notes_for_prompt(outputs.get("M3", {}).get("notes", [])),
-            "user_requirement": (
-                "Generate exactly 5 choice questions: 3 single_choice and 2 multiple_choice. "
-                "Each question must have 4 options. single_choice has exactly 1 correct answer; "
-                "multiple_choice has at least 2 correct answers. "
-                "If the material is insufficient for multiple_choice, generate all 5 as single_choice."
-            ),
-            "review_schema": {
-                "quiz": [
-                    {
-                        "question_id": "1",
-                        "question_type": "single_choice|multiple_choice",
-                        "question": "question stem",
-                        "options": ["A. option", "B. option", "C. option", "D. option"],
-                        "answer": "single: correct option letter/text; multiple: array or comma-separated letters/text",
-                        "explanation": "explanation",
-                        "related_note_id": "matching note_id from notes",
-                    }
-                ]
-            },
-            "citations": [],
-            "grounding_policy": "citations_are_rebuilt_by_backend_M5",
-        }
+        return build_review_generation_payload(outputs.get("M3", {}).get("notes", []), **language_policy)
     return {"chunks": chunks}
+
+
+def build_review_generation_payload(
+    notes: Any,
+    *,
+    topic: Any = None,
+    summary: Any = None,
+    history_summary: dict[str, Any] | None = None,
+    question_count: int = 5,
+    **language_policy: Any,
+) -> dict[str, Any]:
+    compact_notes = _compact_notes_for_prompt(notes)
+    history = history_summary or {
+        "attemptCount": 0,
+        "previousQuestionStems": [],
+        "weakPoints": [],
+        "reviewSuggestions": [],
+        "masteryTrend": [],
+    }
+    adaptive_strategy = _adaptive_review_strategy(history, question_count)
+    return {
+        **language_policy,
+        "topic": topic,
+        "summary": summary,
+        "notes": compact_notes,
+        "review_history_summary": history,
+        "adaptive_review_strategy": adaptive_strategy,
+        "user_requirement": (
+            f"Generate exactly {question_count} choice questions. Prefer 3 single_choice and 2 multiple_choice when question_count is 5. "
+            "Each question must have 4 options. single_choice has exactly 1 correct answer; "
+            "multiple_choice has at least 2 correct answers. If the material is insufficient for multiple_choice, use single_choice. "
+            "At least 60% of questions must be application, scenario, transfer, comparison, error-diagnosis, or procedure-use questions. "
+            "Do not merely ask definitions such as 'what is X' unless needed for a known weak point. "
+            "Avoid repeating previousQuestionStems or the same option pattern from review_history_summary. "
+            "Use weakPoints and wrongQuestionExplanations to decide what to retest, and raise difficulty when masteryTrend is high."
+        ),
+        "review_schema": {
+            "quiz": [
+                {
+                    "question_id": "1",
+                    "question_type": "single_choice|multiple_choice",
+                    "skill": "application|error_diagnosis|comparison|procedure|concept_check",
+                    "difficulty": "easy|medium|hard",
+                    "question": "scenario/application question stem",
+                    "options": ["A. option", "B. option", "C. option", "D. option"],
+                    "answer": "single: correct option letter/text; multiple: array or comma-separated letters/text",
+                    "explanation": "explain how to apply the note, not only repeat a definition",
+                    "related_note_id": "matching note_id from notes",
+                }
+            ]
+        },
+        "citations": [],
+        "grounding_policy": "citations_are_rebuilt_by_backend_M5",
+    }
+
+
+def summarize_review_history(review_history: list[dict[str, Any]], *, current_review: dict[str, Any] | None = None) -> dict[str, Any]:
+    sessions = [item for item in review_history if isinstance(item, dict)][-8:]
+    mastery_trend = [_float(item.get("masteryScore"), -1) for item in sessions]
+    mastery_trend = [value for value in mastery_trend if value >= 0]
+    previous_questions: list[str] = []
+    wrong_points: list[str] = []
+    suggestions: list[str] = []
+    wrong_examples: list[dict[str, str]] = []
+
+    for session in sessions:
+        for question in session.get("questionResults") or []:
+            if not isinstance(question, dict):
+                continue
+            stem = _string(question.get("question"), "")
+            if stem:
+                previous_questions.append(stem)
+            if not question.get("isCorrect"):
+                wrong_examples.append(
+                    {
+                        "question": compact(stem, 120),
+                        "userAnswer": compact(str(question.get("userAnswer") or ""), 80),
+                        "correctAnswer": compact(str(question.get("correctAnswer") or ""), 80),
+                    }
+                )
+        wrong_points.extend(_string_list(session.get("weakPoints")))
+        suggestions.extend(_string_list(session.get("reviewSuggestions")))
+        for explanation in session.get("wrongQuestionExplanations") or []:
+            if isinstance(explanation, dict):
+                point = _string(explanation.get("knowledgePoint"), "")
+                if point:
+                    wrong_points.append(point)
+                remediation = _string(explanation.get("remediation") or explanation.get("mistakeReason"), "")
+                if remediation:
+                    suggestions.append(remediation)
+
+    current_questions = []
+    if isinstance(current_review, dict):
+        for question in current_review.get("questions") or []:
+            if isinstance(question, dict):
+                stem = _string(question.get("question"), "")
+                if stem:
+                    current_questions.append(stem)
+
+    dedup_previous = list(dict.fromkeys(previous_questions + current_questions))
+    dedup_weak = list(dict.fromkeys(wrong_points))
+    dedup_suggestions = list(dict.fromkeys(suggestions))
+
+    return {
+        "attemptCount": len(sessions),
+        "masteryTrend": mastery_trend[-6:],
+        "averageMasteryScore": round(sum(mastery_trend) / len(mastery_trend), 1) if mastery_trend else None,
+        "weakPoints": dedup_weak[:8],
+        "wrongExamples": wrong_examples[-8:],
+        "reviewSuggestions": dedup_suggestions[:8],
+        "previousQuestionStems": dedup_previous[-16:],
+        "antiRepetitionPolicy": "Do not reuse these stems, same correct option pattern, or a pure synonym of them.",
+    }
+
+
+def _adaptive_review_strategy(history: dict[str, Any], question_count: int) -> dict[str, Any]:
+    mastery = history.get("averageMasteryScore")
+    weak_points = history.get("weakPoints") or []
+    try:
+        mastery_number = float(mastery) if mastery is not None else None
+    except (TypeError, ValueError):
+        mastery_number = None
+    if mastery_number is not None and mastery_number >= 80:
+        difficulty = "medium-to-hard"
+        focus = "transfer and error-diagnosis questions that require applying notes to new cases"
+    elif mastery_number is not None and mastery_number < 60:
+        difficulty = "easy-to-medium"
+        focus = "weak-point repair through concrete scenarios with one concept boundary per question"
+    else:
+        difficulty = "medium"
+        focus = "balanced application, comparison, and concept-check questions"
+
+    application_count = max(3, round(question_count * 0.6))
+    concept_count = max(0, question_count - application_count)
+    return {
+        "difficulty": difficulty,
+        "focus": focus,
+        "targetWeakPoints": weak_points[:5],
+        "questionMix": {
+            "applicationScenario": application_count,
+            "conceptCheck": concept_count,
+            "includeErrorDiagnosis": True,
+            "includeComparison": True,
+        },
+    }
 
 
 def build_agent_result_from_modules(
@@ -638,6 +792,7 @@ def normalize_review(raw: dict[str, Any], notes: list[dict[str, Any]]) -> dict[s
                 "id": _string(item.get("id") or item.get("question_id"), f"q{index}"),
                 "type": question_type,
                 "difficulty": item.get("difficulty") or "medium",
+                "skill": _string(item.get("skill") or item.get("question_skill"), "application" if index > 2 else "concept_check"),
                 "question": _string(item.get("question"), f"Review note {index}."),
                 "options": options,
                 "answer": answer,
@@ -685,15 +840,30 @@ def fallback_questions(notes: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "id": f"q{index}",
                 "type": question_type,
                 "difficulty": "medium",
-                "question": f"Which statements match the review points for \"{note['title']}\"?" if question_type == "multiple-choice" else f"Which option best summarizes \"{note['title']}\"?",
+                "skill": "application" if index in {2, 3, 4} else ("error_diagnosis" if index == 5 else "concept_check"),
+                "question": _fallback_application_question(note, index, question_type),
                 "options": options,
                 "answer": answer,
-                "explanation": "Use the related note summary and source evidence to choose the matching option(s).",
+                "explanation": "先判断场景或错误原因，再用关联笔记和来源证据选择匹配选项。",
                 "relatedNoteId": note["id"],
                 "citationIds": [],
             }
         )
     return questions
+
+
+def _fallback_application_question(note: dict[str, Any], index: int, question_type: str) -> str:
+    title = note.get("title") or "该知识点"
+    if question_type == "multiple-choice":
+        return f"在新的学习或解题场景中，哪些做法能正确应用「{title}」？"
+    templates = [
+        f"如果遇到一个需要使用「{title}」判断的具体题目，第一步最应该关注什么？",
+        f"下面哪个场景最适合用「{title}」来解释或处理？",
+        f"学习者把「{title}」用错时，最可能忽略哪一点？",
+        f"把「{title}」迁移到新材料时，哪个判断最可靠？",
+        f"针对「{title}」的错题订正，哪种做法最有效？",
+    ]
+    return templates[(index - 1) % len(templates)]
 
 
 def _normalize_question_type(value: Any) -> str:

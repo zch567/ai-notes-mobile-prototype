@@ -235,6 +235,50 @@ class AgentService:
             assessment["_meta"]["error"] = str(exc)
             return assessment
 
+    def regenerate_review_questions(
+        self,
+        *,
+        result_id: str,
+        review_history: list[dict[str, Any]],
+        provider_name: str | None,
+        strict: bool,
+        question_count: int,
+    ) -> dict[str, Any]:
+        result_dir = self._safe_result_dir(result_id)
+        result_path = result_dir / "result.json"
+        chunks_path = result_dir / "chunks.json"
+        if not result_path.exists():
+            raise NotFoundError(result_id)
+        if not chunks_path.exists():
+            raise NotFoundError(f"chunks for result {result_id}")
+
+        result = json.loads(result_path.read_text(encoding="utf-8"))
+        chunks = load_chunks(chunks_path)
+        try:
+            review, meta = self.agent.regenerate_review(
+                result=result,
+                review_history=review_history,
+                provider_name=provider_name,
+                strict=strict or provider_name == "lanxin",
+                question_count=question_count,
+            )
+        except Exception as exc:
+            if strict:
+                raise ProviderError(f"Lanxin review regeneration failed: {exc}") from exc
+            review = _fallback_regenerated_review(result, review_history)
+            meta = {"fallbackUsed": True, "error": str(exc)}
+
+        result["review"] = review
+        result.setdefault("_meta", {})["reviewRegeneration"] = meta
+        grounded = self.rag.ground(result, chunks, top_k=2)
+        grounded["id"] = result_id
+        grounded.setdefault("_meta", {}).update(result.get("_meta") or {})
+        attach_quality_diagnostics(grounded)
+        normalized = normalize_agent_result(grounded)
+        normalized["id"] = result_id
+        self._persist(result_id, normalized, chunks)
+        return normalized
+
     def get_result(self, result_id: str) -> dict[str, Any]:
         path = self._safe_result_dir(result_id) / "result.json"
         if not path.exists():
@@ -499,6 +543,23 @@ def _fallback_review_suggestions(evaluation: dict[str, Any]) -> list[str]:
         "把错误选项和正确选项放在一起比较，标出概念边界、条件和关键词。",
         "完成订正后再次闭卷作答同类单选题，确认不再依赖选项提示。",
     ]
+
+
+def _fallback_regenerated_review(result: dict[str, Any], review_history: list[dict[str, Any]]) -> dict[str, Any]:
+    from .agents.orchestrator import fallback_questions, summarize_review_history
+
+    notes = result.get("notes") if isinstance(result.get("notes"), list) else []
+    review = {
+        "questions": fallback_questions(notes),
+        "masteryScore": 0,
+        "weakPoints": summarize_review_history(review_history, current_review=result.get("review") or {}).get("weakPoints") or [],
+        "recommendations": [
+            "根据上一轮错题优先复习薄弱知识点，再完成新一轮应用题。",
+            "新题会尽量避开上一轮题干，并改用场景应用、比较和错因诊断角度。",
+        ],
+    }
+    review.setdefault("_meta", {})["fallbackUsed"] = True
+    return review
 
 
 def _normalize_choice_answer(answer: str, options: list[str]) -> str:

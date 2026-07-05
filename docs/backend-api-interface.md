@@ -33,6 +33,8 @@ VITE_API_BASE_URL=http://127.0.0.1:8000
 | `POST` | `/api/agent/run-file` | 上传 PDF/PPTX/文档文件并返回结构化 Agent 结果 | 前端已接入 |
 | `GET` | `/api/agent/result/{result_id}` | 根据结果 id 重新读取后端保存的 AgentResult | 前端已接入 |
 | `POST` | `/api/agent/chat` | 基于已保存结果继续向 Agent 提问 | 前端已接入 |
+| `POST` | `/api/agent/review/submit` | 提交本次复习答案，返回掌握度、错题解析和个性化建议 | 前端已接入 |
+| `POST` | `/api/agent/review/regenerate` | 基于复习历史重新生成复习题，并更新完整 AgentResult | 前端已接入 |
 | `POST` | `/api/agent/edit` | 基于已生成结果进行 AI 修改、补充、压缩或重新评估 | 接口设计阶段 |
 
 第一阶段采用同步接口：前端点击“运行 Agent”或“让 AI 修改”后等待接口返回完整结果。后续如果需要真实进度流或异步任务，可以再扩展任务创建、轮询或 SSE 接口。
@@ -466,6 +468,41 @@ Content-Type: application/json
 | 压缩全文 | `resultId`、`target.type=result`、全文快照、用户要求 | 更新后的完整 AgentResult |
 | 重生成复习题 | `resultId`、`target.type=result` 或 `reviewQuestion`、当前笔记内容 | 更新后的完整 AgentResult 或至少更新后的 review |
 | 同步导图 | `resultId`、当前 notes 和 mindMap、用户要求 | 更新后的完整 AgentResult 或至少更新后的 mindMap |
+
+## POST /api/agent/review/regenerate
+
+用于用户完成一轮复习后重新出题。前端会把本地题集中的复习历史一起传给后端，后端先压缩为学习情况概要，再交给 M6 生成新题，避免重复上一轮题干，并根据错题和掌握度调整题型策略。
+
+请求体：
+
+```json
+{
+  "resultId": "agent-xxx",
+  "reviewHistory": [
+    {
+      "masteryScore": 60,
+      "questionResults": [
+        {
+          "question": "上一轮题干",
+          "userAnswer": "用户答案",
+          "correctAnswer": "标准答案",
+          "isCorrect": false
+        }
+      ],
+      "wrongQuestionExplanations": [],
+      "weakPoints": ["薄弱知识点"],
+      "reviewSuggestions": ["上一轮复习建议"]
+    }
+  ],
+  "provider": "lanxin",
+  "strictProvider": true,
+  "questionCount": 5
+}
+```
+
+后端会构造 `review_history_summary`，包含 `previousQuestionStems`、`weakPoints`、`wrongExamples`、`reviewSuggestions` 和 `masteryTrend`，并生成 `adaptive_review_strategy`。M6 出题要求至少 60% 为场景应用、迁移、比较或错因诊断题，不再只生成定义类题目。
+
+返回：更新后的完整 `AgentResult`，其中 `review.questions` 是新一轮复习题，后端会重新做引用 grounding 并持久化到 `result.json`。
 
 ## 联调检查清单
 

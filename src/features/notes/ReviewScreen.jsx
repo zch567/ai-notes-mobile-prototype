@@ -1,15 +1,17 @@
 import { useState } from "react";
 import { Card } from "../../components/Card";
-import { submitReviewAnswers } from "../ai/agentApi";
+import { regenerateReviewQuestions, submitReviewAnswers } from "../ai/agentApi";
 import { readReviewProgress, saveReviewProgress } from "../../services/localDemoFs";
 
-export function ReviewScreen({ result, onBack }) {
+export function ReviewScreen({ result, onBack, onResultChange }) {
   const { review } = result;
   const [progress, setProgress] = useState(() => readReviewProgress(result.id));
   const [selectedAnswers, setSelectedAnswers] = useState(() => progress.answers || {});
   const [assessment, setAssessment] = useState(() => progress.assessment || null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isRegenerating, setIsRegenerating] = useState(false);
   const [submitError, setSubmitError] = useState("");
+  const [regenerateError, setRegenerateError] = useState("");
   const [showReviewSet, setShowReviewSet] = useState(false);
   const [reviewSessions, setReviewSessions] = useState(() => normalizeReviewSessions(progress.sessions));
   const hasQuestions = review.questions.length > 0;
@@ -33,6 +35,7 @@ export function ReviewScreen({ result, onBack }) {
   function selectAnswer(question, answer) {
     if (isSubmitting) return;
     setSubmitError("");
+    setRegenerateError("");
     setSelectedAnswers((current) => ({
       ...current,
       [question.id]: nextSelectedAnswer(question, current[question.id], answer),
@@ -102,6 +105,60 @@ export function ReviewScreen({ result, onBack }) {
       setSubmitError(err instanceof Error ? err.message : "复习建议生成失败，请稍后重试。");
     } finally {
       setIsSubmitting(false);
+    }
+  }
+
+  async function regenerateReview() {
+    if (!isReviewComplete || isRegenerating) return;
+    const localResults = buildLocalQuestionResults(review.questions, selectedAnswers);
+    const historySession = createReviewSession({
+      id: createSessionId(),
+      result,
+      answers: selectedAnswers,
+      questionResults: assessment?.questionResults || localResults,
+      assessment,
+      fallbackSuggestions: displayedRecommendations,
+      submittedAt: new Date().toISOString(),
+    });
+    const historyForRequest = hasSessionForCurrentQuestions(reviewSessions, review.questions)
+      ? reviewSessions
+      : upsertSession(reviewSessions, historySession);
+    const savedProgress = {
+      ...progress,
+      answers: selectedAnswers,
+      localQuestionResults: localResults,
+      sessions: historyForRequest,
+      lastReviewedAt: historySession.submittedAt,
+    };
+
+    setReviewSessions(historyForRequest);
+    setProgress(savedProgress);
+    saveReviewProgress(result.id, savedProgress);
+    setIsRegenerating(true);
+    setRegenerateError("");
+    try {
+      const nextResult = await regenerateReviewQuestions({
+        resultId: result.id,
+        reviewHistory: historyForRequest,
+        questionCount: 5,
+      });
+      const nextProgress = {
+        answers: {},
+        answeredQuestionIds: [],
+        localQuestionResults: [],
+        assessment: null,
+        sessions: historyForRequest,
+        lastReviewedAt: null,
+      };
+      setSelectedAnswers({});
+      setAssessment(null);
+      setProgress(nextProgress);
+      saveReviewProgress(result.id, nextProgress);
+      onResultChange?.(nextResult);
+    } catch (err) {
+      setRegenerateError(err instanceof Error ? err.message : "重新出题失败，请稍后重试。");
+    } finally {
+      setIsRegenerating(false);
     }
   }
 
@@ -214,6 +271,11 @@ export function ReviewScreen({ result, onBack }) {
                 {submitError}
               </p>
             ) : null}
+            {regenerateError ? (
+              <p className="mt-3 rounded-2xl bg-rose-50 px-3 py-2 text-[12px] leading-5 text-rose-700">
+                {regenerateError}
+              </p>
+            ) : null}
             {progress.lastReviewedAt ? (
               <p className="mt-3 text-[12px] leading-5 text-slate-500">
                 最近复习：{new Date(progress.lastReviewedAt).toLocaleString()}
@@ -230,10 +292,13 @@ export function ReviewScreen({ result, onBack }) {
                 </button>
                 <button
                   type="button"
-                  disabled
-                  className="rounded-2xl bg-slate-100 px-3 py-2 text-[12px] font-semibold text-slate-400"
+                  onClick={regenerateReview}
+                  disabled={isRegenerating}
+                  className={`rounded-2xl px-3 py-2 text-[12px] font-semibold ${
+                    isRegenerating ? "bg-slate-100 text-slate-400" : "bg-blue-600 text-white active:bg-blue-700"
+                  }`}
                 >
-                  重新出题待接入
+                  {isRegenerating ? "正在重新出题" : "重新出题"}
                 </button>
               </div>
             ) : null}
@@ -244,14 +309,20 @@ export function ReviewScreen({ result, onBack }) {
               <span className="inline-flex items-center gap-2">
                 薄弱点与建议
                 {isSubmitting ? <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-amber-300 border-t-amber-700" /> : null}
+                {isRegenerating ? <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-blue-200 border-t-blue-700" /> : null}
               </span>
             }
-            subtitle={isSubmitting ? "AI Thinking" : "Recommendation"}
+            subtitle={isSubmitting || isRegenerating ? "AI Thinking" : "Recommendation"}
           >
             <div className="space-y-3">
               {isSubmitting ? (
                 <div className="rounded-2xl bg-amber-50 px-3 py-3 text-[13px] leading-5 text-amber-900">
                   后端已收到本次做题情况，大模型正在分析错因并生成复习建议。
+                </div>
+              ) : null}
+              {isRegenerating ? (
+                <div className="rounded-2xl bg-blue-50 px-3 py-3 text-[13px] leading-5 text-blue-900">
+                  正在把题集里的作答历史整理给后端，大模型会避开相似题，并增加应用型题目。
                 </div>
               ) : null}
               <div>
@@ -292,7 +363,7 @@ export function ReviewScreen({ result, onBack }) {
       {showReviewSet ? (
         <ReviewSetPanel
           sessions={reviewSessions}
-          canRegenerateReview={false}
+          canRegenerateReview
           onClose={() => setShowReviewSet(false)}
         />
       ) : null}
@@ -565,6 +636,15 @@ function normalizeReviewSessions(value) {
 
 function upsertSession(sessions, session) {
   return [session, ...sessions.filter((item) => item.id !== session.id)].slice(0, 20);
+}
+
+function hasSessionForCurrentQuestions(sessions, questions) {
+  const stems = questions.map((item) => String(item.question || "").trim()).filter(Boolean);
+  if (!stems.length) return false;
+  return sessions.some((session) => {
+    const sessionStems = (session.questionResults || []).map((item) => String(item.question || "").trim());
+    return stems.every((stem) => sessionStems.includes(stem));
+  });
 }
 
 function createSessionId() {

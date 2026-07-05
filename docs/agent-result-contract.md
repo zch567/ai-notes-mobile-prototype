@@ -9,6 +9,8 @@
 ```text
 POST /api/agent/run
 POST /api/agent/edit
+POST /api/agent/review/submit
+POST /api/agent/review/regenerate
 ```
 
 前端请求体：
@@ -71,6 +73,22 @@ POST /api/agent/edit
 ```
 
 其中 `result` 是更新后的完整 `AgentResult`。复赛阶段推荐返回完整结果，避免笔记、导图、复习题之间出现状态不同步。
+
+## 复习重新出题请求
+
+`POST /api/agent/review/regenerate` 用于用户完成一轮复习后生成下一轮复习题。前端会提交本地题集历史，后端压缩为学习情况概要后交给 M6。
+
+```json
+{
+  "resultId": "agent-xxx",
+  "reviewHistory": [],
+  "provider": "lanxin",
+  "strictProvider": true,
+  "questionCount": 5
+}
+```
+
+后端返回更新后的完整 `AgentResult`。新 `review.questions` 应优先包含应用场景、迁移判断、比较和错因诊断题，并通过历史题干避免重复生成相似问题。
 
 ## 顶层结构
 

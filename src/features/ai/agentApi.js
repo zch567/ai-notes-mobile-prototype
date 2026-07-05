@@ -74,6 +74,20 @@ export async function submitReviewAnswers({ resultId, answers, provider = "lanxi
   });
 }
 
+export async function regenerateReviewQuestions({ resultId, reviewHistory, provider = "lanxin", strictProvider = true, questionCount = 5 }) {
+  const result = await requestJSON("/api/agent/review/regenerate", {
+    method: "POST",
+    body: JSON.stringify({
+      resultId,
+      reviewHistory,
+      provider,
+      strictProvider,
+      questionCount,
+    }),
+  });
+  return normalizeAgentResult(result?.data && typeof result.data === "object" ? result.data : result);
+}
+
 export async function getAgentJob(jobId) {
   return requestJSON(`/api/agent/jobs/${encodeURIComponent(jobId)}`);
 }

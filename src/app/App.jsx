@@ -407,7 +407,7 @@ function getScreen({
   }
 
   if (detailView === DETAIL_VIEWS.REVIEW) {
-    return <ReviewScreen result={agentResult} onBack={() => setDetailView(DETAIL_VIEWS.NOTE)} />;
+    return <ReviewScreen result={agentResult} onResultChange={updateAgentResult} onBack={() => setDetailView(DETAIL_VIEWS.NOTE)} />;
   }
 
   if (detailView === DETAIL_VIEWS.MINDMAP) {

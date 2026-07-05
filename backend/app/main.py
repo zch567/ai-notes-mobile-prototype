@@ -14,6 +14,7 @@ from .contracts import (
     ChatAgentRequest,
     ChatAgentResponse,
     RagQueryRequest,
+    ReviewRegenerateRequest,
     ReviewSubmitRequest,
     ReviewSubmitResponse,
     RunAgentRequest,
@@ -196,6 +197,20 @@ def submit_review_answers(request: ReviewSubmitRequest) -> dict:
             answers=request.answers,
             provider_name=request.provider,
             strict=request.strictProvider,
+        )
+    except Exception as exc:
+        raise_http_error(exc)
+
+
+@app.post("/api/agent/review/regenerate", response_model=AgentResult, response_model_by_alias=True)
+def regenerate_review_questions(request: ReviewRegenerateRequest) -> dict:
+    try:
+        return service.regenerate_review_questions(
+            result_id=request.resultId,
+            review_history=request.reviewHistory,
+            provider_name=request.provider,
+            strict=request.strictProvider,
+            question_count=request.questionCount,
         )
     except Exception as exc:
         raise_http_error(exc)
