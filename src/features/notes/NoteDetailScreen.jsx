@@ -10,6 +10,7 @@ export function NoteDetailScreen({
   result,
   settings = defaultSettings,
   setSettings = () => {},
+  focusNoteId = "",
   onResultChange = () => {},
   onBack,
   onOpenReview,
@@ -17,6 +18,9 @@ export function NoteDetailScreen({
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [chatInput, setChatInput] = useState("");
+  const [isEditing, setIsEditing] = useState(false);
+  const [saveStatus, setSaveStatus] = useState("saved");
+  const [highlightedNoteId, setHighlightedNoteId] = useState("");
   const [activeSourceId, setActiveSourceId] = useState(null);
   const [bubbleLayout, setBubbleLayout] = useState(null);
   const [editHistory, setEditHistory] = useState(() => ({
@@ -35,6 +39,7 @@ export function NoteDetailScreen({
   const messageListRef = useRef(null);
   const bubbleScrollRef = useRef(null);
   const activeAnchorRef = useRef(null);
+  const sourceParagraphRefs = useRef(new Map());
   const noteScrollRef = useRef(null);
   const noteDocumentRef = useRef(null);
 
@@ -53,6 +58,11 @@ export function NoteDetailScreen({
   const missingCitationCount = citationIds.filter((sourceId) => !sourceById.has(sourceId)).length;
   const canUndo = editHistory.past.length > 0;
   const canRedo = editHistory.future.length > 0;
+  const saveStatusText = isEditing
+    ? "正在编辑，失焦或点完成后保存"
+    : saveStatus === "saved"
+      ? "已保存到本机笔记"
+      : "有未保存修改";
 
   useEffect(() => {
     if (resultIdRef.current === result.id) return;
@@ -63,6 +73,8 @@ export function NoteDetailScreen({
       present: createNoteSnapshot(result),
       future: [],
     });
+    setIsEditing(false);
+    setSaveStatus("saved");
   }, [result]);
 
   useEffect(() => {
@@ -72,15 +84,38 @@ export function NoteDetailScreen({
   }, [settings.showCitations]);
 
   useEffect(() => {
+    if (!focusNoteId || !noteDocumentRef.current) return undefined;
+
+    const frameId = window.requestAnimationFrame(() => {
+      const noteNode = noteDocumentRef.current?.querySelector(`[data-note-id="${cssEscape(focusNoteId)}"]`);
+      if (!noteNode) return;
+
+      noteNode.scrollIntoView({ block: "center", behavior: "smooth" });
+      setHighlightedNoteId(focusNoteId);
+    });
+    const clearTimer = window.setTimeout(() => setHighlightedNoteId(""), 1800);
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+      window.clearTimeout(clearTimer);
+    };
+  }, [focusNoteId, result.id]);
+
+  useEffect(() => {
     if (!messageListRef.current) return;
     messageListRef.current.scrollTop = messageListRef.current.scrollHeight;
   }, [messages, chatOpen]);
 
   useEffect(() => {
-    if (!activeSource || !bubbleScrollRef.current) return;
-    const index = result.sources.findIndex((source) => source.id === activeSource.id);
-    bubbleScrollRef.current.scrollTop = Math.max(index, 0) * 72;
-  }, [activeSource, result.sources]);
+    if (!activeSource || !bubbleScrollRef.current) return undefined;
+
+    const frameId = window.requestAnimationFrame(() => {
+      const target = sourceParagraphRefs.current.get(activeSource.id);
+      target?.scrollIntoView({ block: "center", behavior: "smooth" });
+    });
+
+    return () => window.cancelAnimationFrame(frameId);
+  }, [activeSource, bubbleLayout]);
 
   const updateBubbleLayout = useCallback(() => {
     if (!activeSource || !shellRef.current) {
@@ -155,9 +190,11 @@ export function NoteDetailScreen({
       };
     });
     onResultChange((current) => applyNoteSnapshotToResult(current, nextSnapshot));
+    setSaveStatus("saved");
   }
 
   function updateTopic(topic) {
+    setSaveStatus("editing");
     commitNoteSnapshot({
       topic,
       notes: cloneNotes(result.notes),
@@ -191,6 +228,18 @@ export function NoteDetailScreen({
       topic: result.topic,
       notes: nextNotes,
     });
+  }
+
+  function startEditing() {
+    setActiveSourceId(null);
+    setIsEditing(true);
+    setSaveStatus("editing");
+  }
+
+  function finishEditing() {
+    commitNoteDocumentFromDom();
+    setIsEditing(false);
+    setSaveStatus("saved");
   }
 
   function undoNoteEdit() {
@@ -287,6 +336,15 @@ export function NoteDetailScreen({
 
           <div className="relative z-10 flex items-center gap-4">
             <button
+              type="button"
+              onClick={isEditing ? finishEditing : startEditing}
+              className={`rounded-full px-3 py-1.5 text-[13px] font-semibold shadow-sm transition ${
+                isEditing ? "bg-slate-900 text-white" : "border border-slate-200 bg-white text-slate-700"
+              }`}
+            >
+              {isEditing ? "完成" : "编辑"}
+            </button>
+            <button
               onClick={onOpenReview}
               className="flex h-8 w-8 items-center justify-center rounded-full border border-blue-200 bg-blue-500 text-[12px] font-medium text-white shadow-sm"
               aria-label="复习"
@@ -312,10 +370,20 @@ export function NoteDetailScreen({
             <p className="text-[12px] uppercase tracking-[0.24em] text-slate-400">Agent 生成笔记</p>
             <input
               value={result.topic}
-              onChange={(event) => updateTopic(event.target.value)}
-              className="w-full border-0 bg-transparent p-0 text-[34px] font-normal tracking-tight text-slate-900 outline-none placeholder:text-slate-300"
+              readOnly={!isEditing}
+              onChange={(event) => {
+                if (isEditing) updateTopic(event.target.value);
+              }}
+              className={`w-full border-0 bg-transparent p-0 text-[34px] font-normal tracking-tight text-slate-900 outline-none placeholder:text-slate-300 ${
+                isEditing ? "rounded-2xl ring-2 ring-blue-100" : ""
+              }`}
               aria-label="标题"
             />
+            <p className={`inline-flex rounded-full px-3 py-1 text-[12px] font-semibold ${
+              isEditing ? "bg-blue-50 text-blue-700" : "bg-slate-200/70 text-slate-500"
+            }`}>
+              {saveStatusText}
+            </p>
             <p className="text-[12px] text-slate-400">
               {settings.reviewMode ? "复习模式已开启：优先关注标题、重点和引用证据" : "由 AgentResult.notes / sources / citations 渲染"}
             </p>
@@ -334,17 +402,28 @@ export function NoteDetailScreen({
                 <div
                   key={result.id}
                   ref={noteDocumentRef}
-                  contentEditable
+                  contentEditable={isEditing}
                   suppressContentEditableWarning
-                  onBlur={commitNoteDocumentFromDom}
-                  className="min-h-[340px] rounded-[26px] border border-slate-200 bg-white/86 px-4 py-4 text-[15px] leading-8 text-slate-700 outline-none transition focus:border-blue-200 focus:bg-white focus:shadow-sm"
+                  onInput={() => {
+                    if (isEditing) setSaveStatus("editing");
+                  }}
+                  onBlur={() => {
+                    if (isEditing) commitNoteDocumentFromDom();
+                  }}
+                  className={`min-h-[340px] rounded-[26px] border px-4 py-4 text-[15px] leading-8 text-slate-700 outline-none transition ${
+                    isEditing
+                      ? "border-blue-200 bg-white shadow-sm focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+                      : "border-slate-200 bg-white/86"
+                  }`}
                   aria-label="整篇笔记正文"
                 >
                   {result.notes.map((block) => (
                     <section
                       key={block.id}
                       data-note-id={block.id}
-                      className="mb-6 last:mb-0"
+                      className={`mb-6 rounded-[22px] transition ${
+                        highlightedNoteId === block.id ? "bg-blue-50/80 px-3 py-3 ring-2 ring-blue-200" : "last:mb-0"
+                      }`}
                       style={{ paddingLeft: `${Math.min(Math.max(block.level - 1, 0), 3) * 16}px` }}
                     >
                       <h2 data-note-title className="mb-2 text-[16px] font-semibold tracking-tight text-slate-900">
@@ -457,11 +536,12 @@ export function NoteDetailScreen({
                 return (
                   <p
                     key={source?.id || paragraph}
+                    ref={(node) => setSourceParagraphRef(sourceParagraphRefs, source?.id, node)}
                     className={`mb-3 rounded-2xl px-3 py-2 ${
-                      isActive ? "bg-amber-50 text-slate-900 ring-1 ring-amber-200" : "bg-transparent"
+                      isActive ? "scroll-mt-4 bg-amber-50 text-slate-900 ring-1 ring-amber-200" : "bg-transparent"
                     }`}
                   >
-                    {paragraph}
+                    {isActive ? <HighlightedSourceText text={paragraph} quote={activeCitation?.quote} /> : paragraph}
                   </p>
                 );
               })}
@@ -480,6 +560,42 @@ export function NoteDetailScreen({
         sendMessage={sendMessage}
       />
     </div>
+  );
+}
+
+function setSourceParagraphRef(refStore, sourceId, node) {
+  if (!sourceId) return;
+  if (node) {
+    refStore.current.set(sourceId, node);
+  } else {
+    refStore.current.delete(sourceId);
+  }
+}
+
+function HighlightedSourceText({ text, quote }) {
+  const sourceText = String(text || "");
+  const quoteText = String(quote || "").trim();
+  if (!quoteText) return sourceText;
+
+  const index = sourceText.toLowerCase().indexOf(quoteText.toLowerCase());
+  if (index < 0) {
+    return (
+      <span className="rounded-xl bg-amber-100/80 px-1 py-0.5 box-decoration-clone">
+        {sourceText}
+      </span>
+    );
+  }
+
+  const before = sourceText.slice(0, index);
+  const match = sourceText.slice(index, index + quoteText.length);
+  const after = sourceText.slice(index + quoteText.length);
+
+  return (
+    <>
+      {before}
+      <mark className="rounded-lg bg-amber-200 px-1 py-0.5 text-amber-950">{match}</mark>
+      {after}
+    </>
   );
 }
 
